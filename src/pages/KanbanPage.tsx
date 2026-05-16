@@ -77,7 +77,12 @@ export const KanbanPage: React.FC = () => {
     if (error) {
       setError(error.message);
     } else {
-      setApplications(data || []);
+      const normalized = ((data || []) as RawKanbanApplication[]).map((app) => ({
+  ...app,
+  companies: firstOrNull(app.companies),
+}));
+
+setApplications(normalized);
     }
 
     setLoading(false);

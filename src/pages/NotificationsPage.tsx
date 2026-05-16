@@ -6,7 +6,6 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock,
-  Mail,
   RefreshCw,
   Search,
   Sparkles,

@@ -212,7 +212,7 @@ export const DashboardPage: React.FC = () => {
     if (eventsResult.error) {
       setError(eventsResult.error.message);
     } else {
-      setRecentEvents((eventsResult.data || []) as RecentEvent[]);
+      setRecentEvents((eventsResult.data || []) as unknown as RecentEvent[]);
     }
 
     if (emailEventsResult.error) {
