@@ -4,13 +4,30 @@ import { ExternalLink } from 'lucide-react';
 import {
   DndContext,
   PointerSensor,
-
+  useDraggable,
+  useDroppable,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
+
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+
+interface CompanySummary {
+  name: string;
+}
+
+interface RawKanbanApplication {
+  id: string;
+  role_title: string;
+  status: string;
+  source: string | null;
+  date_applied: string | null;
+  application_link: string | null;
+  companies?: CompanySummary | CompanySummary[] | null;
+}
 
 interface KanbanApplication {
   id: string;
@@ -19,10 +36,13 @@ interface KanbanApplication {
   source: string | null;
   date_applied: string | null;
   application_link: string | null;
-  companies?: {
-    name: string;
-  } | null;
+  companies?: CompanySummary | null;
 }
+
+const firstOrNull = <T,>(value: T | T[] | null | undefined): T | null => {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+};
 
 const columns = [
   { status: 'wishlist', label: 'Wishlist' },
@@ -52,7 +72,11 @@ export const KanbanPage: React.FC = () => {
   );
 
   const fetchApplications = async () => {
-    if (!user) return;
+    if (!user) {
+      setApplications([]);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     setError('');
@@ -76,13 +100,14 @@ export const KanbanPage: React.FC = () => {
 
     if (error) {
       setError(error.message);
+      setApplications([]);
     } else {
       const normalized = ((data || []) as RawKanbanApplication[]).map((app) => ({
-  ...app,
-  companies: firstOrNull(app.companies),
-}));
+        ...app,
+        companies: firstOrNull(app.companies),
+      }));
 
-setApplications(normalized);
+      setApplications(normalized);
     }
 
     setLoading(false);
@@ -129,15 +154,16 @@ setApplications(normalized);
       return;
     }
 
-    const { error: eventError } = await supabase
-      .from('application_events')
-      .insert({
-        user_id: user.id,
-        application_id: application.id,
-        event_type: 'kanban_status_changed',
-        title: 'Pipeline status updated',
-        description: `Moved from ${oldStatus.replaceAll('_', ' ')} to ${newStatus.replaceAll('_', ' ')}.`,
-      });
+    const { error: eventError } = await supabase.from('application_events').insert({
+      user_id: user.id,
+      application_id: application.id,
+      event_type: 'kanban_status_changed',
+      title: 'Pipeline status updated',
+      description: `Moved from ${oldStatus.replaceAll('_', ' ')} to ${newStatus.replaceAll(
+        '_',
+        ' '
+      )}.`,
+    });
 
     if (eventError) {
       setError(eventError.message);
@@ -168,6 +194,7 @@ setApplications(normalized);
   return (
     <div>
       <h2 className="text-3xl font-bold mb-2">Application Pipeline</h2>
+
       <p className="text-slate-500 mb-8">
         Drag applications through your job search pipeline.
       </p>
@@ -215,6 +242,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
       <div className="w-80 bg-slate-50 border border-slate-200 rounded-2xl p-4 min-h-[500px]">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold">{label}</h3>
+
           <span className="bg-white border border-slate-200 text-slate-600 text-xs px-2 py-1 rounded-full">
             {applications.length}
           </span>
@@ -240,9 +268,6 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
   );
 };
 
-import { useDroppable, useDraggable } from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
-
 interface DroppableColumnProps {
   id: string;
   children: React.ReactNode;
@@ -254,10 +279,7 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({ id, children }) => {
   });
 
   return (
-    <div
-      ref={setNodeRef}
-      className={isOver ? 'ring-2 ring-slate-400 rounded-2xl' : ''}
-    >
+    <div ref={setNodeRef} className={isOver ? 'ring-2 ring-slate-400 rounded-2xl' : ''}>
       {children}
     </div>
   );
@@ -272,12 +294,11 @@ const DraggableApplicationCard: React.FC<DraggableApplicationCardProps> = ({
   application,
   updating,
 }) => {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({
-      id: application.id,
-    });
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: application.id,
+  });
 
-  const style = {
+  const style: React.CSSProperties = {
     transform: CSS.Translate.toString(transform),
     opacity: isDragging ? 0.6 : 1,
   };

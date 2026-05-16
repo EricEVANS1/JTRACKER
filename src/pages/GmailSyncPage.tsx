@@ -7,7 +7,6 @@ import {
   Eye,
   Link2,
   LogOut,
-  Mail,
   MailCheck,
   SearchCheck,
   ShieldCheck,
@@ -22,7 +21,7 @@ import { filterEmail } from '../utils/emailFilter';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { useGmailToken } from '../hooks/Usegmailtoken';
+import { useGmailToken } from '../hooks/useGmailToken';
 
 interface CompanyJoin {
   name: string;

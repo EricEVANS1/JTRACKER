@@ -14,6 +14,33 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
+interface CompanySummary {
+  name: string;
+}
+
+interface ApplicationSummary {
+  id: string;
+  role_title: string;
+  companies?: CompanySummary | null;
+}
+
+interface RawApplicationSummary {
+  id: string;
+  role_title: string;
+  companies?: CompanySummary | CompanySummary[] | null;
+}
+
+interface RawEmailEvent {
+  id: string;
+  sender: string | null;
+  subject: string | null;
+  snippet: string | null;
+  detected_status: string | null;
+  received_at: string | null;
+  gmail_message_id: string | null;
+  applications?: RawApplicationSummary | RawApplicationSummary[] | null;
+}
+
 interface EmailEvent {
   id: string;
   sender: string | null;
@@ -22,15 +49,34 @@ interface EmailEvent {
   detected_status: string | null;
   received_at: string | null;
   gmail_message_id: string | null;
-
-  applications?: {
-    id: string;
-    role_title: string;
-    companies?: {
-      name: string;
-    } | null;
-  } | null;
+  applications?: ApplicationSummary | null;
 }
+
+const firstOrNull = <T,>(value: T | T[] | null | undefined): T | null => {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+};
+
+const normalizeEmailEvent = (email: RawEmailEvent): EmailEvent => {
+  const application = firstOrNull(email.applications);
+
+  return {
+    id: email.id,
+    sender: email.sender,
+    subject: email.subject,
+    snippet: email.snippet,
+    detected_status: email.detected_status,
+    received_at: email.received_at,
+    gmail_message_id: email.gmail_message_id,
+    applications: application
+      ? {
+          id: application.id,
+          role_title: application.role_title,
+          companies: firstOrNull(application.companies),
+        }
+      : null,
+  };
+};
 
 const statusStyles: Record<
   string,
@@ -43,32 +89,26 @@ const statusStyles: Record<
     badge: 'bg-red-100 text-red-700 border border-red-200',
     icon: <AlertTriangle size={14} />,
   },
-
   offer: {
     badge: 'bg-green-100 text-green-700 border border-green-200',
     icon: <CheckCircle2 size={14} />,
   },
-
   interview: {
     badge: 'bg-amber-100 text-amber-700 border border-amber-200',
     icon: <CalendarClock size={14} />,
   },
-
   assessment: {
     badge: 'bg-purple-100 text-purple-700 border border-purple-200',
     icon: <Sparkles size={14} />,
   },
-
   confirmation_received: {
     badge: 'bg-blue-100 text-blue-700 border border-blue-200',
     icon: <ShieldCheck size={14} />,
   },
-
   applied: {
     badge: 'bg-slate-100 text-slate-700 border border-slate-200',
     icon: <Briefcase size={14} />,
   },
-
   unknown: {
     badge: 'bg-slate-100 text-slate-700 border border-slate-200',
     icon: <Mail size={14} />,
@@ -92,7 +132,11 @@ export const EmailEventsPage: React.FC = () => {
   const [expandedEmails, setExpandedEmails] = useState<Record<string, boolean>>({});
 
   const fetchEmailEvents = async () => {
-    if (!user) return;
+    if (!user) {
+      setEmails([]);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     setError('');
@@ -120,8 +164,10 @@ export const EmailEventsPage: React.FC = () => {
 
     if (error) {
       setError(error.message);
+      setEmails([]);
     } else {
-      setEmails(data || []);
+      const normalizedEmails = ((data || []) as RawEmailEvent[]).map(normalizeEmailEvent);
+      setEmails(normalizedEmails);
     }
 
     setLoading(false);
@@ -132,16 +178,20 @@ export const EmailEventsPage: React.FC = () => {
   }, [user]);
 
   const filteredEmails = useMemo(() => {
-    const query = searchTerm.toLowerCase();
+    const query = searchTerm.trim().toLowerCase();
+
+    if (!query) return emails;
 
     return emails.filter((email) => {
       const company = email.applications?.companies?.name || '';
       const role = email.applications?.role_title || '';
+      const status = email.detected_status || '';
 
       return (
         (email.subject || '').toLowerCase().includes(query) ||
         (email.sender || '').toLowerCase().includes(query) ||
         (email.snippet || '').toLowerCase().includes(query) ||
+        status.toLowerCase().includes(query) ||
         role.toLowerCase().includes(query) ||
         company.toLowerCase().includes(query)
       );
@@ -149,25 +199,11 @@ export const EmailEventsPage: React.FC = () => {
   }, [emails, searchTerm]);
 
   const stats = useMemo(() => {
-    const total = emails.length;
-
-    const interviews = emails.filter(
-      (email) => email.detected_status === 'interview'
-    ).length;
-
-    const offers = emails.filter(
-      (email) => email.detected_status === 'offer'
-    ).length;
-
-    const rejections = emails.filter(
-      (email) => email.detected_status === 'rejected'
-    ).length;
-
     return {
-      total,
-      interviews,
-      offers,
-      rejections,
+      total: emails.length,
+      interviews: emails.filter((email) => email.detected_status === 'interview').length,
+      offers: emails.filter((email) => email.detected_status === 'offer').length,
+      rejections: emails.filter((email) => email.detected_status === 'rejected').length,
     };
   }, [emails]);
 
@@ -196,8 +232,8 @@ export const EmailEventsPage: React.FC = () => {
           <h2 className="text-3xl font-bold mb-2">Email Intelligence Center</h2>
 
           <p className="text-slate-500 max-w-2xl">
-            View Gmail recruitment events processed by JTracker, linked
-            applications, and detected lifecycle changes.
+            View Gmail recruitment events processed by JTracker, linked applications,
+            and detected lifecycle changes.
           </p>
         </div>
 
@@ -241,17 +277,15 @@ export const EmailEventsPage: React.FC = () => {
           <h3 className="text-xl font-semibold">No Email Events Found</h3>
 
           <p className="text-slate-500 mt-2 max-w-md mx-auto">
-            Gmail-linked recruitment emails will appear here after Gmail Sync
-            processes and links them to applications.
+            Gmail-linked recruitment emails will appear here after Gmail Sync processes
+            and links them to applications.
           </p>
         </div>
       ) : (
         <div className="space-y-5">
           {filteredEmails.map((email) => {
             const statusKey = email.detected_status || 'unknown';
-            const statusStyle =
-              statusStyles[statusKey] || statusStyles.unknown;
-
+            const statusStyle = statusStyles[statusKey] || statusStyles.unknown;
             const expanded = expandedEmails[email.id];
 
             return (
@@ -301,6 +335,7 @@ export const EmailEventsPage: React.FC = () => {
 
                           {email.snippet && email.snippet.length > 220 && (
                             <button
+                              type="button"
                               onClick={() => toggleExpanded(email.id)}
                               className="text-sm text-slate-700 font-medium mt-3 hover:underline"
                             >
@@ -316,7 +351,6 @@ export const EmailEventsPage: React.FC = () => {
                               className="inline-flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-blue-100 transition"
                             >
                               <Briefcase size={15} />
-
                               {email.applications.companies?.name || 'Unknown'} —{' '}
                               {email.applications.role_title}
                             </Link>
@@ -353,13 +387,7 @@ export const EmailEventsPage: React.FC = () => {
   );
 };
 
-const StatRow = ({
-  label,
-  value,
-}: {
-  label: string;
-  value: number;
-}) => (
+const StatRow = ({ label, value }: { label: string; value: number }) => (
   <div className="flex items-center justify-between">
     <span className="text-sm text-slate-500">{label}</span>
     <span className="font-semibold">{value}</span>
