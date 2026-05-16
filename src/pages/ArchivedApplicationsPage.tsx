@@ -19,7 +19,8 @@ interface CompanyJoin {
   name: string;
 }
 
-interface RawArchivedApplication extends Application {
+interface RawArchivedApplication
+  extends Omit<Application, 'companies'> {
   companies?: CompanyJoin | CompanyJoin[] | null;
 }
 

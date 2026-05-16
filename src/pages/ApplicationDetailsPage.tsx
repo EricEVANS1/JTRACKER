@@ -53,10 +53,23 @@ interface RecruiterJoin {
   email: string | null;
 }
 
-interface RawApplication extends Application {
+interface RawApplication extends Omit<Application, 'companies' | 'cv_versions' | 'recruiters'> {
   companies?: CompanyJoin | CompanyJoin[] | null;
   cv_versions?: CVVersionJoin | CVVersionJoin[] | null;
   recruiters?: RecruiterJoin | RecruiterJoin[] | null;
+
+  recruiter_id?: string | null;
+  follow_up_date?: string | null;
+  last_status_changed_at?: string | null;
+
+  response_received_at?: string | null;
+  assessment_received_at?: string | null;
+  interview_started_at?: string | null;
+  final_interview_started_at?: string | null;
+  offer_received_at?: string | null;
+  rejected_at?: string | null;
+  withdrawn_at?: string | null;
+  ghosted_at?: string | null;
 }
 
 interface DetailedApplication extends Omit<RawApplication, 'companies' | 'cv_versions' | 'recruiters'> {
