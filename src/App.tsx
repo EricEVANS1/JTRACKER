@@ -17,6 +17,8 @@ import { ArchivedApplicationsPage } from './pages/ArchivedApplicationsPage';
 import { RecruitersPage } from './pages/RecruitersPage';
 import { KanbanPage } from './pages/KanbanPage';
 import { RecruiterDetailsPage } from './pages/RecruiterDetailsPage';
+import { SharedWithMePage } from './pages/SharedWithMePage';
+import { PublicSharePage } from './pages/PublicSharePage';
 
 
 
@@ -26,6 +28,7 @@ const App: React.FC = () => {
       <AuthProvider>
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
+          <Route path="/share/:publicShareId" element={<PublicSharePage />} />
 
           <Route
             element={
@@ -43,6 +46,7 @@ const App: React.FC = () => {
             <Route path="/settings" element={<SettingsPage />} />
          
             <Route path="/notifications" element={<NotificationsPage />} />
+            <Route path="/shared-with-me" element={<SharedWithMePage />} />
             <Route path="/follow-ups" element={<FollowUpsPage />} />
             <Route path="/archived" element={<ArchivedApplicationsPage />} />
             <Route path="/archived-applications" element={<ArchivedApplicationsPage />} />
@@ -54,7 +58,7 @@ const App: React.FC = () => {
             <Route path="/kanban" element={<KanbanPage />} />
           </Route>
 
-          
+
 
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>

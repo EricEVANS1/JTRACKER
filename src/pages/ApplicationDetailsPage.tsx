@@ -14,6 +14,7 @@ import {
   MessageSquarePlus,
   RefreshCw,
   Save,
+  Share2,
   UserRound,
   X,
 } from 'lucide-react';
@@ -271,6 +272,14 @@ export const ApplicationDetailsPage: React.FC = () => {
   const [followUpMessage, setFollowUpMessage] = useState('');
   const [copiedFollowUp, setCopiedFollowUp] = useState(false);
 
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [shareNote, setShareNote] = useState('');
+  const [sharing, setSharing] = useState(false);
+  const [includeStatus, setIncludeStatus] = useState(false);
+  const [includeNotes, setIncludeNotes] = useState(false);
+  const [includeExperience, setIncludeExperience] = useState(false);
+
   const fetchApplicationDetails = async () => {
     if (!user || !id) return;
 
@@ -313,39 +322,35 @@ export const ApplicationDetailsPage: React.FC = () => {
       recruiters: firstOrNull((applicationData as RawApplication).recruiters),
     };
 
-    const [
-      eventResult,
-      emailEventResult,
-      interviewResult,
-      recruiterResult,
-    ] = await Promise.all([
-      supabase
-        .from('application_events')
-        .select('*')
-        .eq('application_id', id)
-        .eq('user_id', user.id)
-        .order('event_date', { ascending: false }),
+    const [eventResult, emailEventResult, interviewResult, recruiterResult] =
+      await Promise.all([
+        supabase
+          .from('application_events')
+          .select('*')
+          .eq('application_id', id)
+          .eq('user_id', user.id)
+          .order('event_date', { ascending: false }),
 
-      supabase
-        .from('email_events')
-        .select('id, sender, subject, snippet, detected_status, received_at')
-        .eq('application_id', id)
-        .eq('user_id', user.id)
-        .order('received_at', { ascending: false }),
+        supabase
+          .from('email_events')
+          .select('id, sender, subject, snippet, detected_status, received_at')
+          .eq('application_id', id)
+          .eq('user_id', user.id)
+          .order('received_at', { ascending: false }),
 
-      supabase
-        .from('interview_notes')
-        .select('*')
-        .eq('application_id', id)
-        .eq('user_id', user.id)
-        .maybeSingle(),
+        supabase
+          .from('interview_notes')
+          .select('*')
+          .eq('application_id', id)
+          .eq('user_id', user.id)
+          .maybeSingle(),
 
-      supabase
-        .from('recruiters')
-        .select('id, name, email')
-        .eq('user_id', user.id)
-        .order('name', { ascending: true }),
-    ]);
+        supabase
+          .from('recruiters')
+          .select('id, name, email')
+          .eq('user_id', user.id)
+          .order('name', { ascending: true }),
+      ]);
 
     if (eventResult.error) setError(eventResult.error.message);
     if (emailEventResult.error) setError(emailEventResult.error.message);
@@ -397,7 +402,8 @@ export const ApplicationDetailsPage: React.FC = () => {
   useEffect(() => {
     setLoading(true);
     fetchApplicationDetails();
-  }, [user, id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, id]);
 
   const lifecycleItems = useMemo(() => {
     if (!application) return [];
@@ -443,7 +449,9 @@ export const ApplicationDetailsPage: React.FC = () => {
       application_id: id,
       event_type: 'status_changed',
       title: `Status changed to ${formatStatus(selectedStatus)}`,
-      description: `Status changed from ${formatStatus(oldStatus)} to ${formatStatus(selectedStatus)}.`,
+      description: `Status changed from ${formatStatus(oldStatus)} to ${formatStatus(
+        selectedStatus
+      )}.`,
       event_date: new Date().toISOString(),
     });
 
@@ -631,6 +639,95 @@ Best regards,`;
     setSavingActivity(false);
   };
 
+  const handleShareOpportunity = async () => {
+    if (!user || !application) return;
+
+    if (!recipientEmail.trim()) {
+      setError('Please enter the recipient email.');
+      return;
+    }
+
+    setSharing(true);
+    setError('');
+    setMessage('');
+
+    const { data: recipientProfile, error: recipientError } = await supabase
+      .from('profiles')
+      .select('id, email')
+      .ilike('email', recipientEmail.trim())
+      .maybeSingle();
+
+    if (recipientError) {
+      setError(recipientError.message);
+      setSharing(false);
+      return;
+    }
+
+    if (!recipientProfile) {
+      setError('No JTracker user found with that email.');
+      setSharing(false);
+      return;
+    }
+
+    if (recipientProfile.id === user.id) {
+      setError('You cannot share an opportunity with yourself.');
+      setSharing(false);
+      return;
+    }
+
+    const publicShareId = crypto.randomUUID();
+
+    const { error: shareError } = await supabase.from('shared_opportunities').insert({
+      sender_user_id: user.id,
+      recipient_user_id: recipientProfile.id,
+      application_id: application.id,
+
+      public_share_id: publicShareId,
+
+      role_title: application.role_title,
+      company_name: application.companies?.name || null,
+      location: application.location || application.companies?.location || null,
+      job_link: application.application_link || null,
+      note: shareNote || null,
+
+      include_status: includeStatus,
+      include_notes: includeNotes,
+      include_experience: includeExperience,
+
+      status_snapshot: includeStatus ? application.status : null,
+      notes_snapshot: includeNotes ? application.notes : null,
+      experience_snapshot: includeExperience
+        ? `Shared from JTracker by ${user.email || 'a JTracker user'}`
+        : null,
+    });
+
+    if (shareError) {
+      setError(shareError.message);
+      setSharing(false);
+      return;
+    }
+
+    await supabase.from('application_events').insert({
+      user_id: user.id,
+      application_id: application.id,
+      event_type: 'opportunity_shared',
+      title: 'Opportunity shared',
+      description: `Shared with ${recipientEmail.trim()}.`,
+      event_date: new Date().toISOString(),
+    });
+
+    setMessage('Opportunity shared successfully.');
+    setShareModalOpen(false);
+    setRecipientEmail('');
+    setShareNote('');
+    setIncludeStatus(false);
+    setIncludeNotes(false);
+    setIncludeExperience(false);
+
+    await fetchApplicationDetails();
+    setSharing(false);
+  };
+
   if (loading) return <ApplicationDetailsSkeleton />;
 
   if (!application) {
@@ -712,6 +809,14 @@ Best regards,`;
               className="inline-flex items-center justify-center border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm"
             >
               {editingDetails ? 'Cancel Edit' : 'Edit Details'}
+            </button>
+
+            <button
+              onClick={() => setShareModalOpen(true)}
+              className="inline-flex items-center justify-center gap-2 border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm"
+            >
+              <Share2 size={16} />
+              Share Opportunity
             </button>
 
             {application.application_link && (
@@ -991,6 +1096,108 @@ Best regards,`;
           </div>
         )}
       </Section>
+
+      {shareModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <h2 className="text-xl font-bold">Share Opportunity</h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Share a safe snapshot of this role with another JTracker user.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShareModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <Field label="Recipient Email">
+                <input
+                  type="email"
+                  value={recipientEmail}
+                  onChange={(e) => setRecipientEmail(e.target.value)}
+                  placeholder="friend@example.com"
+                  className={inputCls}
+                />
+              </Field>
+
+              <Field label="Optional Message">
+                <textarea
+                  value={shareNote}
+                  onChange={(e) => setShareNote(e.target.value)}
+                  placeholder="Thought this role might interest you..."
+                  className={`${inputCls} min-h-24`}
+                />
+              </Field>
+
+              <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
+                <p className="text-sm font-semibold mb-3">Privacy Options</p>
+
+                <div className="space-y-2 text-sm text-slate-700">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={includeStatus}
+                      onChange={(e) => setIncludeStatus(e.target.checked)}
+                    />
+                    Include application status
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={includeNotes}
+                      onChange={(e) => setIncludeNotes(e.target.checked)}
+                    />
+                    Include private notes
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={includeExperience}
+                      onChange={(e) => setIncludeExperience(e.target.checked)}
+                    />
+                    Include shared experience note
+                  </label>
+                </div>
+              </div>
+
+              <div className="bg-white border border-slate-200 rounded-xl p-4">
+                <p className="text-xs text-slate-500 mb-1">Preview</p>
+                <p className="font-semibold">{application.role_title}</p>
+                <p className="text-sm text-slate-600">
+                  {application.companies?.name || 'Unknown Company'}
+                  {application.location ? ` — ${application.location}` : ''}
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  onClick={() => setShareModalOpen(false)}
+                  className="border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  onClick={handleShareOpportunity}
+                  disabled={sharing}
+                  className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+                >
+                  {sharing ? 'Sharing...' : 'Share Opportunity'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

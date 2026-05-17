@@ -4,10 +4,14 @@ import {
   Briefcase,
   CalendarDays,
   CheckCircle2,
+  Copy,
   ExternalLink,
+  MessageCircle,
   Plus,
   RefreshCw,
   Search,
+  Share2,
+  Trash2,
   X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -169,6 +173,16 @@ export const ApplicationsPage: React.FC = () => {
   const [priority, setPriority] = useState('medium');
   const [followUpDate, setFollowUpDate] = useState('');
 
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [selectedShareApp, setSelectedShareApp] = useState<Application | null>(null);
+  const [shareTab, setShareTab] = useState<'internal' | 'public' | 'whatsapp'>('internal');
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [shareNote, setShareNote] = useState('');
+  const [sharing, setSharing] = useState(false);
+  const [publicShareLink, setPublicShareLink] = useState('');
+  const [includeStatus, setIncludeStatus] = useState(false);
+  const [includeNotes, setIncludeNotes] = useState(false);
+
   const fetchApplications = async () => {
     if (!user) return;
 
@@ -219,9 +233,7 @@ export const ApplicationsPage: React.FC = () => {
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (!error) {
-      setCvVersions(data || []);
-    }
+    if (!error) setCvVersions(data || []);
   };
 
   const loadPage = async () => {
@@ -238,7 +250,8 @@ export const ApplicationsPage: React.FC = () => {
 
   useEffect(() => {
     loadPage();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const filteredApplications = useMemo(() => {
     return applications.filter((app) => {
@@ -340,31 +353,249 @@ export const ApplicationsPage: React.FC = () => {
       return;
     }
 
-    const oldStatusLabel = formatStatus(application.status);
-    const newStatusLabel = formatStatus(newStatus);
-
     await supabase.from('application_events').insert({
       user_id: user.id,
       application_id: applicationId,
       event_type: 'status_change',
-      title: `Status changed to ${newStatusLabel}`,
-      description: `Application moved from ${oldStatusLabel} to ${newStatusLabel}.`,
+      title: `Status changed to ${formatStatus(newStatus)}`,
+      description: `Application moved from ${formatStatus(application.status)} to ${formatStatus(
+        newStatus
+      )}.`,
       event_date: new Date().toISOString(),
     });
 
     setApplications((prev) =>
       prev.map((app) =>
-        app.id === applicationId
-          ? {
-              ...app,
-              ...updatePayload,
-            }
-          : app
+        app.id === applicationId ? { ...app, ...updatePayload } : app
       )
     );
 
-    setMessage(`Status updated to ${newStatusLabel}.`);
+    setMessage(`Status updated to ${formatStatus(newStatus)}.`);
     setStatusUpdatingId(null);
+  };
+
+  const handleDeleteApplication = async (applicationId: string) => {
+    if (!user) return;
+
+    const application = applications.find((app) => app.id === applicationId);
+
+    const confirmed = window.confirm(
+      `Delete "${application?.role_title || 'this application'}"? This cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    setError('');
+    setMessage('');
+
+    const { error } = await supabase
+      .from('applications')
+      .delete()
+      .eq('id', applicationId)
+      .eq('user_id', user.id);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    setApplications((prev) => prev.filter((app) => app.id !== applicationId));
+    setMessage('Application deleted successfully.');
+  };
+
+  const openShareModal = (
+    app: Application,
+    tab: 'internal' | 'public' | 'whatsapp' = 'internal'
+  ) => {
+    setSelectedShareApp(app);
+    setShareTab(tab);
+    setRecipientEmail('');
+    setShareNote('');
+    setPublicShareLink('');
+    setIncludeStatus(false);
+    setIncludeNotes(false);
+    setError('');
+    setMessage('');
+    setShareModalOpen(true);
+  };
+
+  const buildShareSummary = (app: Application, link?: string) => {
+    return `🚀 Opportunity Shared via JTracker
+
+${app.role_title}
+${app.companies?.name || 'Unknown Company'}${app.location ? ` — ${app.location}` : ''}
+
+Application Link:
+${app.application_link || link || 'No job link provided'}
+
+${shareNote || 'Thought this role might interest you.'}`;
+  };
+
+  const createShareSnapshot = async (
+    app: Application,
+    recipientUserId: string | null = null
+  ): Promise<{ id: string; publicShareId: string }> => {
+    if (!user) throw new Error('You must be logged in to share.');
+
+    const publicShareId = crypto.randomUUID();
+
+    const { data, error } = await supabase
+      .from('shared_opportunities')
+      .insert({
+        sender_user_id: user.id,
+        recipient_user_id: recipientUserId,
+        application_id: app.id,
+
+        public_share_id: publicShareId,
+
+        role_title: app.role_title,
+        company_name: app.companies?.name || null,
+        location: app.location || null,
+        job_link: app.application_link || null,
+        note: shareNote || null,
+
+        include_status: includeStatus,
+        include_notes: includeNotes,
+        include_experience: false,
+
+        status_snapshot: includeStatus ? app.status : null,
+        notes_snapshot: includeNotes ? app.notes : null,
+        experience_snapshot: null,
+      })
+      .select('id, public_share_id')
+      .single();
+
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error('Failed to create shared opportunity.');
+
+    await supabase.from('application_events').insert({
+      user_id: user.id,
+      application_id: app.id,
+      event_type: recipientUserId
+        ? 'opportunity_shared_internal'
+        : 'opportunity_shared_public',
+      title: recipientUserId ? 'Opportunity shared internally' : 'Public share link created',
+      description: recipientUserId
+        ? `Shared with ${recipientEmail.trim()}.`
+        : 'A public share link was generated.',
+      event_date: new Date().toISOString(),
+    });
+
+    return {
+      id: data.id,
+      publicShareId: data.public_share_id || publicShareId,
+    };
+  };
+
+  const handleInternalShare = async () => {
+    if (!selectedShareApp || !user) return;
+
+    if (!recipientEmail.trim()) {
+      setError('Please enter the recipient email.');
+      return;
+    }
+
+    setSharing(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const cleanEmail = recipientEmail.trim().toLowerCase();
+
+      const { data: profiles, error: recipientError } = await supabase
+        .from('profiles')
+        .select('id, email')
+        .ilike('email', cleanEmail);
+
+      if (recipientError) throw new Error(recipientError.message);
+
+      const recipientProfile = profiles?.[0];
+
+      if (!recipientProfile) throw new Error('No JTracker user found with that email.');
+
+      if (recipientProfile.id === user.id) {
+        throw new Error('You cannot share an opportunity with yourself.');
+      }
+
+      const sharedOpportunity = await createShareSnapshot(
+        selectedShareApp,
+        recipientProfile.id
+      );
+
+      const { error: notificationError } = await supabase.from('notifications').insert({
+        user_id: recipientProfile.id,
+        actor_user_id: user.id,
+        type: 'shared_opportunity',
+        title: 'New shared opportunity',
+        message: `${user.email || 'Someone'} shared ${selectedShareApp.role_title} with you.`,
+        related_shared_opportunity_id: sharedOpportunity.id,
+        read: false,
+      });
+
+      if (notificationError) {
+        throw new Error(notificationError.message);
+      }
+
+      setMessage('Opportunity shared successfully.');
+      setShareModalOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to share opportunity.');
+    }
+
+    setSharing(false);
+  };
+
+  const handleGeneratePublicLink = async () => {
+    if (!selectedShareApp) return;
+
+    setSharing(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const sharedOpportunity = await createShareSnapshot(selectedShareApp, null);
+      const link = `${window.location.origin}/share/${sharedOpportunity.publicShareId}`;
+
+      setPublicShareLink(link);
+      await navigator.clipboard.writeText(link);
+      setMessage('Public share link generated and copied.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate public link.');
+    }
+
+    setSharing(false);
+  };
+
+  const handleCopySummary = async () => {
+    if (!selectedShareApp) return;
+
+    const summary = buildShareSummary(selectedShareApp, publicShareLink);
+    await navigator.clipboard.writeText(summary.trim());
+    setMessage('Share summary copied.');
+  };
+
+  const handleWhatsAppShare = async () => {
+    if (!selectedShareApp) return;
+
+    setSharing(true);
+    setError('');
+
+    try {
+      let link = publicShareLink;
+
+      if (!link) {
+        const sharedOpportunity = await createShareSnapshot(selectedShareApp, null);
+        link = `${window.location.origin}/share/${sharedOpportunity.publicShareId}`;
+        setPublicShareLink(link);
+      }
+
+      const text = buildShareSummary(selectedShareApp, link);
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to open WhatsApp share.');
+    }
+
+    setSharing(false);
   };
 
   const getOrCreateCompanyId = async (): Promise<string | null> => {
@@ -379,26 +610,16 @@ export const ApplicationsPage: React.FC = () => {
       .ilike('name', cleanName)
       .maybeSingle();
 
-    if (findError) {
-      throw new Error(findError.message);
-    }
-
-    if (existingCompany) {
-      return existingCompany.id;
-    }
+    if (findError) throw new Error(findError.message);
+    if (existingCompany) return existingCompany.id;
 
     const { data: newCompany, error: companyError } = await supabase
       .from('companies')
-      .insert({
-        user_id: user.id,
-        name: cleanName,
-      })
+      .insert({ user_id: user.id, name: cleanName })
       .select('id')
       .single();
 
-    if (companyError) {
-      throw new Error(companyError.message);
-    }
+    if (companyError) throw new Error(companyError.message);
 
     return newCompany.id;
   };
@@ -415,7 +636,6 @@ export const ApplicationsPage: React.FC = () => {
     try {
       const companyId = await getOrCreateCompanyId();
       const now = new Date().toISOString();
-
       const lifecyclePayload = getInitialLifecyclePayload(status, now);
 
       const { data: insertedApplication, error } = await supabase
@@ -460,7 +680,6 @@ export const ApplicationsPage: React.FC = () => {
 
       resetForm();
       setShowForm(false);
-
       await fetchApplications();
 
       setMessage('Application created successfully.');
@@ -487,9 +706,7 @@ export const ApplicationsPage: React.FC = () => {
     setFollowUpDate('');
   };
 
-  if (loading) {
-    return <ApplicationsSkeleton />;
-  }
+  if (loading) return <ApplicationsSkeleton />;
 
   return (
     <div>
@@ -527,13 +744,8 @@ export const ApplicationsPage: React.FC = () => {
         </div>
       </div>
 
-      {error && (
-        <AlertBox type="error" message={error} onClose={() => setError('')} />
-      )}
-
-      {message && (
-        <AlertBox type="success" message={message} onClose={() => setMessage('')} />
-      )}
+      {error && <AlertBox type="error" message={error} onClose={() => setError('')} />}
+      {message && <AlertBox type="success" message={message} onClose={() => setMessage('')} />}
 
       {showForm && (
         <form
@@ -790,8 +1002,155 @@ export const ApplicationsPage: React.FC = () => {
               app={app}
               updating={statusUpdatingId === app.id}
               onStatusChange={handleStatusChange}
+              onShare={openShareModal}
+              onDelete={handleDeleteApplication}
             />
           ))}
+        </div>
+      )}
+
+      {shareModalOpen && selectedShareApp && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6">
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <h2 className="text-xl font-bold">Share Opportunity</h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Share a safe snapshot of this role.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShareModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex gap-2 mb-5">
+              {(['internal', 'public', 'whatsapp'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setShareTab(tab)}
+                  className={`px-3 py-2 rounded-lg text-sm capitalize ${
+                    shareTab === tab
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {tab === 'public' ? 'Public Link' : tab}
+                </button>
+              ))}
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
+              <p className="font-semibold">{selectedShareApp.role_title}</p>
+              <p className="text-sm text-slate-600">
+                {selectedShareApp.companies?.name || 'Unknown Company'}
+                {selectedShareApp.location ? ` — ${selectedShareApp.location}` : ''}
+              </p>
+            </div>
+
+            <Field label="Optional Message">
+              <textarea
+                value={shareNote}
+                onChange={(e) => setShareNote(e.target.value)}
+                placeholder="Thought this role might interest you..."
+                className={`${inputCls} min-h-24`}
+              />
+            </Field>
+
+            <div className="border border-slate-200 rounded-xl p-4 bg-slate-50 mt-4">
+              <p className="text-sm font-semibold mb-3">Privacy Options</p>
+
+              <div className="space-y-2 text-sm text-slate-700">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={includeStatus}
+                    onChange={(e) => setIncludeStatus(e.target.checked)}
+                  />
+                  Include application status
+                </label>
+
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={includeNotes}
+                    onChange={(e) => setIncludeNotes(e.target.checked)}
+                  />
+                  Include private notes
+                </label>
+              </div>
+            </div>
+
+            {shareTab === 'internal' && (
+              <div className="mt-4">
+                <Field label="Recipient Email">
+                  <input
+                    type="email"
+                    value={recipientEmail}
+                    onChange={(e) => setRecipientEmail(e.target.value)}
+                    placeholder="friend@example.com"
+                    className={inputCls}
+                  />
+                </Field>
+
+                <button
+                  onClick={handleInternalShare}
+                  disabled={sharing}
+                  className="mt-4 w-full bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+                >
+                  {sharing ? 'Sharing...' : 'Share Internally'}
+                </button>
+              </div>
+            )}
+
+            {shareTab === 'public' && (
+              <div className="mt-4 space-y-3">
+                {publicShareLink && <input value={publicShareLink} readOnly className={inputCls} />}
+
+                <button
+                  onClick={handleGeneratePublicLink}
+                  disabled={sharing}
+                  className="w-full bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+                >
+                  {sharing ? 'Generating...' : 'Generate & Copy Public Link'}
+                </button>
+
+                <button
+                  onClick={handleCopySummary}
+                  className="w-full border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2"
+                >
+                  <Copy size={15} />
+                  Copy Summary
+                </button>
+              </div>
+            )}
+
+            {shareTab === 'whatsapp' && (
+              <div className="mt-4 space-y-3">
+                <button
+                  onClick={handleWhatsAppShare}
+                  disabled={sharing}
+                  className="w-full bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                >
+                  <MessageCircle size={15} />
+                  {sharing ? 'Preparing...' : 'Share on WhatsApp'}
+                </button>
+
+                <button
+                  onClick={handleCopySummary}
+                  className="w-full border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2"
+                >
+                  <Copy size={15} />
+                  Copy WhatsApp Text
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -843,13 +1202,16 @@ const ApplicationCard = ({
   app,
   updating,
   onStatusChange,
+  onShare,
+  onDelete,
 }: {
   app: Application;
   updating: boolean;
   onStatusChange: (applicationId: string, status: ApplicationStatus) => void;
+  onShare: (app: Application, tab?: 'internal' | 'public' | 'whatsapp') => void;
+  onDelete: (applicationId: string) => void;
 }) => {
   const [showLifecycle, setShowLifecycle] = useState(false);
-
   const companyName = app.companies?.name || 'No company linked';
 
   const lifecycleSteps = [
@@ -897,12 +1259,12 @@ const ApplicationCard = ({
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row xl:flex-col gap-2 xl:min-w-[190px]">
+        <div className="flex flex-wrap gap-2 xl:min-w-[360px] xl:justify-end">
           <select
             value={app.status}
             disabled={updating}
             onChange={(e) => onStatusChange(app.id, e.target.value as ApplicationStatus)}
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white disabled:opacity-50"
+           className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
           >
             {statusOptions.map((status) => (
               <option key={status.value} value={status.value}>
@@ -911,17 +1273,33 @@ const ApplicationCard = ({
             ))}
           </select>
 
+          <button
+            onClick={() => onShare(app)}
+            className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
+          >
+            <Share2 size={14} />
+            Share
+          </button>
+
           {app.application_link && (
             <a
               href={app.application_link}
               target="_blank"
               rel="noreferrer"
-              className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-2"
+              className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
             >
               <ExternalLink size={14} />
               Open Role
             </a>
           )}
+
+          <button
+            onClick={() => onDelete(app.id)}
+            className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
+          >
+            <Trash2 size={14} />
+            Delete
+          </button>
         </div>
       </div>
 
@@ -1030,13 +1408,7 @@ const AlertBox = ({
   </div>
 );
 
-const Field = ({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) => (
+const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label className="block">
     <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
       {label}

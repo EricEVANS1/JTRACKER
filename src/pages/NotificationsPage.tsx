@@ -6,17 +6,37 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock,
+  Inbox,
   RefreshCw,
   Search,
   Sparkles,
   X,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
+/**
+ * DEVELOPMENT NOTES — NOTIFICATIONS PAGE
+ *
+ * Added/improved:
+ * 1. Database-backed notifications from public.notifications.
+ * 2. Realtime notification refresh using Supabase postgres_changes.
+ * 3. Unread/read support with Mark Read and Mark All Read.
+ * 4. Shared opportunity notifications that open /shared-with-me.
+ * 5. Smart job-search alerts retained from the previous version:
+ *    follow-ups, inactive applications, interviews, assessments, offers.
+ * 6. Filtering by All, Unread, Shared Opportunities, and Smart Alerts.
+ * 7. Stats updated to include Unread database notifications.
+ *
+ * Important architecture note:
+ * - Database notifications are persisted.
+ * - Smart alerts are generated from application data and are not stored yet.
+ */
+
 type NotificationPriority = 'urgent' | 'today' | 'upcoming' | 'insight';
+type NotificationSource = 'database' | 'smart';
 
 interface CompanyJoin {
   name: string;
@@ -46,15 +66,32 @@ interface Application {
   companies: CompanyJoin | null;
 }
 
+interface DatabaseNotification {
+  id: string;
+  user_id: string;
+  actor_user_id: string | null;
+  type: string;
+  title: string;
+  message: string | null;
+  related_shared_opportunity_id: string | null;
+  related_application_id: string | null;
+  read: boolean;
+  created_at: string;
+}
+
 interface NotificationItem {
   id: string;
   title: string;
   description: string;
   priority: NotificationPriority;
   type: string;
-  applicationId?: string;
+  source: NotificationSource;
+  read?: boolean;
+  applicationId?: string | null;
+  sharedOpportunityId?: string | null;
   company?: string;
   date?: string | null;
+  createdAt?: string | null;
 }
 
 const firstOrNull = <T,>(value: T | T[] | null | undefined): T | null => {
@@ -86,20 +123,33 @@ const getDaysSince = (date?: string | null) => {
   return Math.floor((now - target) / (1000 * 60 * 60 * 24));
 };
 
+const getDatabaseNotificationPriority = (type: string): NotificationPriority => {
+  if (type === 'shared_opportunity') return 'today';
+  if (type.includes('urgent')) return 'urgent';
+  if (type.includes('follow_up')) return 'today';
+  return 'insight';
+};
+
 const inputCls =
   'w-full border border-slate-200 rounded-xl pl-10 pr-3 py-3 text-sm bg-white ' +
   'focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
 
 export const NotificationsPage: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [applications, setApplications] = useState<Application[]>([]);
+  const [databaseNotifications, setDatabaseNotifications] = useState<DatabaseNotification[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [updatingId, setUpdatingId] = useState('');
+  const [markingAllRead, setMarkingAllRead] = useState(false);
+
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<'all' | 'unread' | 'smart' | 'shared'>('all');
 
   const fetchApplications = async () => {
     if (!user) return;
@@ -138,30 +188,101 @@ export const NotificationsPage: React.FC = () => {
     setApplications(normalized);
   };
 
+  const fetchDatabaseNotifications = async () => {
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('notifications')
+      .select(`
+        id,
+        user_id,
+        actor_user_id,
+        type,
+        title,
+        message,
+        related_shared_opportunity_id,
+        related_application_id,
+        read,
+        created_at
+      `)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    setDatabaseNotifications(data || []);
+  };
+
   const loadPage = async () => {
     setLoading(true);
-    await fetchApplications();
+    await Promise.all([fetchApplications(), fetchDatabaseNotifications()]);
     setLoading(false);
   };
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchApplications();
+    await Promise.all([fetchApplications(), fetchDatabaseNotifications()]);
     setRefreshing(false);
   };
 
   useEffect(() => {
     loadPage();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
-  const notifications = useMemo(() => {
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`notifications-page-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          fetchDatabaseNotifications();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  const persistedNotifications = useMemo<NotificationItem[]>(() => {
+    return databaseNotifications.map((notification) => ({
+      id: notification.id,
+      title: notification.title,
+      description: notification.message || 'New activity in JTracker.',
+      priority: getDatabaseNotificationPriority(notification.type),
+      type: notification.type,
+      source: 'database',
+      read: notification.read,
+      applicationId: notification.related_application_id,
+      sharedOpportunityId: notification.related_shared_opportunity_id,
+      date: notification.created_at,
+      createdAt: notification.created_at,
+    }));
+  }, [databaseNotifications]);
+
+  const smartNotifications = useMemo<NotificationItem[]>(() => {
     const now = new Date();
-
     const items: NotificationItem[] = [];
 
     applications.forEach((app) => {
       const company = app.companies?.name || 'Unknown Company';
-      const inactiveDays = getDaysSince(app.last_status_changed_at || app.date_applied || app.created_at);
+      const inactiveDays = getDaysSince(
+        app.last_status_changed_at || app.date_applied || app.created_at
+      );
 
       if (app.follow_up_date) {
         const followUpDate = new Date(app.follow_up_date);
@@ -179,6 +300,7 @@ export const NotificationsPage: React.FC = () => {
             description: `${app.role_title} at ${company} needs a follow-up. It was due on ${formatDateTime(app.follow_up_date)}.`,
             priority: 'urgent',
             type: 'follow_up_overdue',
+            source: 'smart',
             applicationId: app.id,
             company,
             date: app.follow_up_date,
@@ -190,6 +312,7 @@ export const NotificationsPage: React.FC = () => {
             description: `${app.role_title} at ${company} has a follow-up scheduled for today.`,
             priority: 'today',
             type: 'follow_up_today',
+            source: 'smart',
             applicationId: app.id,
             company,
             date: app.follow_up_date,
@@ -201,6 +324,7 @@ export const NotificationsPage: React.FC = () => {
             description: `${app.role_title} at ${company} has a follow-up scheduled for ${formatDateTime(app.follow_up_date)}.`,
             priority: 'upcoming',
             type: 'follow_up_upcoming',
+            source: 'smart',
             applicationId: app.id,
             company,
             date: app.follow_up_date,
@@ -218,6 +342,7 @@ export const NotificationsPage: React.FC = () => {
           description: `${app.role_title} at ${company} has had no status change for ${inactiveDays} days.`,
           priority: inactiveDays >= 21 ? 'urgent' : 'insight',
           type: inactiveDays >= 21 ? 'possible_ghosted' : 'inactive_application',
+          source: 'smart',
           applicationId: app.id,
           company,
           date: app.last_status_changed_at || app.date_applied || app.created_at,
@@ -231,6 +356,7 @@ export const NotificationsPage: React.FC = () => {
           description: `${app.role_title} at ${company} is in ${formatStatus(app.status)} stage. Prepare questions and notes.`,
           priority: 'today',
           type: 'interview_prep',
+          source: 'smart',
           applicationId: app.id,
           company,
           date: app.last_status_changed_at,
@@ -244,6 +370,7 @@ export const NotificationsPage: React.FC = () => {
           description: `${app.role_title} at ${company} is in assessment stage. Track deadline and completion.`,
           priority: 'today',
           type: 'assessment_pending',
+          source: 'smart',
           applicationId: app.id,
           company,
           date: app.last_status_changed_at,
@@ -257,6 +384,7 @@ export const NotificationsPage: React.FC = () => {
           description: `${app.role_title} at ${company} has an offer. Review compensation, deadlines, and next steps.`,
           priority: 'urgent',
           type: 'offer_action',
+          source: 'smart',
           applicationId: app.id,
           company,
           date: app.last_status_changed_at,
@@ -267,10 +395,37 @@ export const NotificationsPage: React.FC = () => {
     return items;
   }, [applications]);
 
+  const notifications = useMemo(() => {
+    return [...persistedNotifications, ...smartNotifications].sort((a, b) => {
+      const priorityOrder: Record<NotificationPriority, number> = {
+        urgent: 0,
+        today: 1,
+        upcoming: 2,
+        insight: 3,
+      };
+
+      const priorityDifference = priorityOrder[a.priority] - priorityOrder[b.priority];
+      if (priorityDifference !== 0) return priorityDifference;
+
+      const aDate = new Date(a.date || a.createdAt || 0).getTime();
+      const bDate = new Date(b.date || b.createdAt || 0).getTime();
+
+      return bDate - aDate;
+    });
+  }, [persistedNotifications, smartNotifications]);
+
   const filteredNotifications = useMemo(() => {
     const term = search.toLowerCase();
 
     return notifications.filter((item) => {
+      const matchesFilter =
+        filter === 'all' ||
+        (filter === 'unread' && item.source === 'database' && !item.read) ||
+        (filter === 'smart' && item.source === 'smart') ||
+        (filter === 'shared' && item.type === 'shared_opportunity');
+
+      if (!matchesFilter) return false;
+
       if (!term.trim()) return true;
 
       return (
@@ -280,18 +435,84 @@ export const NotificationsPage: React.FC = () => {
         item.type.toLowerCase().includes(term)
       );
     });
-  }, [notifications, search]);
+  }, [notifications, search, filter]);
 
   const stats = useMemo(() => {
     return {
       urgent: notifications.filter((item) => item.priority === 'urgent').length,
       today: notifications.filter((item) => item.priority === 'today').length,
       upcoming: notifications.filter((item) => item.priority === 'upcoming').length,
-      insight: notifications.filter((item) => item.priority === 'insight').length,
+      unread: databaseNotifications.filter((item) => !item.read).length,
     };
-  }, [notifications]);
+  }, [notifications, databaseNotifications]);
 
-  const handleMarkFollowUpDone = async (applicationId?: string) => {
+  const handleMarkNotificationRead = async (notificationId: string) => {
+    if (!user) return;
+
+    setUpdatingId(notificationId);
+    setError('');
+    setMessage('');
+
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('id', notificationId)
+      .eq('user_id', user.id);
+
+    if (error) {
+      setError(error.message);
+      setUpdatingId('');
+      return;
+    }
+
+    setDatabaseNotifications((prev) =>
+      prev.map((item) => (item.id === notificationId ? { ...item, read: true } : item))
+    );
+
+    setMessage('Notification marked as read.');
+    setUpdatingId('');
+  };
+
+  const handleMarkAllRead = async () => {
+    if (!user) return;
+
+    setMarkingAllRead(true);
+    setError('');
+    setMessage('');
+
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('user_id', user.id)
+      .eq('read', false);
+
+    if (error) {
+      setError(error.message);
+      setMarkingAllRead(false);
+      return;
+    }
+
+    setDatabaseNotifications((prev) => prev.map((item) => ({ ...item, read: true })));
+    setMessage('All notifications marked as read.');
+    setMarkingAllRead(false);
+  };
+
+  const handleOpenNotification = async (notification: NotificationItem) => {
+    if (notification.source === 'database' && !notification.read) {
+      await handleMarkNotificationRead(notification.id);
+    }
+
+    if (notification.type === 'shared_opportunity') {
+      navigate('/shared-with-me');
+      return;
+    }
+
+    if (notification.applicationId) {
+      navigate(`/applications/${notification.applicationId}`);
+    }
+  };
+
+  const handleMarkFollowUpDone = async (applicationId?: string | null) => {
     if (!user || !applicationId) return;
 
     setUpdatingId(applicationId);
@@ -340,7 +561,8 @@ export const NotificationsPage: React.FC = () => {
           </div>
 
           <p className="text-slate-500 max-w-2xl">
-            Real job-search alerts based on follow-ups, inactive applications, interview stages, assessments, and offers.
+            Real alerts from collaboration events and job-search intelligence, including shared opportunities,
+            follow-ups, inactive applications, interviews, assessments, and offers.
           </p>
         </div>
 
@@ -348,7 +570,7 @@ export const NotificationsPage: React.FC = () => {
           <StatCard label="Urgent" value={stats.urgent} tone="danger" />
           <StatCard label="Today" value={stats.today} tone="warning" />
           <StatCard label="Upcoming" value={stats.upcoming} tone="neutral" />
-          <StatCard label="Insights" value={stats.insight} tone="muted" />
+          <StatCard label="Unread" value={stats.unread} tone="muted" />
         </div>
       </div>
 
@@ -358,7 +580,7 @@ export const NotificationsPage: React.FC = () => {
       )}
 
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_140px] gap-3">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_180px_140px_150px] gap-3">
           <div className="relative">
             <Search
               size={17}
@@ -373,6 +595,17 @@ export const NotificationsPage: React.FC = () => {
             />
           </div>
 
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as typeof filter)}
+            className="border border-slate-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400"
+          >
+            <option value="all">All notifications</option>
+            <option value="unread">Unread only</option>
+            <option value="shared">Shared opportunities</option>
+            <option value="smart">Smart alerts</option>
+          </select>
+
           <button
             type="button"
             onClick={handleRefresh}
@@ -382,6 +615,15 @@ export const NotificationsPage: React.FC = () => {
             <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
             Refresh
           </button>
+
+          <button
+            type="button"
+            onClick={handleMarkAllRead}
+            disabled={markingAllRead || stats.unread === 0}
+            className="bg-slate-900 text-white rounded-xl px-4 py-3 text-sm hover:bg-slate-700 transition disabled:opacity-50"
+          >
+            {markingAllRead ? 'Saving...' : 'Mark all read'}
+          </button>
         </div>
       </div>
 
@@ -390,7 +632,7 @@ export const NotificationsPage: React.FC = () => {
           <CheckCircle2 size={38} className="mx-auto text-emerald-400 mb-3" />
           <h3 className="text-lg font-semibold">No active notifications</h3>
           <p className="text-slate-500 mt-2">
-            You are clear for now. New alerts will appear when follow-ups, interviews, assessments, or inactive applications need attention.
+            You are clear for now. New alerts will appear when collaboration events or job-search actions need attention.
           </p>
         </div>
       ) : (
@@ -399,7 +641,9 @@ export const NotificationsPage: React.FC = () => {
             <NotificationCard
               key={notification.id}
               notification={notification}
-              updating={updatingId === notification.applicationId}
+              updating={updatingId === notification.id || updatingId === notification.applicationId}
+              onOpen={handleOpenNotification}
+              onMarkRead={handleMarkNotificationRead}
               onMarkFollowUpDone={handleMarkFollowUpDone}
             />
           ))}
@@ -412,11 +656,15 @@ export const NotificationsPage: React.FC = () => {
 const NotificationCard = ({
   notification,
   updating,
+  onOpen,
+  onMarkRead,
   onMarkFollowUpDone,
 }: {
   notification: NotificationItem;
   updating: boolean;
-  onMarkFollowUpDone: (applicationId?: string) => void;
+  onOpen: (notification: NotificationItem) => void;
+  onMarkRead: (notificationId: string) => void;
+  onMarkFollowUpDone: (applicationId?: string | null) => void;
 }) => {
   const config = {
     urgent: {
@@ -452,20 +700,34 @@ const NotificationCard = ({
     notification.type === 'follow_up_today' ||
     notification.type === 'follow_up_upcoming';
 
+  const isUnreadDatabaseNotification =
+    notification.source === 'database' && notification.read === false;
+
   return (
     <div className={`border rounded-2xl shadow-sm p-5 ${config.card}`}>
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
         <div className="flex items-start gap-4">
           <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${config.iconBox}`}>
-            <Icon size={21} />
+            {notification.type === 'shared_opportunity' ? <Inbox size={21} /> : <Icon size={21} />}
           </div>
 
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-1">
               <h3 className="font-semibold text-slate-900">{notification.title}</h3>
+
               <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${config.badge}`}>
                 {formatStatus(notification.priority)}
               </span>
+
+              <span className="rounded-full px-2.5 py-1 text-xs font-medium bg-white border border-slate-200 text-slate-600">
+                {notification.source === 'database' ? 'Event' : 'Smart Alert'}
+              </span>
+
+              {isUnreadDatabaseNotification && (
+                <span className="rounded-full px-2.5 py-1 text-xs font-medium bg-slate-900 text-white">
+                  Unread
+                </span>
+              )}
             </div>
 
             <p className="text-sm text-slate-600 leading-relaxed">
@@ -481,14 +743,35 @@ const NotificationCard = ({
         </div>
 
         <div className="flex flex-wrap gap-2 lg:justify-end">
-          {notification.applicationId && (
-            <Link
-              to={`/applications/${notification.applicationId}`}
+          {(notification.applicationId || notification.type === 'shared_opportunity') && (
+            <button
+              type="button"
+              onClick={() => onOpen(notification)}
               className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2"
             >
-              <Briefcase size={15} />
-              Open Application
-            </Link>
+              {notification.type === 'shared_opportunity' ? (
+                <>
+                  <Inbox size={15} />
+                  Open Shared
+                </>
+              ) : (
+                <>
+                  <Briefcase size={15} />
+                  Open Application
+                </>
+              )}
+            </button>
+          )}
+
+          {isUnreadDatabaseNotification && (
+            <button
+              type="button"
+              disabled={updating}
+              onClick={() => onMarkRead(notification.id)}
+              className="border border-slate-300 bg-white text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition disabled:opacity-50"
+            >
+              {updating ? 'Saving...' : 'Mark Read'}
+            </button>
           )}
 
           {isFollowUp && (
