@@ -28,6 +28,7 @@ interface SharedOpportunityWithSender extends SharedOpportunity {
   sender_profile?: SenderProfile | null;
   added_to_applications_at?: string | null;
   added_application_id?: string | null;
+  experience_snapshot?: string | null;
 }
 
 const formatDateTime = (date?: string | null) => {
@@ -71,7 +72,11 @@ export const SharedWithMePage: React.FC = () => {
     }
 
     const senderIds = [
-      ...new Set((shares || []).map((share) => share.sender_user_id).filter(Boolean)),
+      ...new Set(
+        (shares || [])
+          .map((share) => share.sender_user_id)
+          .filter((id): id is string => Boolean(id))
+      ),
     ];
 
     let profileMap = new Map<string, SenderProfile>();
@@ -98,12 +103,14 @@ export const SharedWithMePage: React.FC = () => {
       );
     }
 
-    const normalized: SharedOpportunityWithSender[] = ((shares || []) as SharedOpportunityWithSender[]).map(
-      (item) => ({
-        ...item,
-        sender_profile: profileMap.get(item.sender_user_id) || null,
-      })
-    );
+    const normalized: SharedOpportunityWithSender[] = (
+      (shares || []) as SharedOpportunityWithSender[]
+    ).map((item) => ({
+      ...item,
+      sender_profile: item.sender_user_id
+        ? profileMap.get(item.sender_user_id) || null
+        : null,
+    }));
 
     setItems(normalized);
   };
@@ -153,13 +160,9 @@ ${item.note || ''}`;
       .ilike('name', cleanCompanyName)
       .maybeSingle();
 
-    if (findError) {
-      throw new Error(findError.message);
-    }
+    if (findError) throw new Error(findError.message);
 
-    if (existingCompany) {
-      return existingCompany.id;
-    }
+    if (existingCompany) return existingCompany.id;
 
     const { data: newCompany, error: companyError } = await supabase
       .from('companies')
@@ -170,9 +173,7 @@ ${item.note || ''}`;
       .select('id')
       .single();
 
-    if (companyError) {
-      throw new Error(companyError.message);
-    }
+    if (companyError) throw new Error(companyError.message);
 
     return newCompany.id;
   };
@@ -212,9 +213,7 @@ ${item.note || ''}`;
         .select('id')
         .single();
 
-      if (insertError) {
-        throw new Error(insertError.message);
-      }
+      if (insertError) throw new Error(insertError.message);
 
       await supabase.from('application_events').insert({
         user_id: user.id,
@@ -225,20 +224,16 @@ ${item.note || ''}`;
         event_date: now,
       });
 
+      const { error: updateShareError } = await supabase
+        .from('shared_opportunities')
+        .update({
+          added_to_applications_at: now,
+          added_application_id: insertedApplication.id,
+        })
+        .eq('id', item.id)
+        .eq('recipient_user_id', user.id);
 
-const { error: updateShareError } = await supabase
-  .from('shared_opportunities')
-  .update({
-    added_to_applications_at: now,
-    added_application_id: insertedApplication.id,
-  })
-  .eq('id', item.id)
-  .eq('recipient_user_id', user.id);
-
-if (updateShareError) {
-  console.error(updateShareError);
-  throw new Error(updateShareError.message);
-}
+      if (updateShareError) throw new Error(updateShareError.message);
 
       setItems((prev) =>
         prev.map((sharedItem) =>

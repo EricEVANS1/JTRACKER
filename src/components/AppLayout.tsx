@@ -67,9 +67,7 @@ export const AppLayout: React.FC = () => {
           table: 'shared_opportunities',
           filter: `recipient_user_id=eq.${user.id}`,
         },
-        () => {
-          fetchSharedCount();
-        }
+        fetchSharedCount
       )
       .subscribe();
 
@@ -83,9 +81,7 @@ export const AppLayout: React.FC = () => {
           table: 'notifications',
           filter: `user_id=eq.${user.id}`,
         },
-        () => {
-          fetchNotificationCount();
-        }
+        fetchNotificationCount
       )
       .subscribe();
 
@@ -189,23 +185,27 @@ export const AppLayout: React.FC = () => {
                   }`
                 }
               >
-                <div className="flex items-center gap-3">
-                  <Icon size={18} />
-                  <span>{item.label}</span>
-                </div>
+                {({ isActive }) => (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <Icon size={18} />
+                      <span>{item.label}</span>
+                    </div>
 
-                {item.badge && (
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full ${
-                      item.badge === 'Paused'
-                        ? 'bg-slate-100 text-slate-500'
-                        : isActive
-                          ? 'bg-white text-slate-900'
-                          : 'bg-slate-900 text-white'
-                    }`}
-                  >
-                    {item.badge}
-                  </span>
+                    {item.badge && (
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full ${
+                          item.badge === 'Paused'
+                            ? 'bg-slate-100 text-slate-500'
+                            : isActive
+                              ? 'bg-white text-slate-900'
+                              : 'bg-slate-900 text-white'
+                        }`}
+                      >
+                        {item.badge}
+                      </span>
+                    )}
+                  </>
                 )}
               </NavLink>
             );
