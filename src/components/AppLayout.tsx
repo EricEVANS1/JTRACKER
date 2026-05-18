@@ -12,9 +12,11 @@ import {
   Inbox,
   LayoutDashboard,
   Mail,
+  Menu,
   Settings,
   Users,
   Users2,
+  X,
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
@@ -26,6 +28,7 @@ export const AppLayout: React.FC = () => {
 
   const [sharedCount, setSharedCount] = useState(0);
   const [notificationCount, setNotificationCount] = useState(0);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -37,9 +40,7 @@ export const AppLayout: React.FC = () => {
         .eq('recipient_user_id', user.id)
         .is('added_application_id', null);
 
-      if (!error) {
-        setSharedCount(count || 0);
-      }
+      if (!error) setSharedCount(count || 0);
     };
 
     const fetchNotificationCount = async () => {
@@ -49,9 +50,7 @@ export const AppLayout: React.FC = () => {
         .eq('user_id', user.id)
         .eq('read', false);
 
-      if (!error) {
-        setNotificationCount(count || 0);
-      }
+      if (!error) setNotificationCount(count || 0);
     };
 
     fetchSharedCount();
@@ -100,7 +99,6 @@ export const AppLayout: React.FC = () => {
       { label: 'Companies', path: '/companies', icon: Building2, enabled: true },
       { label: 'Analytics', path: '/analytics', icon: BarChart3, enabled: true },
       { label: 'CV Manager', path: '/cv-manager', icon: FileText, enabled: true },
-
       {
         label: 'Gmail Sync',
         path: '/gmail-sync',
@@ -108,7 +106,6 @@ export const AppLayout: React.FC = () => {
         enabled: FEATURES.GMAIL_SYNC,
         badge: 'Paused',
       },
-
       {
         label: 'Email Events',
         path: '/email-events',
@@ -116,7 +113,6 @@ export const AppLayout: React.FC = () => {
         enabled: FEATURES.EMAIL_EVENTS,
         badge: 'Paused',
       },
-
       {
         label: 'Notifications',
         path: '/notifications',
@@ -124,7 +120,6 @@ export const AppLayout: React.FC = () => {
         enabled: true,
         badge: notificationCount > 0 ? String(notificationCount) : undefined,
       },
-
       {
         label: 'Shared With Me',
         path: '/shared-with-me',
@@ -132,7 +127,6 @@ export const AppLayout: React.FC = () => {
         enabled: true,
         badge: sharedCount > 0 ? String(sharedCount) : undefined,
       },
-
       { label: 'Recruiters', path: '/recruiters', icon: Users, enabled: true },
       { label: 'Kanban', path: '/kanban', icon: Columns3, enabled: true },
       { label: 'Settings', path: '/settings', icon: Settings, enabled: true },
@@ -140,91 +134,143 @@ export const AppLayout: React.FC = () => {
     [sharedCount, notificationCount]
   );
 
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex">
-      <aside className="w-64 bg-white border-r border-slate-200 p-5 flex flex-col">
-        <div className="mb-8">
+  const SidebarContent = () => (
+    <>
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
           <h1 className="text-2xl font-bold">JTracker</h1>
           <p className="text-sm text-slate-500">Track every opportunity</p>
         </div>
 
-        <nav className="space-y-2 flex-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
+        <button
+          onClick={() => setMobileSidebarOpen(false)}
+          className="lg:hidden rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+          aria-label="Close menu"
+        >
+          <X size={20} />
+        </button>
+      </div>
 
-            if (!item.enabled) {
-              return (
-                <div
-                  key={item.path}
-                  title={`${item.label} is paused for upgrades`}
-                  className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 cursor-not-allowed opacity-60"
-                >
+      <nav className="space-y-2 flex-1 overflow-y-auto pr-1">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+
+          if (!item.enabled) {
+            return (
+              <div
+                key={item.path}
+                title={`${item.label} is paused for upgrades`}
+                className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 cursor-not-allowed opacity-60"
+              >
+                <div className="flex items-center gap-3">
+                  <Icon size={18} />
+                  <span>{item.label}</span>
+                </div>
+
+                {item.badge && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                    {item.badge}
+                  </span>
+                )}
+              </div>
+            );
+          }
+
+          return (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              onClick={() => setMobileSidebarOpen(false)}
+              className={({ isActive }) =>
+                `flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                  isActive
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
                   <div className="flex items-center gap-3">
                     <Icon size={18} />
                     <span>{item.label}</span>
                   </div>
 
                   {item.badge && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full ${
+                        item.badge === 'Paused'
+                          ? 'bg-slate-100 text-slate-500'
+                          : isActive
+                            ? 'bg-white text-slate-900'
+                            : 'bg-slate-900 text-white'
+                      }`}
+                    >
                       {item.badge}
                     </span>
                   )}
-                </div>
-              );
-            }
+                </>
+              )}
+            </NavLink>
+          );
+        })}
+      </nav>
 
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) =>
-                  `flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    isActive
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    <div className="flex items-center gap-3">
-                      <Icon size={18} />
-                      <span>{item.label}</span>
-                    </div>
+      <div className="border-t border-slate-200 pt-4 mt-4">
+        <p className="text-xs text-slate-500 truncate mb-3">{user?.email}</p>
 
-                    {item.badge && (
-                      <span
-                        className={`text-[10px] px-2 py-0.5 rounded-full ${
-                          item.badge === 'Paused'
-                            ? 'bg-slate-100 text-slate-500'
-                            : isActive
-                              ? 'bg-white text-slate-900'
-                              : 'bg-slate-900 text-white'
-                        }`}
-                      >
-                        {item.badge}
-                      </span>
-                    )}
-                  </>
-                )}
-              </NavLink>
-            );
-          })}
-        </nav>
+        <button
+          onClick={signOut}
+          className="w-full bg-slate-900 text-white rounded-lg px-3 py-2 text-sm hover:bg-slate-700 transition"
+        >
+          Sign Out
+        </button>
+      </div>
+    </>
+  );
 
-        <div className="border-t border-slate-200 pt-4">
-          <p className="text-xs text-slate-500 truncate mb-3">{user?.email}</p>
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      {/* Mobile top bar */}
+      <header className="lg:hidden sticky top-0 z-40 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+        <button
+          onClick={() => setMobileSidebarOpen(true)}
+          className="rounded-lg p-2 text-slate-700 hover:bg-slate-100"
+          aria-label="Open menu"
+        >
+          <Menu size={22} />
+        </button>
 
-          <button
-            onClick={signOut}
-            className="w-full bg-slate-900 text-white rounded-lg px-3 py-2 text-sm hover:bg-slate-700 transition"
-          >
-            Sign Out
-          </button>
+        <div className="text-center">
+          <h1 className="text-base font-bold">JTracker</h1>
+          <p className="text-xs text-slate-500">Track opportunities</p>
         </div>
+
+        <div className="w-9" />
+      </header>
+
+      {/* Desktop sidebar */}
+      <aside className="hidden lg:fixed lg:left-0 lg:top-0 lg:flex lg:h-screen lg:w-64 bg-white border-r border-slate-200 p-5 flex-col">
+        <SidebarContent />
       </aside>
 
-      <main className="flex-1 p-8">
+      {/* Mobile drawer */}
+      {mobileSidebarOpen && (
+        <div className="lg:hidden fixed inset-0 z-50">
+          <button
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setMobileSidebarOpen(false)}
+            aria-label="Close menu overlay"
+          />
+
+          <aside className="absolute left-0 top-0 h-full w-[82%] max-w-xs bg-white border-r border-slate-200 p-5 flex flex-col shadow-xl">
+            <SidebarContent />
+          </aside>
+        </div>
+      )}
+
+      {/* Main content */}
+      <main className="lg:ml-64 p-4 sm:p-6 lg:p-8">
         <Outlet />
       </main>
     </div>
