@@ -67,7 +67,6 @@ interface RawApplication {
   archived_at: string | null;
   created_at: string;
   updated_at: string | null;
-
   response_received_at?: string | null;
   assessment_received_at?: string | null;
   interview_started_at?: string | null;
@@ -79,7 +78,6 @@ interface RawApplication {
   last_status_changed_at?: string | null;
   follow_up_date?: string | null;
   priority?: string | null;
-
   companies?: CompanyJoin | CompanyJoin[] | null;
   cv_versions?: CVVersionJoin | CVVersionJoin[] | null;
   recruiters?: RecruiterJoin | RecruiterJoin[] | null;
@@ -125,8 +123,7 @@ const statusStyle: Record<ApplicationStatus, string> = {
 };
 
 const inputCls =
-  'border border-slate-200 rounded-lg px-3 py-2 text-sm w-full bg-white ' +
-  'focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
+  'border border-slate-200 rounded-lg px-3 py-2 text-sm w-full bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
 
 const formatStatus = (status: string) =>
   status.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
@@ -146,7 +143,6 @@ export const ApplicationsPage: React.FC = () => {
 
   const [applications, setApplications] = useState<Application[]>([]);
   const [cvVersions, setCvVersions] = useState<CVVersionJoin[]>([]);
-
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -155,7 +151,6 @@ export const ApplicationsPage: React.FC = () => {
 
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | ApplicationStatus>('all');
 
@@ -365,9 +360,7 @@ export const ApplicationsPage: React.FC = () => {
     });
 
     setApplications((prev) =>
-      prev.map((app) =>
-        app.id === applicationId ? { ...app, ...updatePayload } : app
-      )
+      prev.map((app) => (app.id === applicationId ? { ...app, ...updatePayload } : app))
     );
 
     setMessage(`Status updated to ${formatStatus(newStatus)}.`);
@@ -445,19 +438,15 @@ ${shareNote || 'Thought this role might interest you.'}`;
         sender_user_id: user.id,
         recipient_user_id: recipientUserId,
         application_id: app.id,
-
         public_share_id: publicShareId,
-
         role_title: app.role_title,
         company_name: app.companies?.name || null,
         location: app.location || null,
         job_link: app.application_link || null,
         note: shareNote || null,
-
         include_status: includeStatus,
         include_notes: includeNotes,
         include_experience: false,
-
         status_snapshot: includeStatus ? app.status : null,
         notes_snapshot: includeNotes ? app.notes : null,
         experience_snapshot: null,
@@ -512,15 +501,9 @@ ${shareNote || 'Thought this role might interest you.'}`;
       const recipientProfile = profiles?.[0];
 
       if (!recipientProfile) throw new Error('No JTracker user found with that email.');
+      if (recipientProfile.id === user.id) throw new Error('You cannot share an opportunity with yourself.');
 
-      if (recipientProfile.id === user.id) {
-        throw new Error('You cannot share an opportunity with yourself.');
-      }
-
-      const sharedOpportunity = await createShareSnapshot(
-        selectedShareApp,
-        recipientProfile.id
-      );
+      const sharedOpportunity = await createShareSnapshot(selectedShareApp, recipientProfile.id);
 
       const { error: notificationError } = await supabase.from('notifications').insert({
         user_id: recipientProfile.id,
@@ -532,9 +515,7 @@ ${shareNote || 'Thought this role might interest you.'}`;
         read: false,
       });
 
-      if (notificationError) {
-        throw new Error(notificationError.message);
-      }
+      if (notificationError) throw new Error(notificationError.message);
 
       setMessage('Opportunity shared successfully.');
       setShareModalOpen(false);
@@ -709,21 +690,21 @@ ${shareNote || 'Thought this role might interest you.'}`;
   if (loading) return <ApplicationsSkeleton />;
 
   return (
-    <div>
+    <div className="w-full max-w-full overflow-hidden">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
         <div>
-          <h2 className="text-3xl font-bold mb-1">Applications</h2>
-          <p className="text-slate-500 text-sm">
+          <h2 className="text-2xl sm:text-3xl font-bold mb-1">Applications</h2>
+          <p className="text-slate-500 text-sm sm:text-base">
             Track applications, CV versions, lifecycle dates, and job-search progress.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap w-full sm:w-auto gap-2">
           <button
             type="button"
             onClick={handleRefresh}
             disabled={refreshing}
-            className="border border-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center gap-2"
+            className="w-full sm:w-auto border border-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
           >
             <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
             {refreshing ? 'Refreshing...' : 'Refresh'}
@@ -736,7 +717,7 @@ ${shareNote || 'Thought this role might interest you.'}`;
               setError('');
               setMessage('');
             }}
-            className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 transition inline-flex items-center gap-2"
+            className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 transition inline-flex items-center justify-center gap-2"
           >
             {showForm ? <X size={15} /> : <Plus size={15} />}
             {showForm ? 'Close' : 'Add Application'}
@@ -750,9 +731,9 @@ ${shareNote || 'Thought this role might interest you.'}`;
       {showForm && (
         <form
           onSubmit={handleCreateApplication}
-          className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 mb-8"
+          className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 mb-8 overflow-hidden"
         >
-          <div className="flex items-start justify-between gap-4 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
             <div>
               <h3 className="text-lg font-semibold mb-1">Quick Add Application</h3>
               <p className="text-sm text-slate-500">
@@ -763,7 +744,7 @@ ${shareNote || 'Thought this role might interest you.'}`;
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="text-slate-400 hover:text-slate-700"
+              className="self-start text-slate-400 hover:text-slate-700"
             >
               <X size={18} />
             </button>
@@ -771,46 +752,24 @@ ${shareNote || 'Thought this role might interest you.'}`;
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             <Field label="Role Title *">
-              <input
-                value={roleTitle}
-                onChange={(e) => setRoleTitle(e.target.value)}
-                className={inputCls}
-                placeholder="Junior Software Engineer"
-                required
-                autoFocus
-              />
+              <input value={roleTitle} onChange={(e) => setRoleTitle(e.target.value)} className={inputCls} placeholder="Junior Software Engineer" required autoFocus />
             </Field>
 
             <Field label="Company Name">
-              <input
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                className={inputCls}
-                placeholder="Revolut, Google, Cognizant..."
-              />
+              <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} className={inputCls} placeholder="Revolut, Google, Cognizant..." />
             </Field>
 
             <Field label="CV Version">
-              <select
-                value={selectedCvId}
-                onChange={(e) => setSelectedCvId(e.target.value)}
-                className={inputCls}
-              >
+              <select value={selectedCvId} onChange={(e) => setSelectedCvId(e.target.value)} className={inputCls}>
                 <option value="">No CV selected</option>
                 {cvVersions.map((cv) => (
-                  <option key={cv.id} value={cv.id}>
-                    {cv.name}
-                  </option>
+                  <option key={cv.id} value={cv.id}>{cv.name}</option>
                 ))}
               </select>
             </Field>
 
             <Field label="Source">
-              <select
-                value={source}
-                onChange={(e) => setSource(e.target.value)}
-                className={inputCls}
-              >
+              <select value={source} onChange={(e) => setSource(e.target.value)} className={inputCls}>
                 <option value="">Select source</option>
                 <option value="linkedin">LinkedIn</option>
                 <option value="company_website">Company Website</option>
@@ -824,37 +783,19 @@ ${shareNote || 'Thought this role might interest you.'}`;
             </Field>
 
             <Field label="Status">
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as ApplicationStatus)}
-                className={inputCls}
-              >
-                {statusOptions
-                  .filter((option) => option.value !== 'archived')
-                  .map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
+              <select value={status} onChange={(e) => setStatus(e.target.value as ApplicationStatus)} className={inputCls}>
+                {statusOptions.filter((option) => option.value !== 'archived').map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
             </Field>
 
             <Field label="Date Applied">
-              <input
-                type="date"
-                value={dateApplied}
-                onChange={(e) => setDateApplied(e.target.value)}
-                className={inputCls}
-              />
+              <input type="date" value={dateApplied} onChange={(e) => setDateApplied(e.target.value)} className={inputCls} />
             </Field>
 
             <Field label="Application Link">
-              <input
-                value={applicationLink}
-                onChange={(e) => setApplicationLink(e.target.value)}
-                className={inputCls}
-                placeholder="Paste job link"
-              />
+              <input value={applicationLink} onChange={(e) => setApplicationLink(e.target.value)} className={inputCls} placeholder="Paste job link" />
             </Field>
           </div>
 
@@ -865,20 +806,11 @@ ${shareNote || 'Thought this role might interest you.'}`;
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
               <Field label="Location">
-                <input
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  className={inputCls}
-                  placeholder="Warsaw, Remote, London..."
-                />
+                <input value={location} onChange={(e) => setLocation(e.target.value)} className={inputCls} placeholder="Warsaw, Remote, London..." />
               </Field>
 
               <Field label="Job Type">
-                <select
-                  value={jobType}
-                  onChange={(e) => setJobType(e.target.value)}
-                  className={inputCls}
-                >
+                <select value={jobType} onChange={(e) => setJobType(e.target.value)} className={inputCls}>
                   <option value="">Select job type</option>
                   <option value="Full Time">Full Time</option>
                   <option value="Part Time">Part Time</option>
@@ -890,20 +822,11 @@ ${shareNote || 'Thought this role might interest you.'}`;
               </Field>
 
               <Field label="Salary Range">
-                <input
-                  value={salaryRange}
-                  onChange={(e) => setSalaryRange(e.target.value)}
-                  className={inputCls}
-                  placeholder="8,000–12,000 PLN"
-                />
+                <input value={salaryRange} onChange={(e) => setSalaryRange(e.target.value)} className={inputCls} placeholder="8,000–12,000 PLN" />
               </Field>
 
               <Field label="Priority">
-                <select
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value)}
-                  className={inputCls}
-                >
+                <select value={priority} onChange={(e) => setPriority(e.target.value)} className={inputCls}>
                   <option value="low">Low</option>
                   <option value="medium">Medium</option>
                   <option value="high">High</option>
@@ -911,36 +834,25 @@ ${shareNote || 'Thought this role might interest you.'}`;
               </Field>
 
               <Field label="Follow-up Date">
-                <input
-                  type="datetime-local"
-                  value={followUpDate}
-                  onChange={(e) => setFollowUpDate(e.target.value)}
-                  className={inputCls}
-                />
+                <input type="datetime-local" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} className={inputCls} />
               </Field>
             </div>
 
             <div className="mt-4">
               <Field label="Notes">
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={3}
-                  className={`${inputCls} resize-y`}
-                  placeholder="Extra notes..."
-                />
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className={`${inputCls} resize-y`} placeholder="Extra notes..." />
               </Field>
             </div>
           </details>
 
-          <div className="flex justify-end gap-3 mt-6">
+          <div className="flex flex-col sm:flex-row sm:justify-end gap-3 mt-6">
             <button
               type="button"
               onClick={() => {
                 resetForm();
                 setShowForm(false);
               }}
-              className="border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition"
+              className="w-full sm:w-auto border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition"
             >
               Cancel
             </button>
@@ -948,7 +860,7 @@ ${shareNote || 'Thought this role might interest you.'}`;
             <button
               type="submit"
               disabled={saving}
-              className="bg-slate-900 text-white px-5 py-2 rounded-lg text-sm hover:bg-slate-700 transition disabled:opacity-50"
+              className="w-full sm:w-auto bg-slate-900 text-white px-5 py-2 rounded-lg text-sm hover:bg-slate-700 transition disabled:opacity-50"
             >
               {saving ? 'Saving...' : 'Add Application'}
             </button>
@@ -957,42 +869,35 @@ ${shareNote || 'Thought this role might interest you.'}`;
       )}
 
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mb-6">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-3">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_220px] gap-3">
           <div className="relative">
-            <Search
-              size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-            />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search role, company, or source..."
-              className={`${inputCls} pl-9`}
-            />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search role, company, or source..." className={`${inputCls} pl-9`} />
           </div>
 
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as 'all' | ApplicationStatus)}
-            className={inputCls}
-          >
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | ApplicationStatus)} className={inputCls}>
             <option value="all">All statuses</option>
             {statusOptions.map((status) => (
-              <option key={status.value} value={status.value}>
-                {status.label}
-              </option>
+              <option key={status.value} value={status.value}>{status.label}</option>
             ))}
           </select>
         </div>
       </div>
 
       {filteredApplications.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-10 text-center">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-10 text-center">
           <Briefcase size={32} className="mx-auto text-slate-300 mb-3" />
           <h3 className="text-lg font-semibold mb-1">No applications found</h3>
-          <p className="text-slate-500 text-sm">
-            Add an application or adjust your search/filter.
-          </p>
+          <p className="text-slate-500 text-sm">Add an application or adjust your search/filter.</p>
+
+          <div className="mt-5">
+            <button
+              onClick={() => setShowForm(true)}
+              className="bg-slate-900 text-white px-5 py-2 rounded-lg text-sm hover:bg-slate-700 transition"
+            >
+              Add Your First Application
+            </button>
+          </div>
         </div>
       ) : (
         <div className="space-y-4">
@@ -1010,34 +915,27 @@ ${shareNote || 'Thought this role might interest you.'}`;
       )}
 
       {shareModalOpen && selectedShareApp && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6">
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4 py-6">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
             <div className="flex items-start justify-between gap-4 mb-5">
               <div>
                 <h2 className="text-xl font-bold">Share Opportunity</h2>
-                <p className="text-sm text-slate-500 mt-1">
-                  Share a safe snapshot of this role.
-                </p>
+                <p className="text-sm text-slate-500 mt-1">Share a safe snapshot of this role.</p>
               </div>
 
-              <button
-                onClick={() => setShareModalOpen(false)}
-                className="text-slate-400 hover:text-slate-700"
-              >
+              <button onClick={() => setShareModalOpen(false)} className="text-slate-400 hover:text-slate-700">
                 <X size={20} />
               </button>
             </div>
 
-            <div className="flex gap-2 mb-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-5">
               {(['internal', 'public', 'whatsapp'] as const).map((tab) => (
                 <button
                   key={tab}
                   type="button"
                   onClick={() => setShareTab(tab)}
                   className={`px-3 py-2 rounded-lg text-sm capitalize ${
-                    shareTab === tab
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-slate-100 text-slate-600'
+                    shareTab === tab ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
                   }`}
                 >
                   {tab === 'public' ? 'Public Link' : tab}
@@ -1046,20 +944,15 @@ ${shareNote || 'Thought this role might interest you.'}`;
             </div>
 
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
-              <p className="font-semibold">{selectedShareApp.role_title}</p>
-              <p className="text-sm text-slate-600">
+              <p className="font-semibold break-words">{selectedShareApp.role_title}</p>
+              <p className="text-sm text-slate-600 break-words">
                 {selectedShareApp.companies?.name || 'Unknown Company'}
                 {selectedShareApp.location ? ` — ${selectedShareApp.location}` : ''}
               </p>
             </div>
 
             <Field label="Optional Message">
-              <textarea
-                value={shareNote}
-                onChange={(e) => setShareNote(e.target.value)}
-                placeholder="Thought this role might interest you..."
-                className={`${inputCls} min-h-24`}
-              />
+              <textarea value={shareNote} onChange={(e) => setShareNote(e.target.value)} placeholder="Thought this role might interest you..." className={`${inputCls} min-h-24`} />
             </Field>
 
             <div className="border border-slate-200 rounded-xl p-4 bg-slate-50 mt-4">
@@ -1067,20 +960,12 @@ ${shareNote || 'Thought this role might interest you.'}`;
 
               <div className="space-y-2 text-sm text-slate-700">
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={includeStatus}
-                    onChange={(e) => setIncludeStatus(e.target.checked)}
-                  />
+                  <input type="checkbox" checked={includeStatus} onChange={(e) => setIncludeStatus(e.target.checked)} />
                   Include application status
                 </label>
 
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={includeNotes}
-                    onChange={(e) => setIncludeNotes(e.target.checked)}
-                  />
+                  <input type="checkbox" checked={includeNotes} onChange={(e) => setIncludeNotes(e.target.checked)} />
                   Include private notes
                 </label>
               </div>
@@ -1089,20 +974,10 @@ ${shareNote || 'Thought this role might interest you.'}`;
             {shareTab === 'internal' && (
               <div className="mt-4">
                 <Field label="Recipient Email">
-                  <input
-                    type="email"
-                    value={recipientEmail}
-                    onChange={(e) => setRecipientEmail(e.target.value)}
-                    placeholder="friend@example.com"
-                    className={inputCls}
-                  />
+                  <input type="email" value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} placeholder="friend@example.com" className={inputCls} />
                 </Field>
 
-                <button
-                  onClick={handleInternalShare}
-                  disabled={sharing}
-                  className="mt-4 w-full bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
-                >
+                <button onClick={handleInternalShare} disabled={sharing} className="mt-4 w-full bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">
                   {sharing ? 'Sharing...' : 'Share Internally'}
                 </button>
               </div>
@@ -1112,18 +987,11 @@ ${shareNote || 'Thought this role might interest you.'}`;
               <div className="mt-4 space-y-3">
                 {publicShareLink && <input value={publicShareLink} readOnly className={inputCls} />}
 
-                <button
-                  onClick={handleGeneratePublicLink}
-                  disabled={sharing}
-                  className="w-full bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
-                >
+                <button onClick={handleGeneratePublicLink} disabled={sharing} className="w-full bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">
                   {sharing ? 'Generating...' : 'Generate & Copy Public Link'}
                 </button>
 
-                <button
-                  onClick={handleCopySummary}
-                  className="w-full border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2"
-                >
+                <button onClick={handleCopySummary} className="w-full border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2">
                   <Copy size={15} />
                   Copy Summary
                 </button>
@@ -1132,19 +1000,12 @@ ${shareNote || 'Thought this role might interest you.'}`;
 
             {shareTab === 'whatsapp' && (
               <div className="mt-4 space-y-3">
-                <button
-                  onClick={handleWhatsAppShare}
-                  disabled={sharing}
-                  className="w-full bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2"
-                >
+                <button onClick={handleWhatsAppShare} disabled={sharing} className="w-full bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2">
                   <MessageCircle size={15} />
                   {sharing ? 'Preparing...' : 'Share on WhatsApp'}
                 </button>
 
-                <button
-                  onClick={handleCopySummary}
-                  className="w-full border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2"
-                >
+                <button onClick={handleCopySummary} className="w-full border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2">
                   <Copy size={15} />
                   Copy WhatsApp Text
                 </button>
@@ -1152,6 +1013,16 @@ ${shareNote || 'Thought this role might interest you.'}`;
             )}
           </div>
         </div>
+      )}
+
+      {!showForm && (
+        <button
+          onClick={() => setShowForm(true)}
+          className="sm:hidden fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-slate-900 text-white shadow-lg flex items-center justify-center"
+          aria-label="Add application"
+        >
+          <Plus size={22} />
+        </button>
       )}
     </div>
   );
@@ -1225,7 +1096,7 @@ const ApplicationCard = ({
   ];
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 hover:shadow-md transition">
+    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-5 hover:shadow-md transition overflow-hidden">
       <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
@@ -1233,21 +1104,15 @@ const ApplicationCard = ({
           </div>
 
           <div className="min-w-0">
-            <h3 className="text-base font-semibold text-slate-950 truncate">
-              {app.role_title}
-            </h3>
+            <h3 className="text-base font-semibold text-slate-950 break-words">{app.role_title}</h3>
 
-            <p className="text-sm text-slate-500 mt-0.5 truncate">
+            <p className="text-sm text-slate-500 mt-0.5 break-words">
               {companyName}
               {app.location ? ` · ${app.location}` : ''}
             </p>
 
             <div className="flex flex-wrap items-center gap-2 mt-3">
-              <span
-                className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
-                  statusStyle[app.status]
-                }`}
-              >
+              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${statusStyle[app.status]}`}>
                 {formatStatus(app.status)}
               </span>
 
@@ -1259,51 +1124,38 @@ const ApplicationCard = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 xl:min-w-[360px] xl:justify-end">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 w-full xl:min-w-[360px] xl:justify-end">
           <select
             value={app.status}
             disabled={updating}
             onChange={(e) => onStatusChange(app.id, e.target.value as ApplicationStatus)}
-           className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
+            className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition"
           >
             {statusOptions.map((status) => (
-              <option key={status.value} value={status.value}>
-                {status.label}
-              </option>
+              <option key={status.value} value={status.value}>{status.label}</option>
             ))}
           </select>
 
-          <button
-            onClick={() => onShare(app)}
-            className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
-          >
+          <button onClick={() => onShare(app)} className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5">
             <Share2 size={14} />
             Share
           </button>
 
           {app.application_link && (
-            <a
-              href={app.application_link}
-              target="_blank"
-              rel="noreferrer"
-              className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
-            >
+            <a href={app.application_link} target="_blank" rel="noreferrer" className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5">
               <ExternalLink size={14} />
               Open Role
             </a>
           )}
 
-          <button
-            onClick={() => onDelete(app.id)}
-            className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
-          >
+          <button onClick={() => onDelete(app.id)} className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5">
             <Trash2 size={14} />
             Delete
           </button>
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm">
         <CompactMeta label="Applied" value={formatDate(app.date_applied)} />
         <CompactMeta label="Follow-up" value={formatDate(app.follow_up_date)} />
         <CompactMeta label="Last update" value={formatDate(app.last_status_changed_at)} />
@@ -1314,51 +1166,35 @@ const ApplicationCard = ({
         <div className="flex items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
             <CalendarDays size={15} className="text-slate-500" />
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              Lifecycle
-            </p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Lifecycle</p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowLifecycle((prev) => !prev)}
-            className="text-xs font-medium text-slate-600 hover:text-slate-900"
-          >
+          <button type="button" onClick={() => setShowLifecycle((prev) => !prev)} className="text-xs font-medium text-slate-600 hover:text-slate-900">
             {showLifecycle ? 'Hide details' : 'View details'}
           </button>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
           {lifecycleSteps.map((step) => {
             const complete = Boolean(step.date);
 
             return (
               <div key={step.label}>
                 <div className="flex items-center gap-2">
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                      complete ? 'bg-slate-900' : 'bg-slate-300'
-                    }`}
-                  />
-                  <span
-                    className={`text-xs font-medium ${
-                      complete ? 'text-slate-800' : 'text-slate-400'
-                    }`}
-                  >
+                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${complete ? 'bg-slate-900' : 'bg-slate-300'}`} />
+                  <span className={`text-xs font-medium ${complete ? 'text-slate-800' : 'text-slate-400'}`}>
                     {step.label}
                   </span>
                 </div>
 
-                <p className="text-xs text-slate-500 mt-1 ml-4">
-                  {complete ? formatDate(step.date) : '—'}
-                </p>
+                <p className="text-xs text-slate-500 mt-1 ml-4">{complete ? formatDate(step.date) : '—'}</p>
               </div>
             );
           })}
         </div>
 
         {showLifecycle && (
-          <div className="mt-4 pt-4 border-t border-slate-200 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-3">
+          <div className="mt-4 pt-4 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
             <CompactMeta label="Assessment" value={formatDate(app.assessment_received_at)} />
             <CompactMeta label="Final Interview" value={formatDate(app.final_interview_started_at)} />
             <CompactMeta label="Offer" value={formatDate(app.offer_received_at)} />
@@ -1372,7 +1208,7 @@ const ApplicationCard = ({
       </div>
 
       {app.notes && (
-        <div className="mt-5 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">
+        <div className="mt-5 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-600 whitespace-pre-wrap leading-relaxed break-words">
           {app.notes}
         </div>
       )}
@@ -1396,12 +1232,8 @@ const AlertBox = ({
         : 'bg-emerald-50 border-emerald-200 text-emerald-700'
     }`}
   >
-    {type === 'error' ? (
-      <AlertCircle size={16} className="shrink-0 mt-0.5" />
-    ) : (
-      <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
-    )}
-    <span className="text-sm flex-1">{message}</span>
+    {type === 'error' ? <AlertCircle size={16} className="shrink-0 mt-0.5" /> : <CheckCircle2 size={16} className="shrink-0 mt-0.5" />}
+    <span className="text-sm flex-1 break-words">{message}</span>
     <button onClick={onClose} className="opacity-70 hover:opacity-100">
       <X size={16} />
     </button>
@@ -1424,27 +1256,24 @@ const Badge = ({ children }: { children: React.ReactNode }) => (
 );
 
 const CompactMeta = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2">
+  <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 min-w-0">
     <p className="text-[11px] text-slate-400">{label}</p>
-    <p className="text-sm font-medium text-slate-700 truncate">{value}</p>
+    <p className="text-sm font-medium text-slate-700 break-words">{value}</p>
   </div>
 );
 
 const ApplicationsSkeleton = () => (
-  <div>
+  <div className="w-full max-w-full overflow-hidden">
     <div className="mb-8">
       <div className="h-8 w-52 bg-slate-200 rounded-lg animate-pulse mb-2" />
-      <div className="h-4 w-96 bg-slate-100 rounded-lg animate-pulse" />
+      <div className="h-4 w-full max-w-96 bg-slate-100 rounded-lg animate-pulse" />
     </div>
 
     <div className="h-16 bg-white border border-slate-200 rounded-2xl animate-pulse mb-6" />
 
     <div className="space-y-4">
       {Array.from({ length: 3 }).map((_, index) => (
-        <div
-          key={index}
-          className="h-64 bg-white border border-slate-200 rounded-2xl animate-pulse"
-        />
+        <div key={index} className="h-64 bg-white border border-slate-200 rounded-2xl animate-pulse" />
       ))}
     </div>
   </div>

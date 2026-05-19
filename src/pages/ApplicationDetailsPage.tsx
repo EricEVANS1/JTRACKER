@@ -58,11 +58,9 @@ interface RawApplication extends Omit<Application, 'companies' | 'cv_versions' |
   companies?: CompanyJoin | CompanyJoin[] | null;
   cv_versions?: CVVersionJoin | CVVersionJoin[] | null;
   recruiters?: RecruiterJoin | RecruiterJoin[] | null;
-
   recruiter_id?: string | null;
   follow_up_date?: string | null;
   last_status_changed_at?: string | null;
-
   response_received_at?: string | null;
   assessment_received_at?: string | null;
   interview_started_at?: string | null;
@@ -385,9 +383,7 @@ export const ApplicationDetailsPage: React.FC = () => {
       setInterviewStage(data.interview_stage || '');
       setInterviewDate(data.interview_date ? data.interview_date.slice(0, 16) : '');
       setInterviewNotes(data.notes || '');
-      setInterviewQuestions(
-        Array.isArray(data.questions) ? data.questions.join('\n') : ''
-      );
+      setInterviewQuestions(Array.isArray(data.questions) ? data.questions.join('\n') : '');
     }
 
     setLoading(false);
@@ -449,9 +445,7 @@ export const ApplicationDetailsPage: React.FC = () => {
       application_id: id,
       event_type: 'status_changed',
       title: `Status changed to ${formatStatus(selectedStatus)}`,
-      description: `Status changed from ${formatStatus(oldStatus)} to ${formatStatus(
-        selectedStatus
-      )}.`,
+      description: `Status changed from ${formatStatus(oldStatus)} to ${formatStatus(selectedStatus)}.`,
       event_date: new Date().toISOString(),
     });
 
@@ -681,19 +675,15 @@ Best regards,`;
       sender_user_id: user.id,
       recipient_user_id: recipientProfile.id,
       application_id: application.id,
-
       public_share_id: publicShareId,
-
       role_title: application.role_title,
       company_name: application.companies?.name || null,
       location: application.location || application.companies?.location || null,
       job_link: application.application_link || null,
       note: shareNote || null,
-
       include_status: includeStatus,
       include_notes: includeNotes,
       include_experience: includeExperience,
-
       status_snapshot: includeStatus ? application.status : null,
       notes_snapshot: includeNotes ? application.notes : null,
       experience_snapshot: includeExperience
@@ -732,14 +722,16 @@ Best regards,`;
 
   if (!application) {
     return (
-      <div className="bg-white border border-slate-200 rounded-2xl p-8">
-        <p className="text-slate-500">Application not found.</p>
+      <div className="w-full max-w-full overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8">
+          <p className="text-slate-500">Application not found.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div>
+    <div className="w-full max-w-full overflow-hidden">
       <Link
         to="/applications"
         className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 mb-6"
@@ -749,22 +741,24 @@ Best regards,`;
       </Link>
 
       {error && <AlertBox type="error" message={error} onClose={() => setError('')} />}
-      {message && (
-        <AlertBox type="success" message={message} onClose={() => setMessage('')} />
-      )}
+      {message && <AlertBox type="success" message={message} onClose={() => setMessage('')} />}
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 mb-6">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 lg:p-8 mb-6 overflow-hidden">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">{application.role_title}</h1>
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold mb-2 break-words">
+              {application.role_title}
+            </h1>
 
-            <div className="flex items-center gap-2 text-slate-600 mb-4">
-              <Building2 size={18} />
-              <span>{application.companies?.name || 'Unknown Company'}</span>
+            <div className="flex items-center gap-2 text-slate-600 mb-4 min-w-0">
+              <Building2 size={18} className="shrink-0" />
+              <span className="break-words">
+                {application.companies?.name || 'Unknown Company'}
+              </span>
             </div>
 
             <span
-              className={`px-3 py-1 rounded-full text-sm font-medium ${
+              className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ${
                 statusClasses[application.status] || statusClasses.applied
               }`}
             >
@@ -787,18 +781,18 @@ Best regards,`;
               <button
                 onClick={handleUpdateStatus}
                 disabled={savingStatus || selectedStatus === application.status}
-                className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
+                className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 whitespace-nowrap"
               >
                 {savingStatus ? 'Updating...' : 'Update Status'}
               </button>
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row lg:flex-col xl:flex-row gap-3 w-full lg:w-auto">
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="inline-flex items-center justify-center gap-2 border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
             >
               <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
               Refresh
@@ -806,17 +800,17 @@ Best regards,`;
 
             <button
               onClick={() => setEditingDetails((prev) => !prev)}
-              className="inline-flex items-center justify-center border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm"
+              className="w-full sm:w-auto inline-flex items-center justify-center border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm"
             >
               {editingDetails ? 'Cancel Edit' : 'Edit Details'}
             </button>
 
             <button
               onClick={() => setShareModalOpen(true)}
-              className="inline-flex items-center justify-center gap-2 border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm"
             >
               <Share2 size={16} />
-              Share Opportunity
+              Share
             </button>
 
             {application.application_link && (
@@ -824,16 +818,16 @@ Best regards,`;
                 href={application.application_link}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm"
               >
-                Open Job Posting
+                Open Job
                 <ExternalLink size={16} />
               </a>
             )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4 mt-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 mt-8">
           <InfoCard icon={<CalendarDays size={16} />} label="Date Applied" value={formatDate(application.date_applied)} />
           <InfoCard icon={<Mail size={16} />} label="Email Used" value={application.email_used || 'Not specified'} />
           <InfoCard icon={<MapPin size={16} />} label="Location" value={application.location || 'Not specified'} />
@@ -842,7 +836,7 @@ Best regards,`;
           <InfoCard icon={<CalendarDays size={16} />} label="Last Update" value={formatDateTime(application.last_status_changed_at)} />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
           <InfoCard
             icon={<FileText size={16} />}
             label="CV Version"
@@ -864,10 +858,10 @@ Best regards,`;
           />
         </div>
 
-        <div className="mt-8 border border-slate-200 rounded-2xl p-5 bg-slate-50">
+        <div className="mt-8 border border-slate-200 rounded-2xl p-4 sm:p-5 bg-slate-50">
           <h2 className="text-lg font-semibold mb-4">Lifecycle Timeline</h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
             {lifecycleItems.map((item) => (
               <LifecycleItem
                 key={item.label}
@@ -882,7 +876,7 @@ Best regards,`;
         {application.notes && (
           <div className="mt-8">
             <h2 className="text-lg font-semibold mb-3">Notes</h2>
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 whitespace-pre-wrap text-sm text-slate-700">
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 whitespace-pre-wrap text-sm text-slate-700 break-words">
               {application.notes}
             </div>
           </div>
@@ -971,8 +965,8 @@ Best regards,`;
             </Field>
           </div>
 
-          <div className="flex justify-end mt-4">
-            <button onClick={handleSaveApplicationDetails} disabled={savingDetails} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:justify-end mt-4">
+            <button onClick={handleSaveApplicationDetails} disabled={savingDetails} className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2">
               <Save size={15} />
               {savingDetails ? 'Saving...' : 'Save Changes'}
             </button>
@@ -989,15 +983,15 @@ Best regards,`;
         <textarea value={interviewNotes} onChange={(e) => setInterviewNotes(e.target.value)} placeholder="Preparation notes..." className={`${inputCls} min-h-28 mb-4`} />
         <textarea value={interviewQuestions} onChange={(e) => setInterviewQuestions(e.target.value)} placeholder="Questions to prepare, one per line..." className={`${inputCls} min-h-28`} />
 
-        <div className="flex justify-end mt-4">
-          <button onClick={handleSaveInterviewPrep} disabled={savingInterview} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+        <div className="flex flex-col sm:flex-row sm:justify-end mt-4">
+          <button onClick={handleSaveInterviewPrep} disabled={savingInterview} className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">
             {savingInterview ? 'Saving...' : 'Save Interview Prep'}
           </button>
         </div>
       </Section>
 
       <Section title="Follow-up Email Generator" description="Generate a professional follow-up message for this application.">
-        <button onClick={handleGenerateFollowUp} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm mb-4">
+        <button onClick={handleGenerateFollowUp} className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm mb-4">
           Generate Follow-up Message
         </button>
 
@@ -1005,8 +999,8 @@ Best regards,`;
           <div>
             <textarea value={followUpMessage} onChange={(e) => setFollowUpMessage(e.target.value)} className={`${inputCls} min-h-48`} />
 
-            <div className="flex justify-end mt-4">
-              <button onClick={handleCopyFollowUp} className="border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:justify-end mt-4">
+              <button onClick={handleCopyFollowUp} className="w-full sm:w-auto border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2">
                 <Clipboard size={15} />
                 {copiedFollowUp ? 'Copied' : 'Copy Message'}
               </button>
@@ -1017,22 +1011,22 @@ Best regards,`;
 
       <Section title="Email History" description="Job-related emails linked to this application.">
         {emailEvents.length === 0 ? (
-          <p className="text-slate-500">No linked email events yet.</p>
+          <p className="text-slate-500 text-sm">No linked email events yet.</p>
         ) : (
           <div className="space-y-4">
             {emailEvents.map((email) => (
-              <div key={email.id} className="border border-slate-200 rounded-xl p-4">
+              <div key={email.id} className="border border-slate-200 rounded-xl p-4 overflow-hidden">
                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
-                  <div>
-                    <h3 className="font-semibold">{email.subject || 'No subject'}</h3>
-                    <p className="text-sm text-slate-500">From: {email.sender || 'Unknown sender'}</p>
+                  <div className="min-w-0">
+                    <h3 className="font-semibold break-words">{email.subject || 'No subject'}</h3>
+                    <p className="text-sm text-slate-500 break-words">From: {email.sender || 'Unknown sender'}</p>
                   </div>
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-slate-500 whitespace-nowrap">
                     {formatDateTime(email.received_at)}
                   </span>
                 </div>
 
-                {email.snippet && <p className="text-sm text-slate-600 mt-3">{email.snippet}</p>}
+                {email.snippet && <p className="text-sm text-slate-600 mt-3 break-words">{email.snippet}</p>}
 
                 {email.detected_status && (
                   <span className="inline-block mt-3 bg-slate-100 text-slate-700 px-2 py-1 rounded-full text-xs">
@@ -1062,8 +1056,8 @@ Best regards,`;
 
         <textarea value={activityDescription} onChange={(e) => setActivityDescription(e.target.value)} placeholder="Details..." className={`${inputCls} min-h-24`} />
 
-        <div className="flex justify-end mt-4">
-          <button onClick={handleAddActivity} disabled={savingActivity || !activityTitle.trim()} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:justify-end mt-4">
+          <button onClick={handleAddActivity} disabled={savingActivity || !activityTitle.trim()} className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2">
             <MessageSquarePlus size={15} />
             {savingActivity ? 'Saving...' : 'Add Activity'}
           </button>
@@ -1072,20 +1066,20 @@ Best regards,`;
 
       <Section title="Application Timeline">
         {events.length === 0 ? (
-          <p className="text-slate-500">No timeline events yet.</p>
+          <p className="text-slate-500 text-sm">No timeline events yet.</p>
         ) : (
           <div className="space-y-4">
             {events.map((event) => (
-              <div key={event.id} className="border border-slate-200 rounded-xl p-4">
-                <div className="flex items-center justify-between gap-4 mb-2">
-                  <h3 className="font-semibold">{event.title}</h3>
-                  <span className="text-sm text-slate-500">
+              <div key={event.id} className="border border-slate-200 rounded-xl p-4 overflow-hidden">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+                  <h3 className="font-semibold break-words">{event.title}</h3>
+                  <span className="text-sm text-slate-500 whitespace-nowrap">
                     {formatDateTime(event.event_date)}
                   </span>
                 </div>
 
                 {event.description && (
-                  <p className="text-slate-600 text-sm">{event.description}</p>
+                  <p className="text-slate-600 text-sm break-words">{event.description}</p>
                 )}
 
                 <span className="inline-block mt-3 bg-slate-100 text-slate-500 px-2 py-1 rounded-full text-xs">
@@ -1098,8 +1092,8 @@ Best regards,`;
       </Section>
 
       {shareModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4 py-6">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
             <div className="flex items-start justify-between gap-4 mb-5">
               <div>
                 <h2 className="text-xl font-bold">Share Opportunity</h2>
@@ -1141,29 +1135,17 @@ Best regards,`;
 
                 <div className="space-y-2 text-sm text-slate-700">
                   <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={includeStatus}
-                      onChange={(e) => setIncludeStatus(e.target.checked)}
-                    />
+                    <input type="checkbox" checked={includeStatus} onChange={(e) => setIncludeStatus(e.target.checked)} />
                     Include application status
                   </label>
 
                   <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={includeNotes}
-                      onChange={(e) => setIncludeNotes(e.target.checked)}
-                    />
+                    <input type="checkbox" checked={includeNotes} onChange={(e) => setIncludeNotes(e.target.checked)} />
                     Include private notes
                   </label>
 
                   <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={includeExperience}
-                      onChange={(e) => setIncludeExperience(e.target.checked)}
-                    />
+                    <input type="checkbox" checked={includeExperience} onChange={(e) => setIncludeExperience(e.target.checked)} />
                     Include shared experience note
                   </label>
                 </div>
@@ -1171,17 +1153,17 @@ Best regards,`;
 
               <div className="bg-white border border-slate-200 rounded-xl p-4">
                 <p className="text-xs text-slate-500 mb-1">Preview</p>
-                <p className="font-semibold">{application.role_title}</p>
-                <p className="text-sm text-slate-600">
+                <p className="font-semibold break-words">{application.role_title}</p>
+                <p className="text-sm text-slate-600 break-words">
                   {application.companies?.name || 'Unknown Company'}
                   {application.location ? ` — ${application.location}` : ''}
                 </p>
               </div>
 
-              <div className="flex justify-end gap-3 pt-2">
+              <div className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-2">
                 <button
                   onClick={() => setShareModalOpen(false)}
-                  className="border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm"
+                  className="w-full sm:w-auto border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm"
                 >
                   Cancel
                 </button>
@@ -1189,7 +1171,7 @@ Best regards,`;
                 <button
                   onClick={handleShareOpportunity}
                   disabled={sharing}
-                  className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+                  className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
                 >
                   {sharing ? 'Sharing...' : 'Share Opportunity'}
                 </button>
@@ -1224,7 +1206,7 @@ const AlertBox = ({
       <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
     )}
 
-    <span className="text-sm flex-1">{message}</span>
+    <span className="text-sm flex-1 break-words">{message}</span>
 
     <button onClick={onClose} className="opacity-70 hover:opacity-100">
       <X size={16} />
@@ -1241,7 +1223,7 @@ const InfoCard = ({
   label: string;
   value: string;
 }) => (
-  <div className="border border-slate-200 rounded-xl p-4">
+  <div className="border border-slate-200 rounded-xl p-4 min-w-0">
     <div className="flex items-center gap-2 text-slate-500 mb-2">
       {icon}
       <span className="text-sm">{label}</span>
@@ -1259,16 +1241,16 @@ const LifecycleItem = ({
   value: string;
   complete: boolean;
 }) => (
-  <div className="bg-white border border-slate-200 rounded-xl p-3">
+  <div className="bg-white border border-slate-200 rounded-xl p-3 min-w-0">
     <div className="flex items-center gap-2 mb-1">
       <span
-        className={`w-2.5 h-2.5 rounded-full ${
+        className={`w-2.5 h-2.5 rounded-full shrink-0 ${
           complete ? 'bg-slate-900' : 'bg-slate-300'
         }`}
       />
       <p className="text-xs text-slate-500">{label}</p>
     </div>
-    <p className="text-sm font-medium text-slate-700">{value}</p>
+    <p className="text-sm font-medium text-slate-700 break-words">{value}</p>
   </div>
 );
 
@@ -1296,22 +1278,22 @@ const Section = ({
   description?: string;
   children: React.ReactNode;
 }) => (
-  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 mb-6">
-    <h2 className="text-xl font-semibold mb-2">{title}</h2>
-    {description && <p className="text-slate-500 mb-6">{description}</p>}
+  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 lg:p-8 mb-6 overflow-hidden">
+    <h2 className="text-lg sm:text-xl font-semibold mb-2">{title}</h2>
+    {description && <p className="text-sm sm:text-base text-slate-500 mb-6">{description}</p>}
     {children}
   </div>
 );
 
 const ApplicationDetailsSkeleton = () => (
-  <div>
+  <div className="w-full max-w-full overflow-hidden">
     <div className="h-5 w-40 bg-slate-100 rounded-lg animate-pulse mb-6" />
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 mb-6">
-      <div className="h-8 w-72 bg-slate-200 rounded-lg animate-pulse mb-3" />
+    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 lg:p-8 mb-6">
+      <div className="h-8 w-full max-w-72 bg-slate-200 rounded-lg animate-pulse mb-3" />
       <div className="h-4 w-48 bg-slate-100 rounded-lg animate-pulse mb-6" />
       <div className="h-8 w-28 bg-slate-100 rounded-full animate-pulse mb-8" />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4">
         {Array.from({ length: 6 }).map((_, index) => (
           <div key={index} className="h-24 bg-slate-100 rounded-xl animate-pulse" />
         ))}

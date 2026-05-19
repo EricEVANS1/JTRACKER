@@ -78,31 +78,33 @@ export const AuthPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 grid lg:grid-cols-[1.1fr_0.9fr]">
-      <section className="hidden lg:flex flex-col justify-between p-10 bg-slate-950 text-white">
+    <div className="min-h-screen bg-slate-50 text-slate-900 grid lg:grid-cols-[1.1fr_0.9fr] overflow-x-hidden">
+      <section className="hidden lg:flex flex-col justify-between p-10 bg-slate-950 text-white overflow-hidden">
         <div>
-          <div className="inline-flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center">
+          <div className="inline-flex items-center gap-3 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
               <Briefcase size={22} />
             </div>
 
-            <div>
-              <h1 className="text-2xl font-bold">JTracker</h1>
-              <p className="text-sm text-slate-300">Track every opportunity clearly.</p>
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold break-words">JTracker</h1>
+              <p className="text-sm text-slate-300 break-words">
+                Track every opportunity clearly.
+              </p>
             </div>
           </div>
         </div>
 
-        <div className="max-w-xl">
-          <p className="text-sm uppercase tracking-[0.25em] text-slate-400 mb-4">
+        <div className="max-w-xl min-w-0">
+          <p className="text-sm uppercase tracking-[0.25em] text-slate-400 mb-4 break-words">
             Job Search Operating System
           </p>
 
-          <h2 className="text-5xl font-bold leading-tight">
+          <h2 className="text-5xl font-bold leading-tight break-words">
             Manage applications, CVs, follow-ups, and interviews in one place.
           </h2>
 
-          <p className="text-slate-300 mt-5 text-lg leading-relaxed">
+          <p className="text-slate-300 mt-5 text-lg leading-relaxed break-words">
             Build a cleaner job search workflow with application tracking,
             lifecycle dates, reminders, analytics, and recruiter history.
           </p>
@@ -114,32 +116,34 @@ export const AuthPage: React.FC = () => {
           </div>
         </div>
 
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-500 break-words">
           Built for focused job seekers who want structure and visibility.
         </p>
       </section>
 
-      <section className="flex items-center justify-center p-6">
-        <div className="w-full max-w-md">
-          <div className="lg:hidden mb-8 text-center">
+      <section className="flex items-center justify-center p-4 sm:p-6 overflow-hidden">
+        <div className="w-full max-w-md min-w-0">
+          <div className="lg:hidden mb-8 text-center overflow-hidden">
             <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center mx-auto mb-3">
               <Briefcase size={22} />
             </div>
 
-            <h1 className="text-2xl font-bold">JTracker</h1>
-            <p className="text-sm text-slate-500">Track every opportunity clearly.</p>
+            <h1 className="text-2xl font-bold break-words">JTracker</h1>
+            <p className="text-sm text-slate-500 break-words">
+              Track every opportunity clearly.
+            </p>
           </div>
 
           <form
             onSubmit={handleSubmit}
-            className="bg-white border border-slate-200 rounded-3xl shadow-sm p-8"
+            className="bg-white border border-slate-200 rounded-3xl shadow-sm p-5 sm:p-8 overflow-hidden"
           >
             <div className="mb-7">
-              <h2 className="text-2xl font-bold">
+              <h2 className="text-xl sm:text-2xl font-bold break-words">
                 {isSignup ? 'Create your account' : 'Welcome back'}
               </h2>
 
-              <p className="text-sm text-slate-500 mt-2">
+              <p className="text-sm text-slate-500 mt-2 break-words">
                 {isSignup
                   ? 'Start organizing your job search workflow.'
                   : 'Sign in to continue tracking your opportunities.'}
@@ -164,7 +168,7 @@ export const AuthPage: React.FC = () => {
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       required
-                      className="w-full border border-slate-200 rounded-xl pl-10 pr-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                      className="w-full border border-slate-200 rounded-xl pl-10 pr-3 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 transition"
                     />
                   </div>
                 </Field>
@@ -184,7 +188,7 @@ export const AuthPage: React.FC = () => {
                     autoComplete="email"
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    className="w-full border border-slate-200 rounded-xl pl-10 pr-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                    className="w-full border border-slate-200 rounded-xl pl-10 pr-3 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 transition"
                   />
                 </div>
               </Field>
@@ -204,13 +208,14 @@ export const AuthPage: React.FC = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     minLength={6}
-                    className="w-full border border-slate-200 rounded-xl pl-10 pr-11 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                    className="w-full border border-slate-200 rounded-xl pl-10 pr-11 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 transition"
                   />
 
                   <button
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
                   >
                     {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
                   </button>
@@ -236,7 +241,7 @@ export const AuthPage: React.FC = () => {
               <button
                 type="button"
                 onClick={switchMode}
-                className="text-sm text-slate-600 hover:text-slate-900"
+                className="text-sm text-slate-600 hover:text-slate-900 break-words"
               >
                 {isSignup
                   ? 'Already have an account? Sign in'
@@ -273,7 +278,7 @@ const AlertBox = ({
   message: string;
 }) => (
   <div
-    className={`rounded-xl border px-4 py-3 text-sm mb-4 flex items-start gap-2 ${
+    className={`rounded-xl border px-4 py-3 text-sm mb-4 flex items-start gap-2 overflow-hidden ${
       type === 'error'
         ? 'bg-red-50 border-red-200 text-red-700'
         : 'bg-emerald-50 border-emerald-200 text-emerald-700'
@@ -285,13 +290,13 @@ const AlertBox = ({
       <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
     )}
 
-    <span>{message}</span>
+    <span className="break-words">{message}</span>
   </div>
 );
 
 const FeatureStat = ({ value, label }: { value: string; label: string }) => (
-  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-    <p className="text-2xl font-bold">{value}</p>
-    <p className="text-sm text-slate-400 mt-1">{label}</p>
+  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 overflow-hidden">
+    <p className="text-2xl font-bold break-words">{value}</p>
+    <p className="text-sm text-slate-400 mt-1 break-words">{label}</p>
   </div>
 );

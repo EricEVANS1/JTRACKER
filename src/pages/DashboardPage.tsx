@@ -16,15 +16,12 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import {
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-} from 'recharts';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import { Link } from 'react-router-dom';
+
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useOnboarding } from '../hooks/useOnboarding';
 import type { Application } from '../types/application';
 
 interface RecentEvent {
@@ -86,9 +83,7 @@ const chartColors = [
 ];
 
 const formatStatus = (status: string) =>
-  status
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  status.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 
 const formatDateTime = (date: string) =>
   new Date(date).toLocaleString('en-GB', {
@@ -107,6 +102,15 @@ const formatDuration = (ms?: number | null) => {
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
+
+  const {
+    onboardingComplete,
+    completedSteps,
+    completedCount,
+    totalSteps,
+    progressPercent,
+    dismissOnboarding,
+  } = useOnboarding();
 
   const [applications, setApplications] = useState<Application[]>([]);
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
@@ -187,69 +191,39 @@ export const DashboardPage: React.FC = () => {
         .order('created_at', { ascending: false })
         .limit(1),
 
-      supabase
-        .from('recruiters')
-        .select('id')
-        .eq('user_id', user.id),
+      supabase.from('recruiters').select('id').eq('user_id', user.id),
 
       supabase
         .from('recruiter_interactions')
         .select('id')
         .eq('user_id', user.id),
 
-      supabase
-        .from('cv_versions')
-        .select('id')
-        .eq('user_id', user.id),
+      supabase.from('cv_versions').select('id').eq('user_id', user.id),
     ]);
 
-    if (applicationsResult.error) {
-      setError(applicationsResult.error.message);
-    } else {
-      setApplications(applicationsResult.data || []);
-    }
+    if (applicationsResult.error) setError(applicationsResult.error.message);
+    else setApplications(applicationsResult.data || []);
 
-    if (eventsResult.error) {
-      setError(eventsResult.error.message);
-    } else {
-      setRecentEvents((eventsResult.data || []) as unknown as RecentEvent[]);
-    }
+    if (eventsResult.error) setError(eventsResult.error.message);
+    else setRecentEvents((eventsResult.data || []) as unknown as RecentEvent[]);
 
-    if (emailEventsResult.error) {
-      setError(emailEventsResult.error.message);
-    } else {
-      setEmailEvents(emailEventsResult.data || []);
-    }
+    if (emailEventsResult.error) setError(emailEventsResult.error.message);
+    else setEmailEvents(emailEventsResult.data || []);
 
-    if (ignoredEmailsResult.error) {
-      setError(ignoredEmailsResult.error.message);
-    } else {
-      setIgnoredEmails(ignoredEmailsResult.data || []);
-    }
+    if (ignoredEmailsResult.error) setError(ignoredEmailsResult.error.message);
+    else setIgnoredEmails(ignoredEmailsResult.data || []);
 
-    if (syncSessionsResult.error) {
-      setError(syncSessionsResult.error.message);
-    } else {
-      setLatestSync((syncSessionsResult.data?.[0] || null) as GmailSyncSession | null);
-    }
+    if (syncSessionsResult.error) setError(syncSessionsResult.error.message);
+    else setLatestSync((syncSessionsResult.data?.[0] || null) as GmailSyncSession | null);
 
-    if (recruitersResult.error) {
-      setError(recruitersResult.error.message);
-    } else {
-      setRecruiters(recruitersResult.data || []);
-    }
+    if (recruitersResult.error) setError(recruitersResult.error.message);
+    else setRecruiters(recruitersResult.data || []);
 
-    if (recruiterInteractionsResult.error) {
-      setError(recruiterInteractionsResult.error.message);
-    } else {
-      setRecruiterInteractions(recruiterInteractionsResult.data || []);
-    }
+    if (recruiterInteractionsResult.error) setError(recruiterInteractionsResult.error.message);
+    else setRecruiterInteractions(recruiterInteractionsResult.data || []);
 
-    if (cvVersionsResult.error) {
-      setError(cvVersionsResult.error.message);
-    } else {
-      setCvVersions(cvVersionsResult.data || []);
-    }
+    if (cvVersionsResult.error) setError(cvVersionsResult.error.message);
+    else setCvVersions(cvVersionsResult.data || []);
   };
 
   const loadDashboard = async () => {
@@ -266,7 +240,8 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     loadDashboard();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const stats = useMemo(() => {
     const total = applications.length;
@@ -424,12 +399,145 @@ export const DashboardPage: React.FC = () => {
     return <DashboardSkeleton />;
   }
 
+  if (!loading && !onboardingComplete) {
+    return (
+      <div className="w-full max-w-full overflow-hidden">
+        <div className="max-w-5xl mx-auto">
+          {error && <ErrorMessage error={error} onClear={() => setError('')} />}
+
+          <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-8 shadow-sm overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+                <Target size={28} />
+              </div>
+
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-widest text-slate-400 mb-2">
+                  First-time setup
+                </p>
+
+                <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 break-words">
+                  Welcome to JTracker
+                </h1>
+
+                <p className="mt-3 text-sm sm:text-base text-slate-600 max-w-2xl leading-relaxed break-words">
+                  Start by adding your first job application. Once you have data,
+                  your dashboard will show pipeline performance, response rates,
+                  interviews, offers, Gmail sync insights, CV versions, and recent
+                  activity.
+                </p>
+
+                <div className="mt-6">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <span className="text-sm font-medium text-slate-700">
+                      Getting Started
+                    </span>
+
+                    <span className="text-sm text-slate-500">
+                      {completedCount}/{totalSteps} completed
+                    </span>
+                  </div>
+
+                  <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
+                    <div
+                      className="h-full bg-slate-900 transition-all duration-500"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+              <OnboardingStep
+                icon={Briefcase}
+                title="Add applications"
+                description="Save roles, companies, statuses, links, notes, salary ranges, and source information."
+              />
+
+              <OnboardingStep
+                icon={FileText}
+                title="Upload CV versions"
+                description="Track which CV version you used so you can learn what works best."
+              />
+
+              <OnboardingStep
+                icon={CalendarCheck}
+                title="Manage follow-ups"
+                description="Set follow-up dates and keep opportunities from going cold."
+              />
+            </div>
+
+            <div className="mt-8 rounded-2xl bg-slate-50 border border-slate-200 p-4 sm:p-5">
+              <h2 className="font-semibold text-slate-900 mb-2">
+                Recommended first actions
+              </h2>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                <SetupChecklistItem
+                  label="Add your first application"
+                  completed={completedSteps.hasApplication}
+                />
+
+                <SetupChecklistItem
+                  label="Add or upload a CV version"
+                  completed={completedSteps.hasCV}
+                />
+
+                <SetupChecklistItem
+                  label="Save recruiter contacts"
+                  completed={completedSteps.hasRecruiter}
+                />
+
+                <SetupChecklistItem
+                  label="Track follow-ups"
+                  completed={completedSteps.hasFollowUp}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 mt-8">
+              <Link
+                to="/applications"
+                className="inline-flex justify-center items-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-700 transition"
+              >
+                Add First Application
+              </Link>
+
+              <Link
+                to="/cv-manager"
+                className="inline-flex justify-center items-center rounded-xl border border-slate-300 px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+              >
+                Upload CV Version
+              </Link>
+
+              <Link
+                to="/recruiters"
+                className="inline-flex justify-center items-center rounded-xl border border-slate-300 px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+              >
+                Add Recruiter
+              </Link>
+            </div>
+
+            <button
+              type="button"
+              onClick={dismissOnboarding}
+              className="mt-5 text-sm text-slate-500 hover:text-slate-700 transition"
+            >
+              Dismiss onboarding
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div>
+    <div className="w-full max-w-full overflow-hidden">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
-        <div>
-          <h2 className="text-3xl font-bold mb-1">Dashboard</h2>
-          <p className="text-slate-500 text-sm">
+        <div className="min-w-0">
+          <h2 className="text-2xl sm:text-3xl font-bold mb-1 break-words">Dashboard</h2>
+          <p className="text-slate-500 text-sm sm:text-base break-words">
             Job search overview, Gmail sync performance, recruiters, CVs, and recent activity.
           </p>
         </div>
@@ -438,70 +546,64 @@ export const DashboardPage: React.FC = () => {
           type="button"
           onClick={handleRefresh}
           disabled={refreshing}
-          className="self-start lg:self-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 transition disabled:opacity-50 inline-flex items-center gap-2"
+          className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
         >
           <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
           {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
 
-      {error && (
-        <div className="bg-red-50 text-red-700 border border-red-200 rounded-xl p-4 mb-6 flex items-start gap-3">
-          <AlertCircle size={16} className="shrink-0 mt-0.5" />
-          <span className="text-sm flex-1">{error}</span>
-          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600">
-            <X size={16} />
-          </button>
-        </div>
-      )}
+      {error && <ErrorMessage error={error} onClear={() => setError('')} />}
 
-      <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-sm mb-6">
-        <div className="flex items-start gap-4">
+      <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-6 shadow-sm mb-6 overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-start gap-4">
           <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
             <Target size={22} />
           </div>
 
-          <div>
+          <div className="min-w-0">
             <p className="text-xs uppercase tracking-widest text-slate-400 mb-1">
               Pipeline Insight
             </p>
-            <h3 className="text-lg font-semibold mb-1">
-              {stats.total > 0
-                ? `${stats.active} active applications from ${stats.total} total`
-                : 'No applications tracked yet'}
+            <h3 className="text-base sm:text-lg font-semibold mb-1 break-words">
+              {stats.active} active applications from {stats.total} total
             </h3>
-            <p className="text-sm text-slate-300 leading-relaxed">{insight}</p>
+            <p className="text-sm text-slate-300 leading-relaxed break-words">
+              {insight}
+            </p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
         {metricCards.map((card) => {
           const Icon = card.icon;
 
           return (
             <div
               key={card.label}
-              className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition"
+              className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md transition overflow-hidden"
             >
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm text-slate-500">{card.label}</p>
-                  <p className="text-3xl font-bold mt-3">{card.value}</p>
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-500 break-words">{card.label}</p>
+                  <p className="text-2xl sm:text-3xl font-bold mt-3 break-words">
+                    {card.value}
+                  </p>
                 </div>
 
-                <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
                   <Icon size={19} className="text-slate-600" />
                 </div>
               </div>
 
-              <p className="text-xs text-slate-400 mt-3">{card.helper}</p>
+              <p className="text-xs text-slate-400 mt-3 break-words">{card.helper}</p>
             </div>
           );
         })}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
         <RateCard label="Response Rate" value={`${stats.responseRate}%`} />
         <RateCard label="Interview Rate" value={`${stats.interviewRate}%`} />
         <RateCard label="Offer Rate" value={`${stats.offerRate}%`} positive />
@@ -530,10 +632,12 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-6">
-        <div className="space-y-6">
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
-            <h3 className="text-xl font-semibold">Applications by Status</h3>
-            <p className="text-slate-500 text-sm mt-1 mb-6">
+        <div className="space-y-6 min-w-0">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden">
+            <h3 className="text-lg sm:text-xl font-semibold break-words">
+              Applications by Status
+            </h3>
+            <p className="text-slate-500 text-sm mt-1 mb-6 break-words">
               Breakdown of your current application pipeline.
             </p>
 
@@ -541,10 +645,12 @@ export const DashboardPage: React.FC = () => {
               <EmptyState
                 title="No status data yet"
                 description="Add applications to see your pipeline distribution."
+                actionLabel="Add Application"
+                actionHref="/applications"
               />
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-6 items-center">
-                <div className="h-72">
+              <div className="grid grid-cols-1 xl:grid-cols-[1fr_220px] gap-6 items-center">
+                <div className="h-64 sm:h-72 min-w-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -567,7 +673,7 @@ export const DashboardPage: React.FC = () => {
                   </ResponsiveContainer>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-3 min-w-0">
                   {stats.statusChartData.map((item, index) => (
                     <div
                       key={item.name}
@@ -583,7 +689,7 @@ export const DashboardPage: React.FC = () => {
                         <span className="text-slate-600 truncate">{item.name}</span>
                       </div>
 
-                      <span className="font-semibold text-slate-900">
+                      <span className="font-semibold text-slate-900 shrink-0">
                         {item.value}
                       </span>
                     </div>
@@ -593,62 +699,66 @@ export const DashboardPage: React.FC = () => {
             )}
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
                 <MailCheck size={20} className="text-slate-700" />
               </div>
 
-              <div>
-                <h3 className="text-xl font-semibold">Gmail Sync Summary</h3>
-                <p className="text-slate-500 text-sm">
+              <div className="min-w-0">
+                <h3 className="text-lg sm:text-xl font-semibold break-words">
+                  Gmail Sync Summary
+                </h3>
+                <p className="text-slate-500 text-sm break-words">
                   Real sync data from your Gmail sync sessions.
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
               <SummaryCard label="Emails Processed" value={gmailStats.totalEmails} />
               <SummaryCard label="Emails Linked" value={gmailStats.linkedEmails} />
               <SummaryCard label="Ignored Emails" value={gmailStats.ignoredEmails} />
               <SummaryCard label="Latest Scanned" value={gmailStats.scanned} />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
               <SummaryCard label="Accepted" value={gmailStats.accepted} />
               <SummaryCard label="Needs Review" value={gmailStats.review} />
               <SummaryCard label="Rejected" value={gmailStats.rejected} />
 
-              <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
+              <div className="border border-slate-200 rounded-xl p-4 bg-slate-50 overflow-hidden">
                 <p className="text-sm text-slate-500">Latest Sync</p>
-                <p className="text-sm font-semibold mt-2 text-slate-900">
+                <p className="text-sm font-semibold mt-2 text-slate-900 break-words">
                   {gmailStats.latestImport
                     ? formatDateTime(gmailStats.latestImport)
                     : 'No sync yet'}
                 </p>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-400 mt-1 break-words">
                   {gmailStats.latestStatus} · {formatDuration(gmailStats.processingTime)}
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
               <RateCard label="Accepted Rate" value={`${gmailStats.acceptanceRate}%`} positive />
               <RateCard label="Review Rate" value={`${gmailStats.reviewRate}%`} />
               <RateCard label="Rejected Rate" value={`${gmailStats.rejectionRate}%`} negative />
             </div>
 
             {latestSync?.error_message && (
-              <div className="mt-4 bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">
+              <div className="mt-4 bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm break-words">
                 Latest sync error: {latestSync.error_message}
               </div>
             )}
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
-          <h3 className="text-xl font-semibold mb-1">Recent Activity</h3>
-          <p className="text-slate-500 text-sm mb-6">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 min-w-0 overflow-hidden">
+          <h3 className="text-lg sm:text-xl font-semibold mb-1 break-words">
+            Recent Activity
+          </h3>
+          <p className="text-slate-500 text-sm mb-6 break-words">
             Latest updates from your job search.
           </p>
 
@@ -656,25 +766,27 @@ export const DashboardPage: React.FC = () => {
             <EmptyState
               title="No recent activity"
               description="Activity will appear here when applications are created, updated, or imported."
+              actionLabel="Add Application"
+              actionHref="/applications"
             />
           ) : (
             <div className="space-y-4">
               {recentEvents.map((event) => (
                 <div
                   key={event.id}
-                  className="border border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition"
+                  className="border border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition overflow-hidden"
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <CheckCircle2 size={15} className="text-slate-500 shrink-0" />
-                        <h4 className="font-semibold text-slate-900 truncate">
+                        <h4 className="font-semibold text-slate-900 break-words">
                           {event.title}
                         </h4>
                       </div>
 
                       {event.applications?.role_title && (
-                        <p className="text-sm text-slate-500">
+                        <p className="text-sm text-slate-500 break-words">
                           {event.applications.companies?.name
                             ? `${event.applications.role_title} · ${event.applications.companies.name}`
                             : event.applications.role_title}
@@ -682,13 +794,13 @@ export const DashboardPage: React.FC = () => {
                       )}
 
                       {event.description && (
-                        <p className="text-sm text-slate-600 mt-2 leading-relaxed">
+                        <p className="text-sm text-slate-600 mt-2 leading-relaxed break-words">
                           {event.description}
                         </p>
                       )}
                     </div>
 
-                    <span className="text-xs text-slate-400 whitespace-nowrap">
+                    <span className="text-xs text-slate-400 whitespace-nowrap shrink-0">
                       {formatDateTime(event.event_date)}
                     </span>
                   </div>
@@ -702,6 +814,69 @@ export const DashboardPage: React.FC = () => {
   );
 };
 
+const ErrorMessage = ({
+  error,
+  onClear,
+}: {
+  error: string;
+  onClear: () => void;
+}) => (
+  <div className="bg-red-50 text-red-700 border border-red-200 rounded-xl p-4 mb-6 flex items-start gap-3 overflow-hidden">
+    <AlertCircle size={16} className="shrink-0 mt-0.5" />
+    <span className="text-sm flex-1 break-words">{error}</span>
+    <button onClick={onClear} className="text-red-400 hover:text-red-600 shrink-0">
+      <X size={16} />
+    </button>
+  </div>
+);
+
+const OnboardingStep = ({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description: string;
+}) => (
+  <div className="rounded-2xl border border-slate-200 p-5 bg-white overflow-hidden">
+    <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mb-4">
+      <Icon size={18} className="text-slate-700" />
+    </div>
+
+    <h3 className="font-semibold text-slate-900 break-words">{title}</h3>
+
+    <p className="text-sm text-slate-500 mt-2 leading-relaxed break-words">
+      {description}
+    </p>
+  </div>
+);
+
+const SetupChecklistItem = ({
+  label,
+  completed,
+}: {
+  label: string;
+  completed?: boolean;
+}) => (
+  <div
+    className={`flex items-center gap-2 rounded-xl border px-3 py-3 transition overflow-hidden ${
+      completed
+        ? 'bg-emerald-50 border-emerald-200'
+        : 'bg-white border-slate-200'
+    }`}
+  >
+    <CheckCircle2
+      size={15}
+      className={`shrink-0 ${completed ? 'text-emerald-600' : 'text-slate-500'}`}
+    />
+
+    <span className={`${completed ? 'text-emerald-700' : 'text-slate-600'} break-words`}>
+      {label}
+    </span>
+  </div>
+);
+
 const RateCard = ({
   label,
   value,
@@ -713,12 +888,12 @@ const RateCard = ({
   positive?: boolean;
   negative?: boolean;
 }) => (
-  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-    <p className="text-sm text-slate-500">{label}</p>
+  <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm overflow-hidden">
+    <p className="text-sm text-slate-500 break-words">{label}</p>
     <div className="flex items-end justify-between gap-3 mt-3">
-      <p className="text-3xl font-bold">{value}</p>
-      {positive && <Trophy size={18} className="text-slate-400" />}
-      {negative && <XCircle size={18} className="text-slate-400" />}
+      <p className="text-2xl sm:text-3xl font-bold break-words">{value}</p>
+      {positive && <Trophy size={18} className="text-slate-400 shrink-0" />}
+      {negative && <XCircle size={18} className="text-slate-400 shrink-0" />}
     </div>
   </div>
 );
@@ -734,19 +909,19 @@ const MiniCard = ({
   icon: React.ElementType;
   helper: string;
 }) => (
-  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm overflow-hidden">
     <div className="flex items-start justify-between gap-3">
-      <div>
-        <p className="text-sm text-slate-500">{label}</p>
-        <p className="text-3xl font-bold mt-3">{value}</p>
+      <div className="min-w-0">
+        <p className="text-sm text-slate-500 break-words">{label}</p>
+        <p className="text-2xl sm:text-3xl font-bold mt-3 break-words">{value}</p>
       </div>
 
-      <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
+      <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
         <Icon size={19} className="text-slate-600" />
       </div>
     </div>
 
-    <p className="text-xs text-slate-400 mt-3">{helper}</p>
+    <p className="text-xs text-slate-400 mt-3 break-words">{helper}</p>
   </div>
 );
 
@@ -757,35 +932,51 @@ const SummaryCard = ({
   label: string;
   value: number;
 }) => (
-  <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
-    <p className="text-sm text-slate-500">{label}</p>
-    <p className="text-2xl font-bold mt-2 text-slate-900">{value}</p>
+  <div className="border border-slate-200 rounded-xl p-4 bg-slate-50 overflow-hidden">
+    <p className="text-sm text-slate-500 break-words">{label}</p>
+    <p className="text-2xl font-bold mt-2 text-slate-900 break-words">{value}</p>
   </div>
 );
 
 const EmptyState = ({
   title,
   description,
+  actionLabel,
+  actionHref,
 }: {
   title: string;
   description: string;
+  actionLabel?: string;
+  actionHref?: string;
 }) => (
-  <div className="border border-dashed border-slate-200 rounded-xl p-8 text-center bg-slate-50">
-    <p className="font-semibold text-slate-700">{title}</p>
-    <p className="text-sm text-slate-500 mt-1">{description}</p>
+  <div className="border border-dashed border-slate-200 rounded-xl p-6 sm:p-8 text-center bg-slate-50 overflow-hidden">
+    <p className="font-semibold text-slate-700 break-words">{title}</p>
+
+    <p className="text-sm text-slate-500 mt-1 break-words">
+      {description}
+    </p>
+
+    {actionLabel && actionHref && (
+      <Link
+        to={actionHref}
+        className="inline-flex mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-700 transition"
+      >
+        {actionLabel}
+      </Link>
+    )}
   </div>
 );
 
 const DashboardSkeleton = () => (
-  <div>
+  <div className="w-full max-w-full overflow-hidden">
     <div className="mb-8">
       <div className="h-8 w-44 bg-slate-200 rounded-lg animate-pulse mb-2" />
-      <div className="h-4 w-96 bg-slate-100 rounded-lg animate-pulse" />
+      <div className="h-4 w-full max-w-96 bg-slate-100 rounded-lg animate-pulse" />
     </div>
 
     <div className="h-28 bg-slate-200 rounded-2xl animate-pulse mb-6" />
 
-    <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
       {Array.from({ length: 6 }).map((_, index) => (
         <div
           key={index}

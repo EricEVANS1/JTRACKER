@@ -257,15 +257,15 @@ ${item.note || ''}`;
 
   if (loading) {
     return (
-      <div>
+      <div className="w-full max-w-full overflow-hidden">
         <div className="h-8 w-52 bg-slate-200 rounded-lg animate-pulse mb-2" />
-        <div className="h-4 w-96 bg-slate-100 rounded-lg animate-pulse mb-8" />
+        <div className="h-4 w-full max-w-96 bg-slate-100 rounded-lg animate-pulse mb-8" />
 
         <div className="space-y-4">
           {[1, 2, 3].map((item) => (
             <div
               key={item}
-              className="h-40 bg-white border border-slate-200 rounded-2xl animate-pulse"
+              className="h-44 bg-white border border-slate-200 rounded-2xl animate-pulse"
             />
           ))}
         </div>
@@ -274,15 +274,17 @@ ${item.note || ''}`;
   }
 
   return (
-    <div>
+    <div className="w-full max-w-full overflow-hidden">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5 mb-8">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-3 mb-2">
-            <Inbox size={30} className="text-slate-700" />
-            <h2 className="text-3xl font-bold">Shared With Me</h2>
+            <Inbox size={28} className="text-slate-700 shrink-0" />
+            <h2 className="text-2xl sm:text-3xl font-bold break-words">
+              Shared With Me
+            </h2>
           </div>
 
-          <p className="text-slate-500 max-w-2xl">
+          <p className="text-slate-500 text-sm sm:text-base max-w-2xl">
             Opportunities other JTracker users shared with you. You can add them to your
             own applications and complete the details from there.
           </p>
@@ -291,7 +293,7 @@ ${item.note || ''}`;
         <button
           onClick={handleRefresh}
           disabled={refreshing}
-          className="border border-slate-200 bg-white rounded-xl px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+          className="w-full sm:w-auto border border-slate-200 bg-white rounded-xl px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
         >
           <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
           Refresh
@@ -302,10 +304,10 @@ ${item.note || ''}`;
       {message && <AlertBox type="success" message={message} onClose={() => setMessage('')} />}
 
       {items.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-10 text-center">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-10 text-center">
           <Briefcase size={38} className="mx-auto text-slate-400 mb-3" />
           <h3 className="text-lg font-semibold">No shared opportunities yet</h3>
-          <p className="text-slate-500 mt-2">
+          <p className="text-slate-500 text-sm sm:text-base mt-2 max-w-md mx-auto">
             When someone shares a role with you inside JTracker, it will appear here.
           </p>
         </div>
@@ -322,12 +324,14 @@ ${item.note || ''}`;
             return (
               <div
                 key={item.id}
-                className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6"
+                className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden"
               >
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <h3 className="text-xl font-bold text-slate-900">{item.role_title}</h3>
+                      <h3 className="text-lg sm:text-xl font-bold text-slate-900 break-words">
+                        {item.role_title}
+                      </h3>
 
                       {item.include_status && item.status_snapshot && (
                         <span className="rounded-full px-2.5 py-1 text-xs bg-slate-100 text-slate-700 capitalize">
@@ -342,44 +346,44 @@ ${item.note || ''}`;
                       )}
                     </div>
 
-                    <div className="flex flex-wrap gap-4 text-sm text-slate-600 mb-3">
-                      <span className="inline-flex items-center gap-1.5">
-                        <Briefcase size={15} />
+                    <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:gap-4 text-sm text-slate-600 mb-3">
+                      <span className="inline-flex items-center gap-1.5 break-words">
+                        <Briefcase size={15} className="shrink-0" />
                         {item.company_name || 'Unknown Company'}
                       </span>
 
                       {item.location && (
-                        <span className="inline-flex items-center gap-1.5">
-                          <MapPin size={15} />
+                        <span className="inline-flex items-center gap-1.5 break-words">
+                          <MapPin size={15} className="shrink-0" />
                           {item.location}
                         </span>
                       )}
 
-                      <span className="inline-flex items-center gap-1.5">
-                        <UserRound size={15} />
+                      <span className="inline-flex items-center gap-1.5 break-words">
+                        <UserRound size={15} className="shrink-0" />
                         Shared by {senderName}
                       </span>
                     </div>
 
                     {item.note && (
-                      <p className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3 whitespace-pre-wrap">
+                      <p className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3 whitespace-pre-wrap break-words">
                         {item.note}
                       </p>
                     )}
 
                     {item.include_notes && item.notes_snapshot && (
-                      <p className="text-sm text-slate-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 whitespace-pre-wrap">
+                      <p className="text-sm text-slate-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 whitespace-pre-wrap break-words">
                         Sender notes: {item.notes_snapshot}
                       </p>
                     )}
 
                     {item.include_experience && item.experience_snapshot && (
-                      <p className="text-sm text-slate-700 bg-blue-50 border border-blue-200 rounded-xl p-3 mb-3 whitespace-pre-wrap">
+                      <p className="text-sm text-slate-700 bg-blue-50 border border-blue-200 rounded-xl p-3 mb-3 whitespace-pre-wrap break-words">
                         Experience: {item.experience_snapshot}
                       </p>
                     )}
 
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 break-words">
                       Shared {formatDateTime(item.created_at)}
                       {item.added_to_applications_at
                         ? ` · Added ${formatDateTime(item.added_to_applications_at)}`
@@ -387,11 +391,11 @@ ${item.note || ''}`;
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap gap-2 lg:justify-end">
+                  <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 lg:justify-end w-full lg:w-auto">
                     {alreadyAdded ? (
                       <button
                         onClick={() => navigate(`/applications/${item.added_application_id}`)}
-                        className="border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2 hover:bg-slate-50"
+                        className="w-full sm:w-auto border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2 hover:bg-slate-50"
                       >
                         <Eye size={15} />
                         View Application
@@ -400,7 +404,7 @@ ${item.note || ''}`;
                       <button
                         onClick={() => handleAddToApplications(item)}
                         disabled={savingToApplicationsId === item.id}
-                        className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2 disabled:opacity-50"
+                        className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2 disabled:opacity-50"
                       >
                         <PlusCircle size={15} />
                         {savingToApplicationsId === item.id
@@ -411,7 +415,7 @@ ${item.note || ''}`;
 
                     <button
                       onClick={() => handleCopySummary(item)}
-                      className="border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2 hover:bg-slate-50"
+                      className="w-full sm:w-auto border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2 hover:bg-slate-50"
                     >
                       <Copy size={15} />
                       Copy
@@ -422,7 +426,7 @@ ${item.note || ''}`;
                         href={item.job_link}
                         target="_blank"
                         rel="noreferrer"
-                        className="border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2 hover:bg-slate-50"
+                        className="w-full sm:w-auto border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2 hover:bg-slate-50"
                       >
                         Open Role
                         <ExternalLink size={15} />
@@ -456,14 +460,14 @@ const AlertBox = ({
     }`}
   >
     {type === 'error' ? (
-      <AlertCircle size={18} className="mt-0.5" />
+      <AlertCircle size={18} className="mt-0.5 shrink-0" />
     ) : (
-      <CheckCircle2 size={18} className="mt-0.5" />
+      <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
     )}
 
-    <p className="text-sm flex-1">{message}</p>
+    <p className="text-sm flex-1 break-words">{message}</p>
 
-    <button onClick={onClose}>
+    <button onClick={onClose} className="shrink-0 opacity-70 hover:opacity-100">
       <X size={16} />
     </button>
   </div>

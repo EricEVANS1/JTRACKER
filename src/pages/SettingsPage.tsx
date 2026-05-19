@@ -23,8 +23,6 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { FEATURES } from '../config/features';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 interface Profile {
   id: string;
   full_name: string | null;
@@ -43,14 +41,10 @@ interface NotificationPrefs {
   weeklyDigest: boolean;
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
 const AVATAR_BUCKET = 'avatars';
 
 const inputCls =
-  'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white ' +
-  'focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent ' +
-  'disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed transition';
+  'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed transition';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'profile', label: 'Profile' },
@@ -67,8 +61,6 @@ const DEFAULT_NOTIF_PREFS: NotificationPrefs = {
   interviewCountdown: false,
   weeklyDigest: false,
 };
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
 
 const Toggle: React.FC<{
   enabled: boolean;
@@ -97,7 +89,7 @@ const ToggleRow: React.FC<{
   last?: boolean;
 }> = ({ label, hint, enabled, onChange, last }) => (
   <div
-    className={`flex items-center justify-between gap-6 py-4 ${
+    className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4 ${
       !last ? 'border-b border-slate-100' : ''
     }`}
   >
@@ -125,7 +117,9 @@ const IntegrationRow: React.FC<{
 
   return (
     <div
-      className={`flex items-center gap-4 py-4 ${!last ? 'border-b border-slate-100' : ''}`}
+      className={`flex flex-col sm:flex-row sm:items-center gap-4 py-4 ${
+        !last ? 'border-b border-slate-100' : ''
+      }`}
     >
       <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0 text-slate-600">
         {icon}
@@ -133,16 +127,17 @@ const IntegrationRow: React.FC<{
 
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-slate-900">{name}</p>
-        <p className="text-xs text-slate-500 mt-0.5">{description}</p>
+        <p className="text-xs text-slate-500 mt-0.5 break-words">{description}</p>
       </div>
 
-      <div className="flex flex-col items-end gap-2 shrink-0">
+      <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 w-full sm:w-auto">
         <div className="flex items-center gap-1.5">
           <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
           <span className={`text-xs font-medium ${statusConfig.labelCls}`}>
             {statusConfig.label}
           </span>
         </div>
+
         {status !== 'coming_soon' && onAction && (
           <button
             onClick={onAction}
@@ -157,16 +152,12 @@ const IntegrationRow: React.FC<{
   );
 };
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
 export const SettingsPage: React.FC = () => {
   const { user, signOut } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // ── Tab state ──────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabId>('profile');
 
-  // ── Profile state ──────────────────────────────────────────────────────────
   const [profile, setProfile] = useState<Profile | null>(null);
   const [fullName, setFullName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -177,12 +168,10 @@ export const SettingsPage: React.FC = () => {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
-  // ── Notification prefs state ───────────────────────────────────────────────
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIF_PREFS);
   const [savingNotifs, setSavingNotifs] = useState(false);
   const [notifMessage, setNotifMessage] = useState('');
 
-  // ── Account state ──────────────────────────────────────────────────────────
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
   const [signingOut, setSigningOut] = useState(false);
@@ -216,10 +205,9 @@ export const SettingsPage: React.FC = () => {
       .toUpperCase();
   }, [fullName, email]);
 
-  // ── Data fetching ──────────────────────────────────────────────────────────
-
   const fetchProfile = async () => {
     if (!user) return;
+
     setLoading(true);
     setError('');
     setMessage('');
@@ -237,28 +225,33 @@ export const SettingsPage: React.FC = () => {
       setFullName(data.full_name || '');
       setAvatarUrl(data.avatar_url || '');
     }
+
     setLoading(false);
   };
 
   useEffect(() => {
     fetchProfile();
-  }, [user]);
-
-  // ── Handlers ───────────────────────────────────────────────────────────────
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const handleSaveProfile = async () => {
     if (!user) return;
+
     if (!isAvatarValid) {
       setError('Avatar URL must be a valid http or https link.');
       return;
     }
+
     setSaving(true);
     setError('');
     setMessage('');
 
     const { error } = await supabase
       .from('profiles')
-      .update({ full_name: fullName.trim() || null, avatar_url: avatarUrl.trim() || null })
+      .update({
+        full_name: fullName.trim() || null,
+        avatar_url: avatarUrl.trim() || null,
+      })
       .eq('id', user.id);
 
     if (error) {
@@ -267,6 +260,7 @@ export const SettingsPage: React.FC = () => {
       setMessage('Profile updated successfully.');
       await fetchProfile();
     }
+
     setSaving(false);
   };
 
@@ -279,7 +273,7 @@ export const SettingsPage: React.FC = () => {
     setError('');
     setMessage('');
 
-    const maxFileSize = 2 * 1024 * 1024; // 2MB
+    const maxFileSize = 2 * 1024 * 1024;
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
     if (!allowedTypes.includes(file.type)) {
@@ -307,9 +301,7 @@ export const SettingsPage: React.FC = () => {
           upsert: true,
         });
 
-      if (uploadError) {
-        throw uploadError;
-      }
+      if (uploadError) throw uploadError;
 
       const { data } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(filePath);
       const publicUrl = data.publicUrl;
@@ -319,9 +311,7 @@ export const SettingsPage: React.FC = () => {
         .update({ avatar_url: publicUrl })
         .eq('id', user.id);
 
-      if (profileError) {
-        throw profileError;
-      }
+      if (profileError) throw profileError;
 
       setAvatarUrl(publicUrl);
       setProfile((prev) => (prev ? { ...prev, avatar_url: publicUrl } : prev));
@@ -367,8 +357,7 @@ export const SettingsPage: React.FC = () => {
 
   const handleSaveNotifications = async () => {
     setSavingNotifs(true);
-    // Persist to user_preferences table when it exists; currently local only
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     setNotifMessage('Notification preferences saved.');
     setSavingNotifs(false);
     setTimeout(() => setNotifMessage(''), 3000);
@@ -381,6 +370,7 @@ export const SettingsPage: React.FC = () => {
 
   const handleExportData = async () => {
     if (!user) return;
+
     const { data } = await supabase
       .from('applications')
       .select('role_title, status, date_applied, created_at')
@@ -398,34 +388,40 @@ export const SettingsPage: React.FC = () => {
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
+
     a.href = url;
     a.download = 'jtracker-applications.csv';
     a.click();
+
     URL.revokeObjectURL(url);
   };
 
-  // ── Loading skeleton ───────────────────────────────────────────────────────
-
   if (loading) {
     return (
-      <div>
+      <div className="w-full max-w-full overflow-hidden">
         <div className="mb-8">
           <div className="h-8 w-40 bg-slate-200 rounded-lg animate-pulse mb-2" />
-          <div className="h-4 w-80 bg-slate-100 rounded-lg animate-pulse" />
+          <div className="h-4 w-full max-w-80 bg-slate-100 rounded-lg animate-pulse" />
         </div>
-        <div className="flex gap-2 mb-6">
-          {TABS.map((t) => (
-            <div key={t.id} className="h-9 w-28 bg-slate-100 rounded-lg animate-pulse" />
+
+        <div className="flex gap-2 mb-6 overflow-x-auto">
+          {TABS.map((tab) => (
+            <div
+              key={tab.id}
+              className="h-9 w-28 bg-slate-100 rounded-lg animate-pulse shrink-0"
+            />
           ))}
         </div>
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 max-w-3xl">
+
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 max-w-3xl">
           <div className="flex items-center gap-4 mb-8">
-            <div className="w-16 h-16 rounded-full bg-slate-100 animate-pulse" />
-            <div className="space-y-2">
+            <div className="w-16 h-16 rounded-full bg-slate-100 animate-pulse shrink-0" />
+            <div className="space-y-2 min-w-0 flex-1">
               <div className="h-5 w-40 bg-slate-200 rounded animate-pulse" />
-              <div className="h-4 w-56 bg-slate-100 rounded animate-pulse" />
+              <div className="h-4 w-full max-w-56 bg-slate-100 rounded animate-pulse" />
             </div>
           </div>
+
           <div className="space-y-4">
             <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
             <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
@@ -436,78 +432,67 @@ export const SettingsPage: React.FC = () => {
     );
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-
   return (
-    <div>
-      {/* Page header */}
+    <div className="w-full max-w-full overflow-hidden">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Settings size={24} className="text-slate-700" />
             <h2 className="text-2xl font-bold">Settings</h2>
           </div>
+
           <p className="text-slate-500 text-sm">
             Manage your profile, notifications, integrations, and account.
           </p>
         </div>
 
         {hasChanges && activeTab === 'profile' && (
-          <div className="text-xs bg-amber-50 border border-amber-200 text-amber-700 px-3 py-2 rounded-lg flex items-center gap-1.5">
+          <div className="text-xs bg-amber-50 border border-amber-200 text-amber-700 px-3 py-2 rounded-lg flex items-center gap-1.5 w-fit">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
             Unsaved changes
           </div>
         )}
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit mb-6">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === tab.id
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="w-full overflow-x-auto mb-6">
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl min-w-max sm:w-fit">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
+                activeTab === tab.id
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* ── PROFILE TAB ── */}
       {activeTab === 'profile' && (
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6 max-w-5xl">
-          <div className="space-y-5">
-            {/* Feedback banners */}
+          <div className="space-y-5 min-w-0">
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 flex items-start gap-3">
-                <AlertCircle size={16} className="shrink-0 mt-0.5" />
-                <span className="text-sm flex-1">{error}</span>
-                <button onClick={() => setError('')} className="text-red-400 hover:text-red-600">
-                  <X size={16} />
-                </button>
-              </div>
-            )}
-            {message && (
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl p-4 flex items-start gap-3">
-                <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
-                <span className="text-sm flex-1">{message}</span>
-                <button
-                  onClick={() => setMessage('')}
-                  className="text-emerald-400 hover:text-emerald-600"
-                >
-                  <X size={16} />
-                </button>
-              </div>
+              <FeedbackMessage
+                type="error"
+                message={error}
+                onClose={() => setError('')}
+              />
             )}
 
-            {/* Profile card */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-              {/* Avatar hero */}
-              <div className="flex flex-col sm:flex-row sm:items-center gap-5 p-6 border-b border-slate-100">
+            {message && (
+              <FeedbackMessage
+                type="success"
+                message={message}
+                onClose={() => setMessage('')}
+              />
+            )}
+
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-5 p-4 sm:p-6 border-b border-slate-100">
                 <div className="shrink-0">
                   {avatarUrl && isAvatarValid ? (
                     <img
@@ -532,12 +517,13 @@ export const SettingsPage: React.FC = () => {
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-lg font-semibold truncate">
+                  <h3 className="text-lg font-semibold break-words">
                     {fullName.trim() || 'Your Profile'}
                   </h3>
-                  <p className="text-slate-500 text-sm truncate">{email}</p>
 
-                  <div className="flex flex-wrap gap-2 mt-4">
+                  <p className="text-slate-500 text-sm break-words">{email}</p>
+
+                  <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 mt-4">
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -550,7 +536,7 @@ export const SettingsPage: React.FC = () => {
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={uploadingAvatar}
-                      className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 transition disabled:opacity-50 inline-flex items-center gap-2"
+                      className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
                     >
                       {uploadingAvatar ? (
                         <Loader2 size={15} className="animate-spin" />
@@ -565,7 +551,7 @@ export const SettingsPage: React.FC = () => {
                         type="button"
                         onClick={handleRemoveAvatar}
                         disabled={deletingAvatar || uploadingAvatar}
-                        className="border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition disabled:opacity-50"
+                        className="w-full sm:w-auto border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition disabled:opacity-50"
                       >
                         {deletingAvatar ? 'Removing...' : 'Remove'}
                       </button>
@@ -578,24 +564,17 @@ export const SettingsPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Form fields */}
-              <div className="p-6 space-y-5">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-                    Full Name
-                  </label>
+              <div className="p-4 sm:p-6 space-y-5">
+                <Field label="Full Name">
                   <input
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Your full name"
                     className={inputCls}
                   />
-                </div>
+                </Field>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-                    Avatar URL
-                  </label>
+                <Field label="Avatar URL">
                   <div className="relative">
                     <Link2
                       size={14}
@@ -610,20 +589,19 @@ export const SettingsPage: React.FC = () => {
                       }`}
                     />
                   </div>
+
                   {!isAvatarValid && (
                     <p className="text-xs text-red-500 mt-1.5">
                       Enter a valid http or https image URL.
                     </p>
                   )}
+
                   <p className="text-xs text-slate-400 mt-1.5">
                     You can upload a picture above or paste an external image URL here.
                   </p>
-                </div>
+                </Field>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-                    Email
-                  </label>
+                <Field label="Email">
                   <div className="relative">
                     <Mail
                       size={14}
@@ -634,24 +612,24 @@ export const SettingsPage: React.FC = () => {
                   <p className="text-xs text-slate-400 mt-1.5">
                     Managed through your login provider.
                   </p>
-                </div>
+                </Field>
               </div>
 
-              {/* Footer actions */}
-              <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
+              <div className="flex flex-col sm:flex-row sm:justify-end gap-3 px-4 sm:px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
                 <button
                   type="button"
                   onClick={handleReset}
                   disabled={!hasChanges || saving || uploadingAvatar}
-                  className="border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm disabled:opacity-50 hover:bg-slate-100 transition"
+                  className="w-full sm:w-auto border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm disabled:opacity-50 hover:bg-slate-100 transition"
                 >
                   Reset
                 </button>
+
                 <button
                   type="button"
                   onClick={handleSaveProfile}
                   disabled={saving || !hasChanges || !isAvatarValid || uploadingAvatar}
-                  className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 hover:bg-slate-700 transition inline-flex items-center gap-2"
+                  className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 hover:bg-slate-700 transition inline-flex items-center justify-center gap-2"
                 >
                   <Save size={14} />
                   {saving ? 'Saving...' : 'Save Profile'}
@@ -660,21 +638,21 @@ export const SettingsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Sidebar */}
-          <aside className="space-y-5">
-            <div className="bg-slate-900 text-white rounded-2xl shadow-sm p-6">
+          <aside className="space-y-5 min-w-0">
+            <div className="bg-slate-900 text-white rounded-2xl shadow-sm p-4 sm:p-6">
               <p className="text-xs text-slate-400 uppercase tracking-widest mb-4">
                 Account Summary
               </p>
-              <div className="flex items-center gap-3 mb-5">
+
+              <div className="flex items-center gap-3 mb-5 min-w-0">
                 {avatarUrl && isAvatarValid ? (
                   <img
                     src={avatarUrl}
                     alt="Preview"
-                    className="w-11 h-11 rounded-full object-cover border border-white/10"
+                    className="w-11 h-11 rounded-full object-cover border border-white/10 shrink-0"
                   />
                 ) : (
-                  <div className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center">
+                  <div className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center shrink-0">
                     {avatarInitials ? (
                       <span className="text-white font-semibold text-sm">
                         {avatarInitials}
@@ -684,26 +662,22 @@ export const SettingsPage: React.FC = () => {
                     )}
                   </div>
                 )}
+
                 <div className="min-w-0">
-                  <p className="font-semibold text-sm truncate">
+                  <p className="font-semibold text-sm break-words">
                     {fullName.trim() || 'Unnamed User'}
                   </p>
-                  <p className="text-xs text-slate-400 truncate">{email}</p>
+                  <p className="text-xs text-slate-400 break-words">{email}</p>
                 </div>
               </div>
+
               <div className="space-y-3 text-sm border-t border-white/10 pt-4">
-                <div className="flex justify-between gap-4">
-                  <span className="text-slate-400">Plan</span>
-                  <span className="text-blue-400 font-medium">Free</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="text-slate-400">Profile</span>
-                  <span>{fullName.trim() ? 'Complete' : 'Incomplete'}</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="text-slate-400">Avatar</span>
-                  <span>{avatarUrl.trim() ? 'Set' : 'Not set'}</span>
-                </div>
+                <SummaryRow label="Plan" value="Free" />
+                <SummaryRow
+                  label="Profile"
+                  value={fullName.trim() ? 'Complete' : 'Incomplete'}
+                />
+                <SummaryRow label="Avatar" value={avatarUrl.trim() ? 'Set' : 'Not set'} />
                 <div className="flex justify-between gap-4">
                   <span className="text-slate-400">User ID</span>
                   <span className="truncate max-w-[130px] text-xs font-mono text-slate-300">
@@ -713,8 +687,10 @@ export const SettingsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-              <h3 className="text-sm font-semibold mb-2 text-slate-900">Profile tips</h3>
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-5">
+              <h3 className="text-sm font-semibold mb-2 text-slate-900">
+                Profile tips
+              </h3>
               <p className="text-sm text-slate-500 leading-relaxed">
                 Add a real name and photo — they appear when you share opportunities with
                 your network, making your shares feel more personal and trusted.
@@ -724,78 +700,70 @@ export const SettingsPage: React.FC = () => {
         </div>
       )}
 
-      {/* ── NOTIFICATIONS TAB ── */}
       {activeTab === 'notifications' && (
         <div className="max-w-2xl space-y-5">
           {notifMessage && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl p-4 flex items-center gap-3">
-              <CheckCircle2 size={16} className="shrink-0" />
-              <span className="text-sm">{notifMessage}</span>
-            </div>
+            <FeedbackMessage
+              type="success"
+              message={notifMessage}
+              onClose={() => setNotifMessage('')}
+            />
           )}
 
-          {/* Smart alerts */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-            <div className="px-6 py-4 border-b border-slate-100">
-              <div className="flex items-center gap-2 mb-0.5">
-                <Zap size={15} className="text-slate-700" />
-                <h3 className="text-base font-semibold">Smart Alerts</h3>
-              </div>
-              <p className="text-xs text-slate-500">
-                Intelligent notifications generated from your application activity.
-              </p>
-            </div>
-            <div className="px-6">
-              <ToggleRow
-                label="Follow-up reminders"
-                hint="Alert when an application has had no activity for 7+ days."
-                enabled={notifPrefs.followUpReminders}
-                onChange={(v) => setNotifPrefs((p) => ({ ...p, followUpReminders: v }))}
-              />
-              <ToggleRow
-                label="Ghosting alerts"
-                hint="Flag applications with no response after 21 days."
-                enabled={notifPrefs.ghostingAlerts}
-                onChange={(v) => setNotifPrefs((p) => ({ ...p, ghostingAlerts: v }))}
-              />
-              <ToggleRow
-                label="Offer deadline warnings"
-                hint="Remind you when an offer decision is approaching."
-                enabled={notifPrefs.offerDeadlines}
-                onChange={(v) => setNotifPrefs((p) => ({ ...p, offerDeadlines: v }))}
-              />
-              <ToggleRow
-                label="Shared opportunity alerts"
-                hint="Notify when someone shares a job opportunity with you."
-                enabled={notifPrefs.sharedOpportunities}
-                onChange={(v) =>
-                  setNotifPrefs((p) => ({ ...p, sharedOpportunities: v }))
-                }
-              />
-              <ToggleRow
-                label="Interview countdown"
-                hint="24-hour reminder before a scheduled interview."
-                enabled={notifPrefs.interviewCountdown}
-                onChange={(v) =>
-                  setNotifPrefs((p) => ({ ...p, interviewCountdown: v }))
-                }
-                last
-              />
-            </div>
-          </div>
+          <SettingsCard
+            icon={<Zap size={15} className="text-slate-700" />}
+            title="Smart Alerts"
+            description="Intelligent notifications generated from your application activity."
+          >
+            <ToggleRow
+              label="Follow-up reminders"
+              hint="Alert when an application has had no activity for 7+ days."
+              enabled={notifPrefs.followUpReminders}
+              onChange={(v) => setNotifPrefs((p) => ({ ...p, followUpReminders: v }))}
+            />
 
-          {/* Email digest */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-            <div className="px-6 py-4 border-b border-slate-100">
+            <ToggleRow
+              label="Ghosting alerts"
+              hint="Flag applications with no response after 21 days."
+              enabled={notifPrefs.ghostingAlerts}
+              onChange={(v) => setNotifPrefs((p) => ({ ...p, ghostingAlerts: v }))}
+            />
+
+            <ToggleRow
+              label="Offer deadline warnings"
+              hint="Remind you when an offer decision is approaching."
+              enabled={notifPrefs.offerDeadlines}
+              onChange={(v) => setNotifPrefs((p) => ({ ...p, offerDeadlines: v }))}
+            />
+
+            <ToggleRow
+              label="Shared opportunity alerts"
+              hint="Notify when someone shares a job opportunity with you."
+              enabled={notifPrefs.sharedOpportunities}
+              onChange={(v) => setNotifPrefs((p) => ({ ...p, sharedOpportunities: v }))}
+            />
+
+            <ToggleRow
+              label="Interview countdown"
+              hint="24-hour reminder before a scheduled interview."
+              enabled={notifPrefs.interviewCountdown}
+              onChange={(v) => setNotifPrefs((p) => ({ ...p, interviewCountdown: v }))}
+              last
+            />
+          </SettingsCard>
+
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-100">
               <div className="flex items-center gap-2 mb-0.5">
                 <Bell size={15} className="text-slate-700" />
                 <h3 className="text-base font-semibold">Email Digest</h3>
               </div>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 break-words">
                 Receive a summary of your job search activity to {email}.
               </p>
             </div>
-            <div className="px-6">
+
+            <div className="px-4 sm:px-6">
               <ToggleRow
                 label="Weekly digest"
                 hint="Summary of applications, responses, and follow-ups every Monday."
@@ -804,14 +772,16 @@ export const SettingsPage: React.FC = () => {
                 last
               />
             </div>
-            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex items-center justify-between gap-4">
+
+            <div className="px-4 sm:px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <p className="text-xs text-slate-400">
                 Email digests require the Pro plan to send automatically.
               </p>
+
               <button
                 onClick={handleSaveNotifications}
                 disabled={savingNotifs}
-                className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 hover:bg-slate-700 transition inline-flex items-center gap-2"
+                className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 hover:bg-slate-700 transition inline-flex items-center justify-center gap-2"
               >
                 <Save size={14} />
                 {savingNotifs ? 'Saving…' : 'Save'}
@@ -821,51 +791,47 @@ export const SettingsPage: React.FC = () => {
         </div>
       )}
 
-      {/* ── INTEGRATIONS TAB ── */}
       {activeTab === 'integrations' && (
         <div className="max-w-2xl space-y-5">
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-            <div className="px-6 py-4 border-b border-slate-100">
-              <h3 className="text-base font-semibold mb-0.5">Connected Services</h3>
-              <p className="text-xs text-slate-500">
-                External services that power JTracker's intelligence features.
-              </p>
-            </div>
-            <div className="px-6">
-              <IntegrationRow
-                icon={<Mail size={18} />}
-                name="Gmail"
-                description="Auto-classify job emails — confirmations, interviews, rejections, and offers."
-                status={FEATURES.GMAIL_SYNC ? 'active' : 'paused'}
-                onAction={() => {}}
-              />
-              <IntegrationRow
-                icon={<Bell size={18} />}
-                name="Push Notifications"
-                description="Real-time alerts in the browser when your application status changes."
-                status="active"
-                onAction={() => {}}
-              />
-              <IntegrationRow
-                icon={<Smartphone size={18} />}
-                name="WhatsApp Sharing"
-                description="Share job opportunities directly via WhatsApp with a pre-filled message."
-                status="active"
-                onAction={() => {}}
-              />
-              <IntegrationRow
-                icon={<Globe size={18} />}
-                name="Chrome Extension"
-                description="Save job listings to JTracker in one click from any job board."
-                status="coming_soon"
-                last
-              />
-            </div>
-          </div>
+          <SettingsCard
+            title="Connected Services"
+            description="External services that power JTracker's intelligence features."
+          >
+            <IntegrationRow
+              icon={<Mail size={18} />}
+              name="Gmail"
+              description="Auto-classify job emails — confirmations, interviews, rejections, and offers."
+              status={FEATURES.GMAIL_SYNC ? 'active' : 'paused'}
+              onAction={() => {}}
+            />
 
-          {/* Public share link */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-            <div className="px-6 py-4 border-b border-slate-100">
+            <IntegrationRow
+              icon={<Bell size={18} />}
+              name="Push Notifications"
+              description="Real-time alerts in the browser when your application status changes."
+              status="active"
+              onAction={() => {}}
+            />
+
+            <IntegrationRow
+              icon={<Smartphone size={18} />}
+              name="WhatsApp Sharing"
+              description="Share job opportunities directly via WhatsApp with a pre-filled message."
+              status="active"
+              onAction={() => {}}
+            />
+
+            <IntegrationRow
+              icon={<Globe size={18} />}
+              name="Chrome Extension"
+              description="Save job listings to JTracker in one click from any job board."
+              status="coming_soon"
+              last
+            />
+          </SettingsCard>
+
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-100">
               <div className="flex items-center gap-2 mb-0.5">
                 <Link2 size={15} className="text-slate-700" />
                 <h3 className="text-base font-semibold">Public Share Link</h3>
@@ -874,24 +840,27 @@ export const SettingsPage: React.FC = () => {
                 Anyone with this link can view opportunities you choose to share publicly.
               </p>
             </div>
-            <div className="p-6">
-              <div className="flex gap-2">
+
+            <div className="p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   readOnly
                   value={`https://jtracker.app/share/${user?.id?.slice(0, 8)}`}
                   className={`${inputCls} font-mono text-xs`}
                 />
+
                 <button
                   onClick={() =>
                     navigator.clipboard.writeText(
                       `https://jtracker.app/share/${user?.id?.slice(0, 8)}`
                     )
                   }
-                  className="border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition shrink-0"
+                  className="w-full sm:w-auto border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition shrink-0"
                 >
                   Copy
                 </button>
               </div>
+
               <p className="text-xs text-slate-400 mt-2">
                 Revoking generates a new link. The old link stops working immediately.
               </p>
@@ -900,51 +869,41 @@ export const SettingsPage: React.FC = () => {
         </div>
       )}
 
-      {/* ── ACCOUNT TAB ── */}
       {activeTab === 'account' && (
         <div className="max-w-2xl space-y-5">
-
-          {/* Plan */}
-          <div className="bg-slate-900 text-white rounded-2xl shadow-sm p-6">
+          <div className="bg-slate-900 text-white rounded-2xl shadow-sm p-4 sm:p-6">
             <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
               Current Plan
             </p>
-            <div className="flex items-end justify-between gap-4 mb-4">
+
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-4">
               <div>
                 <p className="text-xl font-bold">Free</p>
                 <p className="text-xs text-slate-400 mt-0.5">
                   Up to 20 applications · Manual sync only
                 </p>
               </div>
-              <button className="bg-blue-500 hover:bg-blue-400 text-white text-sm font-medium px-4 py-2 rounded-lg transition shrink-0">
+
+              <button className="w-full sm:w-auto bg-blue-500 hover:bg-blue-400 text-white text-sm font-medium px-4 py-2 rounded-lg transition shrink-0">
                 Upgrade to Pro
               </button>
             </div>
+
             <div className="space-y-1.5 text-sm border-t border-white/10 pt-4">
-              {[
-                ['Applications', '4 / 20'],
-                ['Gmail sync', 'Manual only'],
-                ['Email classification', 'Keyword-based'],
-                ['Recruiters', '5 max'],
-              ].map(([label, val]) => (
-                <div key={label} className="flex justify-between gap-4">
-                  <span className="text-slate-400">{label}</span>
-                  <span className="font-medium">{val}</span>
-                </div>
-              ))}
+              <SummaryRow label="Applications" value="4 / 20" />
+              <SummaryRow label="Gmail sync" value="Manual only" />
+              <SummaryRow label="Email classification" value="Keyword-based" />
+              <SummaryRow label="Recruiters" value="5 max" />
             </div>
           </div>
 
-          {/* Account info */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-            <div className="px-6 py-4 border-b border-slate-100">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-100">
               <h3 className="text-base font-semibold">Account Information</h3>
             </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-                  User ID
-                </label>
+
+            <div className="p-4 sm:p-6 space-y-4">
+              <Field label="User ID">
                 <input
                   value={user?.id || ''}
                   readOnly
@@ -953,78 +912,64 @@ export const SettingsPage: React.FC = () => {
                 <p className="text-xs text-slate-400 mt-1.5">
                   Use this when contacting support.
                 </p>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-                  Email
-                </label>
+              </Field>
+
+              <Field label="Email">
                 <input value={email} disabled className={inputCls} />
-              </div>
+              </Field>
             </div>
           </div>
 
-          {/* Data & privacy */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-            <div className="px-6 py-4 border-b border-slate-100">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-100">
               <div className="flex items-center gap-2 mb-0.5">
                 <Shield size={15} className="text-slate-700" />
                 <h3 className="text-base font-semibold">Data & Privacy</h3>
               </div>
-              <p className="text-xs text-slate-500">Export or manage your personal data.</p>
+              <p className="text-xs text-slate-500">
+                Export or manage your personal data.
+              </p>
             </div>
+
             <div className="divide-y divide-slate-100">
-              <div className="flex items-center justify-between gap-4 px-6 py-4">
-                <div>
-                  <p className="text-sm font-medium text-slate-900">Export your data</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Download all applications, events, and recruiter data as CSV.
-                  </p>
-                </div>
-                <button
-                  onClick={handleExportData}
-                  className="border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm hover:bg-slate-50 transition inline-flex items-center gap-1.5 shrink-0"
-                >
-                  <Download size={13} />
-                  Export CSV
-                </button>
-              </div>
-              <div className="flex items-center justify-between gap-4 px-6 py-4">
-                <div>
-                  <p className="text-sm font-medium text-slate-900">Sign out all devices</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Invalidates all active sessions across every device.
-                  </p>
-                </div>
-                <button
-                  onClick={handleSignOut}
-                  disabled={signingOut}
-                  className="border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm hover:bg-slate-50 transition inline-flex items-center gap-1.5 shrink-0 disabled:opacity-50"
-                >
-                  <LogOut size={13} />
-                  {signingOut ? 'Signing out…' : 'Sign out'}
-                </button>
-              </div>
+              <AccountActionRow
+                title="Export your data"
+                description="Download all applications, events, and recruiter data as CSV."
+                buttonLabel="Export CSV"
+                icon={<Download size={13} />}
+                onClick={handleExportData}
+              />
+
+              <AccountActionRow
+                title="Sign out all devices"
+                description="Invalidates all active sessions across every device."
+                buttonLabel={signingOut ? 'Signing out…' : 'Sign out'}
+                icon={<LogOut size={13} />}
+                onClick={handleSignOut}
+                disabled={signingOut}
+              />
             </div>
           </div>
 
-          {/* Danger zone */}
           <div className="border border-red-200 rounded-2xl overflow-hidden">
-            <div className="bg-red-50 px-6 py-3 border-b border-red-200 flex items-center gap-2">
+            <div className="bg-red-50 px-4 sm:px-6 py-3 border-b border-red-200 flex items-center gap-2">
               <AlertCircle size={14} className="text-red-500" />
               <span className="text-sm font-semibold text-red-700">Danger Zone</span>
             </div>
-            <div className="bg-white px-6 py-4">
+
+            <div className="bg-white px-4 sm:px-6 py-4">
               {!showDeleteConfirm ? (
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <p className="text-sm font-medium text-slate-900">Delete account</p>
                     <p className="text-xs text-slate-500 mt-0.5">
                       Permanently removes all your data. This cannot be undone.
                     </p>
                   </div>
+
                   <button
                     onClick={() => setShowDeleteConfirm(true)}
-                    className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-sm hover:bg-red-100 transition inline-flex items-center gap-1.5 shrink-0"
+                    className="w-full sm:w-auto bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-sm hover:bg-red-100 transition inline-flex items-center justify-center gap-1.5 shrink-0"
                   >
                     <Trash2 size={13} />
                     Delete
@@ -1033,27 +978,34 @@ export const SettingsPage: React.FC = () => {
               ) : (
                 <div className="space-y-3">
                   <p className="text-sm text-red-700 font-medium">
-                    Type <span className="font-mono bg-red-100 px-1.5 py-0.5 rounded">DELETE</span> to confirm.
+                    Type{' '}
+                    <span className="font-mono bg-red-100 px-1.5 py-0.5 rounded">
+                      DELETE
+                    </span>{' '}
+                    to confirm.
                   </p>
+
                   <input
                     value={deleteInput}
                     onChange={(e) => setDeleteInput(e.target.value)}
                     placeholder="DELETE"
                     className={`${inputCls} border-red-200 focus:ring-red-300`}
                   />
-                  <div className="flex gap-2">
+
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <button
                       onClick={() => {
                         setShowDeleteConfirm(false);
                         setDeleteInput('');
                       }}
-                      className="flex-1 border border-slate-200 text-slate-600 py-2 rounded-lg text-sm hover:bg-slate-50 transition"
+                      className="w-full sm:flex-1 border border-slate-200 text-slate-600 py-2 rounded-lg text-sm hover:bg-slate-50 transition"
                     >
                       Cancel
                     </button>
+
                     <button
                       disabled={deleteInput !== 'DELETE'}
-                      className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm disabled:opacity-40 hover:bg-red-700 transition"
+                      className="w-full sm:flex-1 bg-red-600 text-white py-2 rounded-lg text-sm disabled:opacity-40 hover:bg-red-700 transition"
                     >
                       Confirm Delete
                     </button>
@@ -1067,3 +1019,111 @@ export const SettingsPage: React.FC = () => {
     </div>
   );
 };
+
+const Field = ({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) => (
+  <label className="block">
+    <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+      {label}
+    </span>
+    {children}
+  </label>
+);
+
+const FeedbackMessage = ({
+  type,
+  message,
+  onClose,
+}: {
+  type: 'error' | 'success';
+  message: string;
+  onClose: () => void;
+}) => (
+  <div
+    className={`rounded-xl p-4 flex items-start gap-3 border ${
+      type === 'error'
+        ? 'bg-red-50 border-red-200 text-red-700'
+        : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+    }`}
+  >
+    {type === 'error' ? (
+      <AlertCircle size={16} className="shrink-0 mt-0.5" />
+    ) : (
+      <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+    )}
+
+    <span className="text-sm flex-1 break-words">{message}</span>
+
+    <button onClick={onClose} className="opacity-70 hover:opacity-100">
+      <X size={16} />
+    </button>
+  </div>
+);
+
+const SettingsCard = ({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) => (
+  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+    <div className="px-4 sm:px-6 py-4 border-b border-slate-100">
+      <div className="flex items-center gap-2 mb-0.5">
+        {icon}
+        <h3 className="text-base font-semibold">{title}</h3>
+      </div>
+      {description && <p className="text-xs text-slate-500">{description}</p>}
+    </div>
+
+    <div className="px-4 sm:px-6">{children}</div>
+  </div>
+);
+
+const SummaryRow = ({ label, value }: { label: string; value: string }) => (
+  <div className="flex justify-between gap-4">
+    <span className="text-slate-400">{label}</span>
+    <span className="font-medium text-right break-words">{value}</span>
+  </div>
+);
+
+const AccountActionRow = ({
+  title,
+  description,
+  buttonLabel,
+  icon,
+  onClick,
+  disabled,
+}: {
+  title: string;
+  description: string;
+  buttonLabel: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}) => (
+  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 px-4 sm:px-6 py-4">
+    <div>
+      <p className="text-sm font-medium text-slate-900">{title}</p>
+      <p className="text-xs text-slate-500 mt-0.5">{description}</p>
+    </div>
+
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="w-full sm:w-auto border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5 shrink-0 disabled:opacity-50"
+    >
+      {icon}
+      {buttonLabel}
+    </button>
+  </div>
+);

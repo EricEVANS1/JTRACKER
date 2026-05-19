@@ -17,24 +17,6 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
-/**
- * DEVELOPMENT NOTES — NOTIFICATIONS PAGE
- *
- * Added/improved:
- * 1. Database-backed notifications from public.notifications.
- * 2. Realtime notification refresh using Supabase postgres_changes.
- * 3. Unread/read support with Mark Read and Mark All Read.
- * 4. Shared opportunity notifications that open /shared-with-me.
- * 5. Smart job-search alerts retained from the previous version:
- *    follow-ups, inactive applications, interviews, assessments, offers.
- * 6. Filtering by All, Unread, Shared Opportunities, and Smart Alerts.
- * 7. Stats updated to include Unread database notifications.
- *
- * Important architecture note:
- * - Database notifications are persisted.
- * - Smart alerts are generated from application data and are not stored yet.
- */
-
 type NotificationPriority = 'urgent' | 'today' | 'upcoming' | 'insight';
 type NotificationSource = 'database' | 'smart';
 
@@ -131,8 +113,7 @@ const getDatabaseNotificationPriority = (type: string): NotificationPriority => 
 };
 
 const inputCls =
-  'w-full border border-slate-200 rounded-xl pl-10 pr-3 py-3 text-sm bg-white ' +
-  'focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
+  'w-full border border-slate-200 rounded-xl pl-10 pr-3 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
 
 export const NotificationsPage: React.FC = () => {
   const { user } = useAuth();
@@ -552,21 +533,24 @@ export const NotificationsPage: React.FC = () => {
   }
 
   return (
-    <div>
+    <div className="w-full max-w-full overflow-hidden">
       <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-6 mb-8">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-3 mb-2">
-            <Bell size={30} className="text-slate-700" />
-            <h2 className="text-3xl font-bold">Notifications</h2>
+            <Bell size={28} className="text-slate-700 shrink-0" />
+            <h2 className="text-2xl sm:text-3xl font-bold break-words">
+              Notifications
+            </h2>
           </div>
 
-          <p className="text-slate-500 max-w-2xl">
-            Real alerts from collaboration events and job-search intelligence, including shared opportunities,
-            follow-ups, inactive applications, interviews, assessments, and offers.
+          <p className="text-slate-500 text-sm sm:text-base max-w-2xl">
+            Real alerts from collaboration events and job-search intelligence, including
+            shared opportunities, follow-ups, inactive applications, interviews,
+            assessments, and offers.
           </p>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full xl:w-auto">
           <StatCard label="Urgent" value={stats.urgent} tone="danger" />
           <StatCard label="Today" value={stats.today} tone="warning" />
           <StatCard label="Upcoming" value={stats.upcoming} tone="neutral" />
@@ -575,11 +559,9 @@ export const NotificationsPage: React.FC = () => {
       </div>
 
       {error && <AlertBox type="error" message={error} onClose={() => setError('')} />}
-      {message && (
-        <AlertBox type="success" message={message} onClose={() => setMessage('')} />
-      )}
+      {message && <AlertBox type="success" message={message} onClose={() => setMessage('')} />}
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mb-6">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mb-6 overflow-hidden">
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_180px_140px_150px] gap-3">
           <div className="relative">
             <Search
@@ -598,7 +580,7 @@ export const NotificationsPage: React.FC = () => {
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as typeof filter)}
-            className="border border-slate-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400"
+            className="w-full border border-slate-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400"
           >
             <option value="all">All notifications</option>
             <option value="unread">Unread only</option>
@@ -610,7 +592,7 @@ export const NotificationsPage: React.FC = () => {
             type="button"
             onClick={handleRefresh}
             disabled={refreshing}
-            className="border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
           >
             <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
             Refresh
@@ -620,7 +602,7 @@ export const NotificationsPage: React.FC = () => {
             type="button"
             onClick={handleMarkAllRead}
             disabled={markingAllRead || stats.unread === 0}
-            className="bg-slate-900 text-white rounded-xl px-4 py-3 text-sm hover:bg-slate-700 transition disabled:opacity-50"
+            className="w-full bg-slate-900 text-white rounded-xl px-4 py-3 text-sm hover:bg-slate-700 transition disabled:opacity-50"
           >
             {markingAllRead ? 'Saving...' : 'Mark all read'}
           </button>
@@ -628,11 +610,12 @@ export const NotificationsPage: React.FC = () => {
       </div>
 
       {filteredNotifications.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-10 text-center">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-10 text-center">
           <CheckCircle2 size={38} className="mx-auto text-emerald-400 mb-3" />
           <h3 className="text-lg font-semibold">No active notifications</h3>
-          <p className="text-slate-500 mt-2">
-            You are clear for now. New alerts will appear when collaboration events or job-search actions need attention.
+          <p className="text-slate-500 text-sm sm:text-base mt-2 max-w-xl mx-auto">
+            You are clear for now. New alerts will appear when collaboration events
+            or job-search actions need attention.
           </p>
         </div>
       ) : (
@@ -704,16 +687,24 @@ const NotificationCard = ({
     notification.source === 'database' && notification.read === false;
 
   return (
-    <div className={`border rounded-2xl shadow-sm p-5 ${config.card}`}>
+    <div className={`border rounded-2xl shadow-sm p-4 sm:p-5 ${config.card} overflow-hidden`}>
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
-        <div className="flex items-start gap-4">
-          <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${config.iconBox}`}>
-            {notification.type === 'shared_opportunity' ? <Inbox size={21} /> : <Icon size={21} />}
+        <div className="flex items-start gap-4 min-w-0">
+          <div
+            className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${config.iconBox}`}
+          >
+            {notification.type === 'shared_opportunity' ? (
+              <Inbox size={21} />
+            ) : (
+              <Icon size={21} />
+            )}
           </div>
 
-          <div>
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-1">
-              <h3 className="font-semibold text-slate-900">{notification.title}</h3>
+              <h3 className="font-semibold text-slate-900 break-words">
+                {notification.title}
+              </h3>
 
               <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${config.badge}`}>
                 {formatStatus(notification.priority)}
@@ -730,24 +721,24 @@ const NotificationCard = ({
               )}
             </div>
 
-            <p className="text-sm text-slate-600 leading-relaxed">
+            <p className="text-sm text-slate-600 leading-relaxed break-words">
               {notification.description}
             </p>
 
             {notification.date && (
-              <p className="text-xs text-slate-500 mt-2">
+              <p className="text-xs text-slate-500 mt-2 break-words">
                 Related date: {formatDateTime(notification.date)}
               </p>
             )}
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 lg:justify-end">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 lg:justify-end w-full lg:w-auto">
           {(notification.applicationId || notification.type === 'shared_opportunity') && (
             <button
               type="button"
               onClick={() => onOpen(notification)}
-              className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2"
+              className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2"
             >
               {notification.type === 'shared_opportunity' ? (
                 <>
@@ -768,7 +759,7 @@ const NotificationCard = ({
               type="button"
               disabled={updating}
               onClick={() => onMarkRead(notification.id)}
-              className="border border-slate-300 bg-white text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition disabled:opacity-50"
+              className="w-full sm:w-auto border border-slate-300 bg-white text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition disabled:opacity-50"
             >
               {updating ? 'Saving...' : 'Mark Read'}
             </button>
@@ -779,7 +770,7 @@ const NotificationCard = ({
               type="button"
               disabled={updating}
               onClick={() => onMarkFollowUpDone(notification.applicationId)}
-              className="border border-slate-300 bg-white text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition disabled:opacity-50"
+              className="w-full sm:w-auto border border-slate-300 bg-white text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition disabled:opacity-50"
             >
               {updating ? 'Saving...' : 'Mark Done'}
             </button>
@@ -812,9 +803,9 @@ const AlertBox = ({
       <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
     )}
 
-    <span className="text-sm flex-1">{message}</span>
+    <span className="text-sm flex-1 break-words">{message}</span>
 
-    <button onClick={onClose} className="opacity-70 hover:opacity-100">
+    <button onClick={onClose} className="opacity-70 hover:opacity-100 shrink-0">
       <X size={16} />
     </button>
   </div>
@@ -837,7 +828,7 @@ const StatCard = ({
   }[tone];
 
   return (
-    <div className={`border rounded-xl px-4 py-3 min-w-[105px] shadow-sm ${toneClass}`}>
+    <div className={`border rounded-xl px-4 py-3 shadow-sm ${toneClass}`}>
       <p className="text-xs opacity-80">{label}</p>
       <p className="text-xl font-bold mt-1">{value}</p>
     </div>
@@ -845,19 +836,19 @@ const StatCard = ({
 };
 
 const NotificationsSkeleton = () => (
-  <div>
+  <div className="w-full max-w-full overflow-hidden">
     <div className="mb-8">
       <div className="h-8 w-56 bg-slate-200 rounded-lg animate-pulse mb-2" />
-      <div className="h-4 w-96 bg-slate-100 rounded-lg animate-pulse" />
+      <div className="h-4 w-full max-w-96 bg-slate-100 rounded-lg animate-pulse" />
     </div>
 
-    <div className="h-16 bg-white border border-slate-200 rounded-2xl animate-pulse mb-6" />
+    <div className="h-24 sm:h-16 bg-white border border-slate-200 rounded-2xl animate-pulse mb-6" />
 
     <div className="space-y-4">
       {Array.from({ length: 4 }).map((_, index) => (
         <div
           key={index}
-          className="h-32 bg-white border border-slate-200 rounded-2xl animate-pulse"
+          className="h-40 sm:h-32 bg-white border border-slate-200 rounded-2xl animate-pulse"
         />
       ))}
     </div>

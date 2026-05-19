@@ -8,8 +8,11 @@ import {
   ExternalLink,
   Plus,
 } from 'lucide-react';
+
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useOnboarding } from '../hooks/useOnboarding';
+import { OnboardingHint } from '../components/OnboardingHint';
 
 interface Recruiter {
   id: string;
@@ -40,9 +43,13 @@ interface RecruiterApplication {
   application_link: string | null;
 }
 
+const inputCls =
+  'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 transition';
+
 export const RecruiterDetailsPage: React.FC = () => {
   const { id } = useParams();
   const { user } = useAuth();
+  const { onboardingComplete, completedSteps, refreshOnboarding } = useOnboarding();
 
   const [recruiter, setRecruiter] = useState<Recruiter | null>(null);
   const [interactions, setInteractions] = useState<RecruiterInteraction[]>([]);
@@ -110,7 +117,8 @@ export const RecruiterDetailsPage: React.FC = () => {
 
   useEffect(() => {
     fetchRecruiter();
-  }, [user, id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, id]);
 
   const handleAddInteraction = async () => {
     if (!user || !id || !title.trim()) return;
@@ -123,7 +131,7 @@ export const RecruiterDetailsPage: React.FC = () => {
       recruiter_id: id,
       interaction_type: interactionType,
       title: title.trim(),
-      description: description || null,
+      description: description.trim() || null,
     });
 
     if (error) {
@@ -137,19 +145,29 @@ export const RecruiterDetailsPage: React.FC = () => {
     setInteractionType('note');
 
     await fetchRecruiter();
+    await refreshOnboarding();
+
     setSaving(false);
   };
 
   if (loading) {
-    return <p className="text-slate-500">Loading recruiter...</p>;
+    return (
+      <div className="w-full max-w-full overflow-hidden">
+        <p className="text-slate-500">Loading recruiter...</p>
+      </div>
+    );
   }
 
   if (!recruiter) {
-    return <p className="text-slate-500">Recruiter not found.</p>;
+    return (
+      <div className="w-full max-w-full overflow-hidden">
+        <p className="text-slate-500">Recruiter not found.</p>
+      </div>
+    );
   }
 
   return (
-    <div>
+    <div className="w-full max-w-full overflow-hidden">
       <Link
         to="/recruiters"
         className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 mb-6"
@@ -159,14 +177,24 @@ export const RecruiterDetailsPage: React.FC = () => {
       </Link>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-6">
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-6 break-words">
           {error}
         </div>
       )}
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 mb-6">
-        <h1 className="text-3xl font-bold mb-2">{recruiter.name}</h1>
-        <p className="text-slate-500 mb-6">
+      {!onboardingComplete && !completedSteps.hasRecruiter && (
+        <OnboardingHint
+          title="Log your first recruiter interaction"
+          description="Recruiter notes help you track conversations, follow-ups, LinkedIn messages, and interview progress."
+        />
+      )}
+
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-8 mb-6 overflow-hidden">
+        <h1 className="text-2xl sm:text-3xl font-bold mb-2 break-words">
+          {recruiter.name}
+        </h1>
+
+        <p className="text-slate-500 mb-6 break-words">
           {recruiter.role_title || 'Recruiter'}
         </p>
 
@@ -189,7 +217,7 @@ export const RecruiterDetailsPage: React.FC = () => {
             value={recruiter.phone || 'Not specified'}
           />
 
-          <div className="border border-slate-200 rounded-xl p-4">
+          <div className="border border-slate-200 rounded-xl p-4 overflow-hidden">
             <div className="flex items-center gap-2 text-slate-500 mb-2">
               <ExternalLink size={16} />
               <span className="text-sm">LinkedIn</span>
@@ -200,31 +228,31 @@ export const RecruiterDetailsPage: React.FC = () => {
                 href={recruiter.linkedin_url}
                 target="_blank"
                 rel="noreferrer"
-                className="font-medium underline"
+                className="font-medium underline break-all"
               >
                 Open profile
               </a>
             ) : (
-              <p className="font-medium">Not specified</p>
+              <p className="font-medium break-words">Not specified</p>
             )}
           </div>
         </div>
 
         {recruiter.notes && (
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mt-6 whitespace-pre-wrap">
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mt-6 whitespace-pre-wrap break-words">
             {recruiter.notes}
           </div>
         )}
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 mb-6">
-        <h2 className="text-xl font-semibold mb-2">Linked Applications</h2>
-        <p className="text-slate-500 mb-6">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-8 mb-6 overflow-hidden">
+        <h2 className="text-xl font-semibold mb-2 break-words">Linked Applications</h2>
+        <p className="text-slate-500 mb-6 break-words">
           Applications connected to this recruiter.
         </p>
 
         {applications.length === 0 ? (
-          <p className="text-slate-500">
+          <p className="text-slate-500 break-words">
             No applications linked to this recruiter yet.
           </p>
         ) : (
@@ -232,31 +260,31 @@ export const RecruiterDetailsPage: React.FC = () => {
             {applications.map((application) => (
               <div
                 key={application.id}
-                className="border border-slate-200 rounded-xl p-4"
+                className="border border-slate-200 rounded-xl p-4 overflow-hidden"
               >
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">
+                  <div className="min-w-0">
+                    <h3 className="font-semibold break-words">
                       {application.role_title}
                     </h3>
 
                     <div className="flex flex-wrap gap-2 mt-2">
-                      <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded-full text-xs">
+                      <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded-full text-xs break-words">
                         {application.status.replaceAll('_', ' ')}
                       </span>
 
                       {application.date_applied && (
-                        <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-full text-xs">
+                        <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-full text-xs break-words">
                           Applied {application.date_applied}
                         </span>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 text-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
                     <Link
                       to={`/applications/${application.id}`}
-                      className="text-slate-900 underline"
+                      className="w-full sm:w-auto text-center sm:text-left text-slate-900 underline"
                     >
                       View
                     </Link>
@@ -266,7 +294,7 @@ export const RecruiterDetailsPage: React.FC = () => {
                         href={application.application_link}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-slate-500 hover:text-slate-900 underline"
+                        className="w-full sm:w-auto text-center sm:text-left text-slate-500 hover:text-slate-900 underline"
                       >
                         Job
                       </a>
@@ -279,9 +307,9 @@ export const RecruiterDetailsPage: React.FC = () => {
         )}
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 mb-6">
-        <h2 className="text-xl font-semibold mb-2">Add Interaction</h2>
-        <p className="text-slate-500 mb-6">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-8 mb-6 overflow-hidden">
+        <h2 className="text-xl font-semibold mb-2 break-words">Add Interaction</h2>
+        <p className="text-slate-500 mb-6 break-words">
           Log recruiter calls, emails, LinkedIn messages, or follow-ups.
         </p>
 
@@ -290,13 +318,13 @@ export const RecruiterDetailsPage: React.FC = () => {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Interaction title"
-            className="border border-slate-300 rounded-lg px-3 py-2"
+            className={inputCls}
           />
 
           <select
             value={interactionType}
             onChange={(e) => setInteractionType(e.target.value)}
-            className="border border-slate-300 rounded-lg px-3 py-2"
+            className={inputCls}
           >
             <option value="note">Note</option>
             <option value="email">Email</option>
@@ -311,14 +339,14 @@ export const RecruiterDetailsPage: React.FC = () => {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Details..."
-          className="border border-slate-300 rounded-lg px-3 py-2 w-full min-h-24"
+          className={`${inputCls} min-h-24 resize-y`}
         />
 
-        <div className="flex justify-end mt-4">
+        <div className="flex flex-col sm:flex-row sm:justify-end mt-4">
           <button
             onClick={handleAddInteraction}
             disabled={saving || !title.trim()}
-            className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center gap-2"
+            className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2"
           >
             <Plus size={16} />
             {saving ? 'Saving...' : 'Add Interaction'}
@@ -326,34 +354,34 @@ export const RecruiterDetailsPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8">
-        <h2 className="text-xl font-semibold mb-6">Recruiter Timeline</h2>
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-8 overflow-hidden">
+        <h2 className="text-xl font-semibold mb-6 break-words">Recruiter Timeline</h2>
 
         {interactions.length === 0 ? (
-          <p className="text-slate-500">No recruiter interactions yet.</p>
+          <p className="text-slate-500 break-words">No recruiter interactions yet.</p>
         ) : (
           <div className="space-y-4">
             {interactions.map((interaction) => (
               <div
                 key={interaction.id}
-                className="border border-slate-200 rounded-xl p-4"
+                className="border border-slate-200 rounded-xl p-4 overflow-hidden"
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="font-semibold">{interaction.title}</h3>
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                  <div className="min-w-0">
+                    <h3 className="font-semibold break-words">{interaction.title}</h3>
 
-                    <p className="text-sm text-slate-500 mt-1">
+                    <p className="text-sm text-slate-500 mt-1 break-words">
                       {interaction.interaction_type.replaceAll('_', ' ')}
                     </p>
 
                     {interaction.description && (
-                      <p className="text-sm text-slate-600 mt-3">
+                      <p className="text-sm text-slate-600 mt-3 break-words">
                         {interaction.description}
                       </p>
                     )}
                   </div>
 
-                  <span className="text-xs text-slate-500 whitespace-nowrap">
+                  <span className="text-xs text-slate-500 whitespace-nowrap shrink-0">
                     {new Date(interaction.interaction_date).toLocaleString()}
                   </span>
                 </div>
@@ -375,11 +403,11 @@ const InfoCard = ({
   label: string;
   value: string;
 }) => (
-  <div className="border border-slate-200 rounded-xl p-4">
+  <div className="border border-slate-200 rounded-xl p-4 overflow-hidden">
     <div className="flex items-center gap-2 text-slate-500 mb-2">
       {icon}
       <span className="text-sm">{label}</span>
     </div>
-    <p className="font-medium">{value}</p>
+    <p className="font-medium break-words">{value}</p>
   </div>
 );

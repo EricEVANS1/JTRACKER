@@ -19,8 +19,7 @@ interface CompanyJoin {
   name: string;
 }
 
-interface RawArchivedApplication
-  extends Omit<Application, 'companies'> {
+interface RawArchivedApplication extends Omit<Application, 'companies'> {
   companies?: CompanyJoin | CompanyJoin[] | null;
 }
 
@@ -67,8 +66,7 @@ const statusClass = (status: string) => {
 };
 
 const inputCls =
-  'w-full border border-slate-200 rounded-xl pl-10 pr-3 py-3 text-sm bg-white ' +
-  'focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
+  'w-full border border-slate-200 rounded-xl pl-10 pr-3 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
 
 export const ArchivedApplicationsPage: React.FC = () => {
   const { user } = useAuth();
@@ -130,7 +128,8 @@ export const ArchivedApplicationsPage: React.FC = () => {
 
   useEffect(() => {
     loadPage();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const filteredApplications = useMemo(() => {
     const term = search.toLowerCase();
@@ -229,20 +228,23 @@ export const ArchivedApplicationsPage: React.FC = () => {
   }
 
   return (
-    <div>
+    <div className="w-full max-w-full overflow-hidden">
       <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-6 mb-8">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-3 mb-2">
-            <Archive size={30} className="text-slate-700" />
-            <h1 className="text-3xl font-bold">Archived Applications</h1>
+            <Archive size={28} className="text-slate-700 shrink-0" />
+            <h1 className="text-2xl sm:text-3xl font-bold break-words">
+              Archived Applications
+            </h1>
           </div>
 
-          <p className="text-slate-500 max-w-2xl">
-            Review archived applications, restore them to your active pipeline, or permanently delete old records.
+          <p className="text-slate-500 max-w-2xl text-sm sm:text-base break-words">
+            Review archived applications, restore them to your active pipeline, or
+            permanently delete old records.
           </p>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full xl:w-auto">
           <StatCard label="Archived" value={stats.total} />
           <StatCard label="Rejected" value={stats.rejected} />
           <StatCard label="Withdrawn" value={stats.withdrawn} />
@@ -251,11 +253,9 @@ export const ArchivedApplicationsPage: React.FC = () => {
       </div>
 
       {error && <AlertBox type="error" message={error} onClose={() => setError('')} />}
-      {message && (
-        <AlertBox type="success" message={message} onClose={() => setMessage('')} />
-      )}
+      {message && <AlertBox type="success" message={message} onClose={() => setMessage('')} />}
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mb-6">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mb-6 overflow-hidden">
         <div className="grid grid-cols-1 md:grid-cols-[1fr_140px] gap-3">
           <div className="relative">
             <Search
@@ -275,7 +275,7 @@ export const ArchivedApplicationsPage: React.FC = () => {
             type="button"
             onClick={handleRefresh}
             disabled={refreshing}
-            className="border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
           >
             <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
             Refresh
@@ -284,11 +284,12 @@ export const ArchivedApplicationsPage: React.FC = () => {
       </div>
 
       {filteredApplications.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-10 text-center">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-10 text-center">
           <Archive size={38} className="mx-auto text-slate-300 mb-3" />
           <h3 className="text-lg font-semibold">No archived applications found</h3>
-          <p className="text-slate-500 mt-2">
-            Archived applications will appear here when you move them out of your active pipeline.
+          <p className="text-slate-500 text-sm sm:text-base mt-2 max-w-xl mx-auto">
+            Archived applications will appear here when you move them out of your
+            active pipeline.
           </p>
         </div>
       ) : (
@@ -311,11 +312,11 @@ export const ArchivedApplicationsPage: React.FC = () => {
                     key={application.id}
                     className="border-b border-slate-100 last:border-b-0"
                   >
-                    <td className="px-4 py-4">
+                    <td className="px-4 py-4 break-words">
                       {application.companies?.name || 'Unknown Company'}
                     </td>
 
-                    <td className="px-4 py-4 font-medium">
+                    <td className="px-4 py-4 font-medium break-words">
                       {application.role_title}
                     </td>
 
@@ -352,21 +353,21 @@ export const ArchivedApplicationsPage: React.FC = () => {
             {filteredApplications.map((application) => (
               <div
                 key={application.id}
-                className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5"
+                className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-5 overflow-hidden"
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-slate-500">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm text-slate-500 break-words">
                       {application.companies?.name || 'Unknown Company'}
                     </p>
 
-                    <h3 className="font-semibold mt-1">
+                    <h3 className="font-semibold mt-1 break-words">
                       {application.role_title}
                     </h3>
                   </div>
 
                   <span
-                    className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusClass(
+                    className={`w-fit px-2.5 py-1 rounded-full text-xs font-medium ${statusClass(
                       application.status
                     )}`}
                   >
@@ -374,7 +375,7 @@ export const ArchivedApplicationsPage: React.FC = () => {
                   </span>
                 </div>
 
-                <p className="text-sm text-slate-500 mt-4">
+                <p className="text-sm text-slate-500 mt-4 break-words">
                   Archived: {formatDateTime(application.archived_at)}
                 </p>
 
@@ -409,10 +410,10 @@ const ApplicationActions = ({
   onRestore: (application: ArchivedApplication) => void;
   onDelete: (applicationId: string) => void;
 }) => (
-  <div className="flex flex-wrap items-center gap-3">
+  <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3">
     <Link
       to={`/applications/${application.id}`}
-      className="text-slate-900 underline text-sm"
+      className="text-slate-900 underline text-sm w-full sm:w-auto text-center sm:text-left"
     >
       View
     </Link>
@@ -422,7 +423,7 @@ const ApplicationActions = ({
         href={application.application_link}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 text-sm"
+        className="inline-flex items-center justify-center gap-1 text-slate-600 hover:text-slate-900 text-sm w-full sm:w-auto"
       >
         Job
         <ExternalLink size={14} />
@@ -432,7 +433,7 @@ const ApplicationActions = ({
     <button
       onClick={() => onRestore(application)}
       disabled={restoring || deleting}
-      className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900 text-sm disabled:opacity-50"
+      className="inline-flex items-center justify-center gap-1 text-emerald-700 hover:text-emerald-900 text-sm disabled:opacity-50 w-full sm:w-auto"
     >
       <RotateCcw size={15} />
       {restoring ? 'Restoring...' : 'Restore'}
@@ -441,7 +442,7 @@ const ApplicationActions = ({
     <button
       onClick={() => onDelete(application.id)}
       disabled={deleting || restoring}
-      className="inline-flex items-center gap-1 text-red-600 hover:text-red-800 text-sm disabled:opacity-50"
+      className="inline-flex items-center justify-center gap-1 text-red-600 hover:text-red-800 text-sm disabled:opacity-50 w-full sm:w-auto"
     >
       <Trash2 size={15} />
       {deleting ? 'Deleting...' : 'Delete'}
@@ -471,29 +472,29 @@ const AlertBox = ({
       <RotateCcw size={16} className="shrink-0 mt-0.5" />
     )}
 
-    <span className="text-sm flex-1">{message}</span>
+    <span className="text-sm flex-1 break-words">{message}</span>
 
-    <button onClick={onClose} className="opacity-70 hover:opacity-100">
+    <button onClick={onClose} className="opacity-70 hover:opacity-100 shrink-0">
       <X size={16} />
     </button>
   </div>
 );
 
 const StatCard = ({ label, value }: { label: string; value: number }) => (
-  <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 min-w-[105px] shadow-sm">
+  <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
     <p className="text-xs text-slate-400">{label}</p>
     <p className="text-xl font-bold text-slate-900">{value}</p>
   </div>
 );
 
 const ArchivedSkeleton = () => (
-  <div>
+  <div className="w-full max-w-full overflow-hidden">
     <div className="mb-8">
-      <div className="h-8 w-72 bg-slate-200 rounded-lg animate-pulse mb-2" />
-      <div className="h-4 w-96 bg-slate-100 rounded-lg animate-pulse" />
+      <div className="h-8 w-full max-w-72 bg-slate-200 rounded-lg animate-pulse mb-2" />
+      <div className="h-4 w-full max-w-96 bg-slate-100 rounded-lg animate-pulse" />
     </div>
 
-    <div className="h-16 bg-white border border-slate-200 rounded-2xl animate-pulse mb-6" />
+    <div className="h-20 sm:h-16 bg-white border border-slate-200 rounded-2xl animate-pulse mb-6" />
 
     <div className="h-80 bg-white border border-slate-200 rounded-2xl animate-pulse" />
   </div>

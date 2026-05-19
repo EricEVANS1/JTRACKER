@@ -59,29 +59,16 @@ const firstOrNull = <T,>(value: T | T[] | null | undefined): T | null => {
   return value ?? null;
 };
 
-const chartColors = [
-  '#0f172a',
-  '#334155',
-  '#64748b',
-  '#94a3b8',
-  '#cbd5e1',
-  '#475569',
-  '#1e293b',
-];
+const chartColors = ['#0f172a', '#334155', '#64748b', '#94a3b8', '#cbd5e1', '#475569', '#1e293b'];
 
 const formatLabel = (value: string) =>
-  value
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  value.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 
 const getDaysBetween = (start?: string | null, end?: string | null) => {
   if (!start || !end) return null;
-
   const startTime = new Date(start).getTime();
   const endTime = new Date(end).getTime();
-
   if (Number.isNaN(startTime) || Number.isNaN(endTime)) return null;
-
   return Math.max(0, Math.round((endTime - startTime) / (1000 * 60 * 60 * 24)));
 };
 
@@ -98,7 +85,6 @@ const getWeekKey = (date: string) => {
   const firstDay = new Date(year, 0, 1);
   const days = Math.floor((d.getTime() - firstDay.getTime()) / 86400000);
   const week = Math.ceil((days + firstDay.getDay() + 1) / 7);
-
   return `${year}-W${String(week).padStart(2, '0')}`;
 };
 
@@ -170,7 +156,8 @@ export const AnalyticsPage: React.FC = () => {
 
   useEffect(() => {
     loadAnalytics();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const analytics = useMemo(() => {
     const total = applications.length;
@@ -225,12 +212,17 @@ export const AnalyticsPage: React.FC = () => {
       return new Date(app.follow_up_date) <= now;
     }).length;
 
-    const sourceCounts = applications.reduce<Record<string, {
-      applications: number;
-      responses: number;
-      interviews: number;
-      offers: number;
-    }>>((acc, app) => {
+    const sourceCounts = applications.reduce<
+      Record<
+        string,
+        {
+          applications: number;
+          responses: number;
+          interviews: number;
+          offers: number;
+        }
+      >
+    >((acc, app) => {
       const source = app.source ? formatLabel(app.source) : 'Unknown';
 
       if (!acc[source]) {
@@ -296,13 +288,16 @@ export const AnalyticsPage: React.FC = () => {
       .sort((a, b) => b.value - a.value);
 
     const cvCounts = applications.reduce<
-      Record<string, {
-        total: number;
-        responses: number;
-        interviews: number;
-        offers: number;
-        rejections: number;
-      }>
+      Record<
+        string,
+        {
+          total: number;
+          responses: number;
+          interviews: number;
+          offers: number;
+          rejections: number;
+        }
+      >
     >((acc, app) => {
       const cvName = app.cv_versions?.name || 'No CV selected';
 
@@ -357,13 +352,18 @@ export const AnalyticsPage: React.FC = () => {
       }))
       .sort((a, b) => b.interviewRate - a.interviewRate || b.applications - a.applications);
 
-    const weeklyCounts = applications.reduce<Record<string, {
-      week: string;
-      applications: number;
-      responses: number;
-      interviews: number;
-      offers: number;
-    }>>((acc, app) => {
+    const weeklyCounts = applications.reduce<
+      Record<
+        string,
+        {
+          week: string;
+          applications: number;
+          responses: number;
+          interviews: number;
+          offers: number;
+        }
+      >
+    >((acc, app) => {
       const appliedDate = getAppliedDate(app);
       const week = getWeekKey(appliedDate);
 
@@ -474,11 +474,13 @@ export const AnalyticsPage: React.FC = () => {
   }
 
   return (
-    <div>
+    <div className="w-full max-w-full overflow-hidden">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
-        <div>
-          <h2 className="text-3xl font-bold mb-1">Analytics</h2>
-          <p className="text-slate-500 text-sm">
+        <div className="min-w-0">
+          <h2 className="text-2xl sm:text-3xl font-bold mb-1 break-words">
+            Analytics
+          </h2>
+          <p className="text-slate-500 text-sm sm:text-base break-words">
             Real job-search performance based on conversion, timing, CVs, sources, and follow-ups.
           </p>
         </div>
@@ -487,7 +489,7 @@ export const AnalyticsPage: React.FC = () => {
           type="button"
           onClick={handleRefresh}
           disabled={refreshing}
-          className="self-start lg:self-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 transition disabled:opacity-50 inline-flex items-center gap-2"
+          className="w-full sm:w-auto self-start lg:self-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
         >
           <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
           {refreshing ? 'Refreshing...' : 'Refresh'}
@@ -495,53 +497,55 @@ export const AnalyticsPage: React.FC = () => {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-6 flex items-start gap-3">
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-6 flex items-start gap-3 overflow-hidden">
           <AlertCircle size={16} className="shrink-0 mt-0.5" />
-          <span className="text-sm flex-1">{error}</span>
-          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600">
+          <span className="text-sm flex-1 break-words">{error}</span>
+          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600 shrink-0">
             <X size={16} />
           </button>
         </div>
       )}
 
-      <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-sm mb-6">
-        <div className="flex items-start gap-4">
+      <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-6 shadow-sm mb-6 overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-start gap-4">
           <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
             <Target size={22} />
           </div>
 
-          <div>
+          <div className="min-w-0">
             <p className="text-xs uppercase tracking-widest text-slate-400 mb-1">
               Analytics Insight
             </p>
-            <h3 className="text-lg font-semibold mb-1">
+            <h3 className="text-lg font-semibold mb-1 break-words">
               Job Search Health Score: {analytics.healthScore}/100
             </h3>
-            <p className="text-sm text-slate-300 leading-relaxed">{insight}</p>
+            <p className="text-sm text-slate-300 leading-relaxed break-words">
+              {insight}
+            </p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <MetricCard label="Response Rate" value={`${analytics.responseRate}%`} />
         <MetricCard label="Interview Rate" value={`${analytics.interviewRate}%`} />
         <MetricCard label="Offer Rate" value={`${analytics.offerRate}%`} />
         <MetricCard label="Rejection Rate" value={`${analytics.rejectionRate}%`} />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
         <MetricCard label="Avg Days to Response" value={`${analytics.avgDaysToResponse}d`} icon={Clock} />
         <MetricCard label="Avg Days to Interview" value={`${analytics.avgDaysToInterview}d`} icon={TrendingUp} />
         <MetricCard label="Avg Days to Offer" value={`${analytics.avgDaysToOffer}d`} icon={Trophy} />
         <MetricCard label="Follow-ups Due" value={analytics.followUpsDue} icon={AlertCircle} />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-8">
         <HighlightCard label="Best Source" value={analytics.bestSource} icon={BarChart3} />
         <HighlightCard label="Best CV" value={analytics.bestCV} icon={FileText} />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
         <ChartCard
           title="Weekly Application Trend"
           description="Applications, responses, interviews, and offers by week."
@@ -608,10 +612,7 @@ export const AnalyticsPage: React.FC = () => {
                 paddingAngle={3}
               >
                 {analytics.statusChartData.map((_, index) => (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={chartColors[index % chartColors.length]}
-                  />
+                  <Cell key={`cell-${index}`} fill={chartColors[index % chartColors.length]} />
                 ))}
               </Pie>
               <Tooltip />
@@ -619,7 +620,7 @@ export const AnalyticsPage: React.FC = () => {
           </ResponsiveContainer>
         </ChartCard>
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm xl:col-span-2">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm xl:col-span-2 overflow-hidden">
           <h3 className="text-lg font-semibold mb-2">CV Performance</h3>
           <p className="text-sm text-slate-500 mb-4">
             Compare applications, responses, interviews, and offers by CV version.
@@ -632,7 +633,7 @@ export const AnalyticsPage: React.FC = () => {
             />
           ) : (
             <>
-              <div className="h-80">
+              <div className="h-[280px] sm:h-80 w-full overflow-hidden">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={analytics.cvPerformanceData}>
                     <XAxis dataKey="name" />
@@ -650,12 +651,12 @@ export const AnalyticsPage: React.FC = () => {
                 {analytics.cvPerformanceData.slice(0, 3).map((cv) => (
                   <div
                     key={cv.name}
-                    className="border border-slate-200 rounded-xl p-4 bg-slate-50"
+                    className="border border-slate-200 rounded-xl p-4 bg-slate-50 overflow-hidden"
                   >
-                    <p className="font-semibold text-sm text-slate-900 truncate">
+                    <p className="font-semibold text-sm text-slate-900 break-words">
                       {cv.name}
                     </p>
-                    <p className="text-xs text-slate-500 mt-1">
+                    <p className="text-xs text-slate-500 mt-1 break-words">
                       {cv.applications} apps · {cv.responseRate}% response ·{' '}
                       {cv.interviewRate}% interview · {cv.offerRate}% offer
                     </p>
@@ -679,15 +680,15 @@ const MetricCard = ({
   value: string | number;
   icon?: React.ElementType;
 }) => (
-  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm overflow-hidden">
     <div className="flex items-start justify-between gap-3">
-      <div>
-        <p className="text-sm text-slate-500">{label}</p>
-        <p className="text-3xl font-bold mt-3">{value}</p>
+      <div className="min-w-0">
+        <p className="text-sm text-slate-500 break-words">{label}</p>
+        <p className="text-2xl sm:text-3xl font-bold mt-3 break-words">{value}</p>
       </div>
 
       {Icon && (
-        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
+        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
           <Icon size={18} className="text-slate-600" />
         </div>
       )}
@@ -704,11 +705,11 @@ const HighlightCard = ({
   value: string;
   icon: React.ElementType;
 }) => (
-  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+  <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm overflow-hidden">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <p className="text-sm text-slate-500">{label}</p>
-        <p className="text-xl font-bold mt-2 truncate">{value}</p>
+        <p className="text-sm text-slate-500 break-words">{label}</p>
+        <p className="text-lg sm:text-xl font-bold mt-2 break-words">{value}</p>
       </div>
 
       <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
@@ -729,9 +730,9 @@ const ChartCard = ({
   isEmpty: boolean;
   children: React.ReactNode;
 }) => (
-  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-    <h3 className="text-lg font-semibold mb-2">{title}</h3>
-    <p className="text-sm text-slate-500 mb-4">{description}</p>
+  <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm overflow-hidden">
+    <h3 className="text-lg font-semibold mb-2 break-words">{title}</h3>
+    <p className="text-sm text-slate-500 mb-4 break-words">{description}</p>
 
     {isEmpty ? (
       <EmptyState
@@ -739,7 +740,7 @@ const ChartCard = ({
         description="Add more applications to generate this chart."
       />
     ) : (
-      <div className="h-72">{children}</div>
+      <div className="h-[280px] sm:h-72 w-full overflow-hidden">{children}</div>
     )}
   </div>
 );
@@ -751,22 +752,22 @@ const EmptyState = ({
   title: string;
   description: string;
 }) => (
-  <div className="border border-dashed border-slate-200 rounded-xl p-8 text-center bg-slate-50">
-    <p className="font-semibold text-slate-700">{title}</p>
-    <p className="text-sm text-slate-500 mt-1">{description}</p>
+  <div className="border border-dashed border-slate-200 rounded-xl p-6 sm:p-8 text-center bg-slate-50 overflow-hidden">
+    <p className="font-semibold text-slate-700 break-words">{title}</p>
+    <p className="text-sm text-slate-500 mt-1 break-words">{description}</p>
   </div>
 );
 
 const AnalyticsSkeleton = () => (
-  <div>
+  <div className="w-full max-w-full overflow-hidden">
     <div className="mb-8">
       <div className="h-8 w-44 bg-slate-200 rounded-lg animate-pulse mb-2" />
-      <div className="h-4 w-96 bg-slate-100 rounded-lg animate-pulse" />
+      <div className="h-4 w-full max-w-96 bg-slate-100 rounded-lg animate-pulse" />
     </div>
 
     <div className="h-28 bg-slate-200 rounded-2xl animate-pulse mb-6" />
 
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+    <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
       {Array.from({ length: 4 }).map((_, index) => (
         <div
           key={index}

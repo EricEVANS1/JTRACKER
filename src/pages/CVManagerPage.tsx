@@ -9,8 +9,11 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
+
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useOnboarding } from '../hooks/useOnboarding';
+import { OnboardingHint } from '../components/OnboardingHint';
 
 interface CVVersion {
   id: string;
@@ -40,9 +43,7 @@ const MAX_MB = 10;
 const BUCKET = 'cv-files';
 
 const inputCls =
-  'border border-slate-200 rounded-lg px-3 py-2 text-sm w-full bg-white ' +
-  'focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent ' +
-  'placeholder:text-slate-400 transition';
+  'border border-slate-200 rounded-lg px-3 py-2 text-sm w-full bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent placeholder:text-slate-400 transition';
 
 const formatBytes = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -59,16 +60,20 @@ const StatBox: React.FC<{
   accent?: boolean;
 }> = ({ label, value, accent }) => (
   <div
-    className={`rounded-xl p-3 border ${
+    className={`rounded-xl p-3 border overflow-hidden ${
       accent
         ? 'bg-slate-900 border-slate-800 text-white'
         : 'bg-slate-50 border-slate-200'
     }`}
   >
-    <p className={`text-xs mb-0.5 ${accent ? 'text-slate-400' : 'text-slate-500'}`}>
+    <p
+      className={`text-xs mb-0.5 break-words ${
+        accent ? 'text-slate-400' : 'text-slate-500'
+      }`}
+    >
       {label}
     </p>
-    <p className="text-xl font-bold">{value}</p>
+    <p className="text-xl font-bold break-words">{value}</p>
   </div>
 );
 
@@ -103,14 +108,16 @@ const DropZone: React.FC<{
 
   if (file) {
     return (
-      <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
-        <div className="flex items-center gap-3">
+      <div className="border border-slate-200 rounded-xl p-4 bg-slate-50 overflow-hidden">
+        <div className="flex items-start gap-3">
           <div className="w-9 h-9 rounded-lg bg-slate-200 flex items-center justify-center shrink-0">
             <FileText size={16} className="text-slate-600" />
           </div>
 
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-800 truncate">{file.name}</p>
+            <p className="text-sm font-medium text-slate-800 break-words">
+              {file.name}
+            </p>
             <p className="text-xs text-slate-500">
               {ext(file.name)} · {formatBytes(file.size)}
             </p>
@@ -137,7 +144,7 @@ const DropZone: React.FC<{
             <button
               type="button"
               onClick={onClear}
-              className="text-slate-400 hover:text-slate-700 transition"
+              className="text-slate-400 hover:text-slate-700 transition shrink-0"
             >
               <X size={16} />
             </button>
@@ -156,14 +163,11 @@ const DropZone: React.FC<{
         setDragging(true);
       }}
       onDragLeave={() => setDragging(false)}
-      className={`
-        border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition
-        ${
-          dragging
-            ? 'border-slate-500 bg-slate-100'
-            : 'border-slate-200 hover:border-slate-400 hover:bg-slate-50'
-        }
-      `}
+      className={`border-2 border-dashed rounded-xl p-5 sm:p-6 text-center cursor-pointer transition ${
+        dragging
+          ? 'border-slate-500 bg-slate-100'
+          : 'border-slate-200 hover:border-slate-400 hover:bg-slate-50'
+      }`}
     >
       <Upload size={20} className="mx-auto mb-2 text-slate-400" />
       <p className="text-sm font-medium text-slate-600">
@@ -186,6 +190,7 @@ const DropZone: React.FC<{
 
 export const CVManagerPage: React.FC = () => {
   const { user } = useAuth();
+  const { onboardingComplete, completedSteps, refreshOnboarding } = useOnboarding();
 
   const [cvVersions, setCvVersions] = useState<CVVersion[]>([]);
   const [applications, setApplications] = useState<ApplicationRecord[]>([]);
@@ -237,7 +242,8 @@ export const CVManagerPage: React.FC = () => {
   useEffect(() => {
     fetchCVVersions();
     fetchApplications();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const getCVStats = (cvId: string) => {
     const linked = applications.filter((a) => a.cv_version_id === cvId);
@@ -378,6 +384,7 @@ export const CVManagerPage: React.FC = () => {
     setShowForm(false);
 
     await fetchCVVersions();
+    await refreshOnboarding();
 
     setSaving(false);
   };
@@ -414,17 +421,20 @@ export const CVManagerPage: React.FC = () => {
       setError(error.message);
     } else {
       setCvVersions((prev) => prev.filter((c) => c.id !== cv.id));
+      await refreshOnboarding();
     }
 
     setDeletingId(null);
   };
 
   return (
-    <div>
+    <div className="w-full max-w-full overflow-hidden">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-        <div>
-          <h2 className="text-3xl font-bold mb-1">CV Manager</h2>
-          <p className="text-slate-500 text-sm">
+        <div className="min-w-0">
+          <h2 className="text-2xl sm:text-3xl font-bold mb-1 break-words">
+            CV Manager
+          </h2>
+          <p className="text-slate-500 text-sm sm:text-base break-words">
             Store and compare resume versions by role — see which one performs best.
           </p>
         </div>
@@ -434,7 +444,7 @@ export const CVManagerPage: React.FC = () => {
             setShowForm((p) => !p);
             setError('');
           }}
-          className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2 self-start md:self-auto hover:bg-slate-700 transition"
+          className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2 self-start md:self-auto hover:bg-slate-700 transition"
         >
           {showForm ? <X size={16} /> : <Plus size={16} />}
           {showForm ? 'Close' : 'Add CV Version'}
@@ -444,21 +454,30 @@ export const CVManagerPage: React.FC = () => {
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-6 flex items-start gap-3">
           <AlertCircle size={16} className="shrink-0 mt-0.5" />
-          <span className="flex-1 text-sm">{error}</span>
+          <span className="flex-1 text-sm break-words">{error}</span>
 
           <button
             onClick={() => setError('')}
-            className="text-red-400 hover:text-red-600"
+            className="text-red-400 hover:text-red-600 shrink-0"
           >
             <X size={16} />
           </button>
         </div>
       )}
 
+      {!onboardingComplete && !completedSteps.hasCV && (
+        <OnboardingHint
+          title="Upload your first CV version"
+          description="This helps JTracker compare which resume versions perform best across applications."
+          actionLabel="Add CV Version"
+          onAction={() => setShowForm(true)}
+        />
+      )}
+
       {showForm && (
         <form
           onSubmit={handleCreateCV}
-          className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 mb-8"
+          className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-8 mb-8 overflow-hidden"
         >
           <h3 className="text-lg font-semibold mb-1">New CV Version</h3>
           <p className="text-sm text-slate-500 mb-6">
@@ -516,7 +535,7 @@ export const CVManagerPage: React.FC = () => {
             />
 
             {uploadState === 'error' && (
-              <p className="text-xs text-red-500 mt-2">
+              <p className="text-xs text-red-500 mt-2 break-words">
                 Upload failed. Make sure you have a Supabase Storage bucket named{' '}
                 <code className="font-mono">cv-files</code> with public access enabled.
               </p>
@@ -535,11 +554,11 @@ export const CVManagerPage: React.FC = () => {
             className={`${inputCls} resize-y mb-6`}
           />
 
-          <div className="flex justify-end gap-3">
+          <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="border border-slate-200 px-4 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition"
+              className="w-full sm:w-auto border border-slate-200 px-4 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition"
             >
               Cancel
             </button>
@@ -547,7 +566,7 @@ export const CVManagerPage: React.FC = () => {
             <button
               type="submit"
               disabled={saving || uploadState === 'uploading'}
-              className="bg-slate-900 text-white px-5 py-2 rounded-lg text-sm disabled:opacity-50 transition hover:bg-slate-700 inline-flex items-center gap-2"
+              className="w-full sm:w-auto bg-slate-900 text-white px-5 py-2 rounded-lg text-sm disabled:opacity-50 transition hover:bg-slate-700 inline-flex items-center justify-center gap-2"
             >
               {saving
                 ? uploadState === 'uploading'
@@ -562,7 +581,7 @@ export const CVManagerPage: React.FC = () => {
       {loading ? (
         <p className="text-slate-500 text-sm">Loading CV versions…</p>
       ) : cvVersions.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-10 text-center">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-10 text-center">
           <FileText size={32} className="mx-auto text-slate-300 mb-3" />
 
           <h3 className="text-lg font-semibold mb-1">No CV versions yet</h3>
@@ -572,7 +591,7 @@ export const CVManagerPage: React.FC = () => {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           {cvVersions.map((cv) => {
             const stats = getCVStats(cv.id);
             const isDeleting = deletingId === cv.id;
@@ -580,23 +599,23 @@ export const CVManagerPage: React.FC = () => {
             return (
               <div
                 key={cv.id}
-                className={`bg-white border border-slate-200 rounded-2xl shadow-sm p-6 transition-opacity ${
+                className={`bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 transition-opacity overflow-hidden ${
                   isDeleting ? 'opacity-50 pointer-events-none' : ''
                 }`}
               >
-                <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
                   <div className="flex items-start gap-3 min-w-0">
                     <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
                       <FileText size={18} className="text-slate-600" />
                     </div>
 
                     <div className="min-w-0">
-                      <h3 className="text-base font-semibold text-slate-900 leading-tight truncate">
+                      <h3 className="text-base font-semibold text-slate-900 leading-tight break-words">
                         {cv.name}
                       </h3>
 
                       {cv.target_role && (
-                        <p className="text-xs text-slate-500 mt-0.5">
+                        <p className="text-xs text-slate-500 mt-0.5 break-words">
                           ↳ {cv.target_role}
                         </p>
                       )}
@@ -612,13 +631,13 @@ export const CVManagerPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 shrink-0">
                     {cv.file_url && (
                       <button
                         type="button"
                         onClick={() => handleOpenPreview(cv)}
                         title="Preview CV"
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition inline-flex items-center gap-1 text-xs font-medium"
+                        className="w-full sm:w-auto px-3 py-2 rounded-lg text-slate-600 hover:text-slate-800 hover:bg-slate-100 transition inline-flex items-center justify-center gap-1 text-xs font-medium border border-slate-200"
                       >
                         <ExternalLink size={14} />
                         Open
@@ -628,21 +647,24 @@ export const CVManagerPage: React.FC = () => {
                     <button
                       onClick={() => handleDelete(cv)}
                       title="Delete CV version"
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
+                      className="w-full sm:w-auto px-3 py-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition inline-flex items-center justify-center gap-1 border border-slate-200 text-xs font-medium"
                     >
                       <Trash2 size={14} />
+                      Delete
                     </button>
                   </div>
                 </div>
 
                 {!cv.file_url && (
                   <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-50 border border-slate-200 border-dashed rounded-lg px-3 py-2 mb-4">
-                    <Upload size={12} />
-                    No file attached — add a PDF or DOCX
+                    <Upload size={12} className="shrink-0" />
+                    <span className="break-words">
+                      No file attached — add a PDF or DOCX
+                    </span>
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
                   <StatBox label="Applications" value={stats.total} />
                   <StatBox label="Interviews" value={stats.interviews} />
                   <StatBox label="Offers" value={stats.offers} accent={stats.offers > 0} />
@@ -652,7 +674,7 @@ export const CVManagerPage: React.FC = () => {
                 </div>
 
                 {cv.notes && (
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-600 whitespace-pre-wrap leading-relaxed break-words">
                     {cv.notes}
                   </div>
                 )}
@@ -663,22 +685,20 @@ export const CVManagerPage: React.FC = () => {
       )}
 
       {previewUrl && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-6xl h-[88vh] flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-6xl h-[95vh] sm:h-[88vh] flex flex-col overflow-hidden">
+            <div className="flex items-start sm:items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-slate-200">
               <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-slate-800 truncate">
+                <h3 className="text-sm font-semibold text-slate-800 break-words">
                   Preview: {previewName}
                 </h3>
-                <p className="text-xs text-slate-400">
-                  Viewing inside the app
-                </p>
+                <p className="text-xs text-slate-400">Viewing inside the app</p>
               </div>
 
               <button
                 type="button"
                 onClick={closePreview}
-                className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition"
+                className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition shrink-0"
               >
                 <X size={18} />
               </button>
@@ -695,4 +715,3 @@ export const CVManagerPage: React.FC = () => {
     </div>
   );
 };
-

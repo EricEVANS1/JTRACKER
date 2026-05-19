@@ -8,8 +8,11 @@ import {
   Search,
   X,
 } from 'lucide-react';
+
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useOnboarding } from '../hooks/useOnboarding';
+import { OnboardingHint } from '../components/OnboardingHint';
 
 interface CompanyJoin {
   name: string;
@@ -38,8 +41,7 @@ const firstOrNull = <T,>(value: T | T[] | null | undefined): T | null => {
 };
 
 const inputCls =
-  'border border-slate-200 rounded-lg px-3 py-2 text-sm w-full bg-white ' +
-  'focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
+  'border border-slate-200 rounded-lg px-3 py-2 text-sm w-full bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
 
 const formatStatus = (status: string) =>
   status.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
@@ -102,6 +104,7 @@ const getGroupPriority = (group: FollowUpGroup) => {
 
 export const FollowUpsPage: React.FC = () => {
   const { user } = useAuth();
+  const { onboardingComplete, completedSteps, refreshOnboarding } = useOnboarding();
 
   const [applications, setApplications] = useState<ApplicationItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -166,7 +169,8 @@ export const FollowUpsPage: React.FC = () => {
 
   useEffect(() => {
     loadPage();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const followUps = useMemo(() => {
     return applications
@@ -208,14 +212,10 @@ export const FollowUpsPage: React.FC = () => {
 
   const stats = useMemo(() => {
     return {
-      overdue: applications.filter((app) => getFollowUpGroup(app.follow_up_date) === 'overdue')
-        .length,
-      today: applications.filter((app) => getFollowUpGroup(app.follow_up_date) === 'today')
-        .length,
-      upcoming: applications.filter((app) => getFollowUpGroup(app.follow_up_date) === 'upcoming')
-        .length,
-      missing: applications.filter((app) => getFollowUpGroup(app.follow_up_date) === 'missing')
-        .length,
+      overdue: applications.filter((app) => getFollowUpGroup(app.follow_up_date) === 'overdue').length,
+      today: applications.filter((app) => getFollowUpGroup(app.follow_up_date) === 'today').length,
+      upcoming: applications.filter((app) => getFollowUpGroup(app.follow_up_date) === 'upcoming').length,
+      missing: applications.filter((app) => getFollowUpGroup(app.follow_up_date) === 'missing').length,
     };
   }, [applications]);
 
@@ -230,9 +230,7 @@ export const FollowUpsPage: React.FC = () => {
 
     const { error } = await supabase
       .from('applications')
-      .update({
-        follow_up_date: followUpDate,
-      })
+      .update({ follow_up_date: followUpDate })
       .eq('id', applicationId)
       .eq('user_id', user.id);
 
@@ -256,15 +254,13 @@ export const FollowUpsPage: React.FC = () => {
     setApplications((prev) =>
       prev.map((app) =>
         app.id === applicationId
-          ? {
-              ...app,
-              follow_up_date: followUpDate,
-            }
+          ? { ...app, follow_up_date: followUpDate }
           : app
       )
     );
 
     setMessage(followUpDate ? 'Follow-up date updated.' : 'Follow-up cleared.');
+    await refreshOnboarding();
     setSavingId(null);
   };
 
@@ -277,9 +273,7 @@ export const FollowUpsPage: React.FC = () => {
 
     const { error } = await supabase
       .from('applications')
-      .update({
-        follow_up_date: null,
-      })
+      .update({ follow_up_date: null })
       .eq('id', app.id)
       .eq('user_id', user.id);
 
@@ -300,16 +294,12 @@ export const FollowUpsPage: React.FC = () => {
 
     setApplications((prev) =>
       prev.map((item) =>
-        item.id === app.id
-          ? {
-              ...item,
-              follow_up_date: null,
-            }
-          : item
+        item.id === app.id ? { ...item, follow_up_date: null } : item
       )
     );
 
     setMessage('Follow-up marked as completed.');
+    await refreshOnboarding();
     setSavingId(null);
   };
 
@@ -318,15 +308,17 @@ export const FollowUpsPage: React.FC = () => {
   }
 
   return (
-    <div>
+    <div className="w-full max-w-full overflow-hidden">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-3 mb-1">
-            <Clock3 className="text-slate-700" size={30} />
-            <h1 className="text-3xl font-bold">Follow-Ups</h1>
+            <Clock3 className="text-slate-700 shrink-0" size={30} />
+            <h1 className="text-2xl sm:text-3xl font-bold break-words">
+              Follow-Ups
+            </h1>
           </div>
 
-          <p className="text-slate-500 text-sm">
+          <p className="text-slate-500 text-sm sm:text-base break-words">
             Manage overdue, due today, upcoming, and missing follow-up dates.
           </p>
         </div>
@@ -335,7 +327,7 @@ export const FollowUpsPage: React.FC = () => {
           type="button"
           onClick={handleRefresh}
           disabled={refreshing}
-          className="self-start lg:self-auto border border-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center gap-2"
+          className="w-full sm:w-auto self-start lg:self-auto border border-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
         >
           <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
           {refreshing ? 'Refreshing...' : 'Refresh'}
@@ -343,18 +335,23 @@ export const FollowUpsPage: React.FC = () => {
       </div>
 
       {error && <AlertBox type="error" message={error} onClose={() => setError('')} />}
-      {message && (
-        <AlertBox type="success" message={message} onClose={() => setMessage('')} />
+      {message && <AlertBox type="success" message={message} onClose={() => setMessage('')} />}
+
+      {!onboardingComplete && !completedSteps.hasFollowUp && (
+        <OnboardingHint
+          title="Set your first follow-up reminder"
+          description="Follow-up reminders help you stay consistent with recruiters and avoid losing active opportunities."
+        />
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <StatCard label="Overdue" value={stats.overdue} tone="danger" />
         <StatCard label="Due Today" value={stats.today} tone="warning" />
         <StatCard label="Upcoming" value={stats.upcoming} tone="neutral" />
         <StatCard label="No Date Set" value={stats.missing} tone="muted" />
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mb-6">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mb-6 overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-3">
           <div className="relative">
             <Search
@@ -384,10 +381,12 @@ export const FollowUpsPage: React.FC = () => {
       </div>
 
       {followUps.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-10 text-center shadow-sm overflow-hidden">
           <CheckCircle2 size={34} className="mx-auto text-emerald-400 mb-3" />
-          <h3 className="text-lg font-semibold mb-1">No follow-ups found</h3>
-          <p className="text-slate-500 text-sm">
+          <h3 className="text-lg font-semibold mb-1 break-words">
+            No follow-ups found
+          </h3>
+          <p className="text-slate-500 text-sm break-words">
             You are clear for now, or your current filters returned no results.
           </p>
         </div>
@@ -438,7 +437,7 @@ const FollowUpCard = ({
   }[app.group];
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition">
+    <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md transition overflow-hidden">
       <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
         <div className="min-w-0">
           <div className="flex items-start gap-3">
@@ -447,10 +446,10 @@ const FollowUpCard = ({
             </div>
 
             <div className="min-w-0">
-              <h2 className="text-base font-semibold text-slate-950 truncate">
+              <h2 className="text-base font-semibold text-slate-950 break-words">
                 {app.role_title}
               </h2>
-              <p className="text-sm text-slate-500 mt-0.5">
+              <p className="text-sm text-slate-500 mt-0.5 break-words">
                 {app.companies?.name || 'Unknown Company'}
               </p>
 
@@ -520,7 +519,7 @@ const AlertBox = ({
   onClose: () => void;
 }) => (
   <div
-    className={`rounded-xl p-4 mb-6 flex items-start gap-3 border ${
+    className={`rounded-xl p-4 mb-6 flex items-start gap-3 border overflow-hidden ${
       type === 'error'
         ? 'bg-red-50 border-red-200 text-red-700'
         : 'bg-emerald-50 border-emerald-200 text-emerald-700'
@@ -531,8 +530,8 @@ const AlertBox = ({
     ) : (
       <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
     )}
-    <span className="text-sm flex-1">{message}</span>
-    <button onClick={onClose} className="opacity-70 hover:opacity-100">
+    <span className="text-sm flex-1 break-words">{message}</span>
+    <button onClick={onClose} className="opacity-70 hover:opacity-100 shrink-0">
       <X size={16} />
     </button>
   </div>
@@ -555,28 +554,28 @@ const StatCard = ({
   }[tone];
 
   return (
-    <div className={`border rounded-2xl p-5 shadow-sm ${toneClass}`}>
-      <p className="text-sm opacity-80">{label}</p>
-      <p className="text-3xl font-bold mt-3">{value}</p>
+    <div className={`border rounded-2xl p-4 sm:p-5 shadow-sm overflow-hidden ${toneClass}`}>
+      <p className="text-sm opacity-80 break-words">{label}</p>
+      <p className="text-2xl sm:text-3xl font-bold mt-3 break-words">{value}</p>
     </div>
   );
 };
 
 const Meta = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2">
-    <p className="text-[11px] text-slate-400">{label}</p>
-    <p className="text-sm font-medium text-slate-700 truncate">{value}</p>
+  <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 overflow-hidden">
+    <p className="text-[11px] text-slate-400 break-words">{label}</p>
+    <p className="text-sm font-medium text-slate-700 break-words">{value}</p>
   </div>
 );
 
 const FollowUpsSkeleton = () => (
-  <div>
+  <div className="w-full max-w-full overflow-hidden">
     <div className="mb-8">
       <div className="h-8 w-52 bg-slate-200 rounded-lg animate-pulse mb-2" />
-      <div className="h-4 w-96 bg-slate-100 rounded-lg animate-pulse" />
+      <div className="h-4 w-full max-w-96 bg-slate-100 rounded-lg animate-pulse" />
     </div>
 
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
       {Array.from({ length: 4 }).map((_, index) => (
         <div
           key={index}

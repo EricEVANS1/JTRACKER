@@ -1,6 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink } from 'lucide-react';
+import {
+  AlertCircle,
+  Briefcase,
+  ExternalLink,
+  GripVertical,
+  Layers3,
+  RefreshCw,
+  X,
+} from 'lucide-react';
+
 import {
   DndContext,
   PointerSensor,
@@ -9,6 +18,7 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
+
 import type { DragEndEvent } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -60,8 +70,11 @@ export const KanbanPage: React.FC = () => {
 
   const [applications, setApplications] = useState<KanbanApplication[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
   const [updatingId, setUpdatingId] = useState('');
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -113,6 +126,12 @@ export const KanbanPage: React.FC = () => {
     setLoading(false);
   };
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchApplications();
+    setRefreshing(false);
+  };
+
   useEffect(() => {
     fetchApplications();
   }, [user]);
@@ -124,6 +143,8 @@ export const KanbanPage: React.FC = () => {
     }));
   }, [applications]);
 
+  const totalApplications = applications.length;
+
   const updateApplicationStatus = async (
     application: KanbanApplication,
     newStatus: string
@@ -132,6 +153,7 @@ export const KanbanPage: React.FC = () => {
 
     setUpdatingId(application.id);
     setError('');
+    setMessage('');
 
     const oldStatus = application.status;
 
@@ -154,19 +176,23 @@ export const KanbanPage: React.FC = () => {
       return;
     }
 
-    const { error: eventError } = await supabase.from('application_events').insert({
-      user_id: user.id,
-      application_id: application.id,
-      event_type: 'kanban_status_changed',
-      title: 'Pipeline status updated',
-      description: `Moved from ${oldStatus.replaceAll('_', ' ')} to ${newStatus.replaceAll(
-        '_',
-        ' '
-      )}.`,
-    });
+    const { error: eventError } = await supabase
+      .from('application_events')
+      .insert({
+        user_id: user.id,
+        application_id: application.id,
+        event_type: 'kanban_status_changed',
+        title: 'Pipeline status updated',
+        description: `Moved from ${oldStatus.replaceAll(
+          '_',
+          ' '
+        )} to ${newStatus.replaceAll('_', ' ')}.`,
+      });
 
     if (eventError) {
       setError(eventError.message);
+    } else {
+      setMessage('Application moved successfully.');
     }
 
     setUpdatingId('');
@@ -188,21 +214,62 @@ export const KanbanPage: React.FC = () => {
   };
 
   if (loading) {
-    return <p className="text-slate-500">Loading pipeline...</p>;
+    return <KanbanSkeleton />;
   }
 
   return (
-    <div>
-      <h2 className="text-3xl font-bold mb-2">Application Pipeline</h2>
+    <div className="w-full max-w-full overflow-hidden">
+      <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-6 mb-8">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3 mb-2">
+            <Layers3 size={30} className="text-slate-700 shrink-0" />
 
-      <p className="text-slate-500 mb-8">
-        Drag applications through your job search pipeline.
-      </p>
+            <h2 className="text-2xl sm:text-3xl font-bold break-words">
+              Application Pipeline
+            </h2>
+          </div>
+
+          <p className="text-slate-500 text-sm sm:text-base max-w-2xl break-words">
+            Drag applications through your hiring pipeline and visually track
+            your job-search progress.
+          </p>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 w-full xl:w-auto xl:min-w-[240px]">
+          <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold">
+            Active Applications
+          </p>
+
+          <p className="text-3xl font-bold mt-2">{totalApplications}</p>
+
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="mt-4 w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+          >
+            <RefreshCw
+              size={15}
+              className={refreshing ? 'animate-spin' : ''}
+            />
+            Refresh
+          </button>
+        </div>
+      </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-6">
-          {error}
-        </div>
+        <AlertBox
+          type="error"
+          message={error}
+          onClose={() => setError('')}
+        />
+      )}
+
+      {message && (
+        <AlertBox
+          type="success"
+          message={message}
+          onClose={() => setMessage('')}
+        />
       )}
 
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
@@ -239,11 +306,11 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
 }) => {
   return (
     <DroppableColumn id={id}>
-      <div className="w-80 bg-slate-50 border border-slate-200 rounded-2xl p-4 min-h-[500px]">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold">{label}</h3>
+      <div className="w-[300px] sm:w-[320px] bg-slate-50 border border-slate-200 rounded-2xl p-4 min-h-[500px] overflow-hidden">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h3 className="font-semibold break-words">{label}</h3>
 
-          <span className="bg-white border border-slate-200 text-slate-600 text-xs px-2 py-1 rounded-full">
+          <span className="bg-white border border-slate-200 text-slate-600 text-xs px-2 py-1 rounded-full shrink-0">
             {applications.length}
           </span>
         </div>
@@ -273,13 +340,19 @@ interface DroppableColumnProps {
   children: React.ReactNode;
 }
 
-const DroppableColumn: React.FC<DroppableColumnProps> = ({ id, children }) => {
+const DroppableColumn: React.FC<DroppableColumnProps> = ({
+  id,
+  children,
+}) => {
   const { setNodeRef, isOver } = useDroppable({
     id,
   });
 
   return (
-    <div ref={setNodeRef} className={isOver ? 'ring-2 ring-slate-400 rounded-2xl' : ''}>
+    <div
+      ref={setNodeRef}
+      className={isOver ? 'ring-2 ring-slate-400 rounded-2xl' : ''}
+    >
       {children}
     </div>
   );
@@ -294,7 +367,13 @@ const DraggableApplicationCard: React.FC<DraggableApplicationCardProps> = ({
   application,
   updating,
 }) => {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    isDragging,
+  } = useDraggable({
     id: application.id,
   });
 
@@ -309,34 +388,45 @@ const DraggableApplicationCard: React.FC<DraggableApplicationCardProps> = ({
       style={style}
       {...listeners}
       {...attributes}
-      className={`bg-white border border-slate-200 rounded-xl p-4 shadow-sm cursor-grab active:cursor-grabbing ${
+      className={`bg-white border border-slate-200 rounded-xl p-4 shadow-sm cursor-grab active:cursor-grabbing overflow-hidden ${
         updating ? 'opacity-60' : ''
       }`}
     >
-      <h4 className="font-semibold mb-1">{application.role_title}</h4>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h4 className="font-semibold mb-1 break-words">
+            {application.role_title}
+          </h4>
 
-      <p className="text-sm text-slate-500">
-        {application.companies?.name || 'Unknown Company'}
-      </p>
+          <p className="text-sm text-slate-500 break-words">
+            {application.companies?.name || 'Unknown Company'}
+          </p>
+        </div>
 
-      <div className="flex flex-wrap gap-2 mt-3">
+        <GripVertical
+          size={18}
+          className="text-slate-400 shrink-0 mt-1"
+        />
+      </div>
+
+      <div className="flex flex-wrap gap-2 mt-4">
         {application.source && (
-          <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded-full text-xs">
+          <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded-full text-xs break-words">
             {application.source}
           </span>
         )}
 
         {application.date_applied && (
-          <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded-full text-xs">
+          <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded-full text-xs break-words">
             {application.date_applied}
           </span>
         )}
       </div>
 
-      <div className="flex items-center justify-between mt-4 text-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-5 text-sm">
         <Link
           to={`/applications/${application.id}`}
-          className="text-slate-900 underline"
+          className="w-full sm:w-auto text-center sm:text-left text-slate-900 underline"
           onPointerDown={(e) => e.stopPropagation()}
         >
           View
@@ -347,7 +437,7 @@ const DraggableApplicationCard: React.FC<DraggableApplicationCardProps> = ({
             href={application.application_link}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-1 text-slate-500 hover:text-slate-900"
             onPointerDown={(e) => e.stopPropagation()}
           >
             Job
@@ -358,3 +448,56 @@ const DraggableApplicationCard: React.FC<DraggableApplicationCardProps> = ({
     </div>
   );
 };
+
+const AlertBox = ({
+  type,
+  message,
+  onClose,
+}: {
+  type: 'error' | 'success';
+  message: string;
+  onClose: () => void;
+}) => (
+  <div
+    className={`rounded-xl p-4 mb-6 flex items-start gap-3 border ${
+      type === 'error'
+        ? 'bg-red-50 border-red-200 text-red-700'
+        : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+    }`}
+  >
+    {type === 'error' ? (
+      <AlertCircle size={16} className="shrink-0 mt-0.5" />
+    ) : (
+      <Briefcase size={16} className="shrink-0 mt-0.5" />
+    )}
+
+    <span className="text-sm flex-1 break-words">{message}</span>
+
+    <button
+      onClick={onClose}
+      className="opacity-70 hover:opacity-100 shrink-0"
+    >
+      <X size={16} />
+    </button>
+  </div>
+);
+
+const KanbanSkeleton = () => (
+  <div className="w-full max-w-full overflow-hidden">
+    <div className="mb-8">
+      <div className="h-8 w-64 bg-slate-200 rounded-lg animate-pulse mb-2" />
+      <div className="h-4 w-full max-w-96 bg-slate-100 rounded-lg animate-pulse" />
+    </div>
+
+    <div className="overflow-x-auto">
+      <div className="flex gap-4 min-w-max">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div
+            key={index}
+            className="w-[320px] h-[600px] bg-white border border-slate-200 rounded-2xl animate-pulse"
+          />
+        ))}
+      </div>
+    </div>
+  </div>
+);

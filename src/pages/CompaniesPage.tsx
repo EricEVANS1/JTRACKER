@@ -219,39 +219,49 @@ export const CompaniesPage: React.FC = () => {
   }, [applications, search]);
 
   if (loading) {
-    return <p className="text-slate-500">Loading companies...</p>;
+    return <CompaniesSkeleton />;
   }
 
   return (
-    <div>
+    <div className="w-full max-w-full overflow-hidden">
       <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-6 mb-8">
-        <div>
-          <h2 className="text-3xl font-bold mb-2">Companies</h2>
-          <p className="text-slate-500 max-w-2xl">
-            Track company history, response patterns, and previous positions you applied for.
+        <div className="min-w-0">
+          <div className="flex items-center gap-3 mb-2">
+            <Building2 size={28} className="text-slate-700 shrink-0" />
+
+            <h2 className="text-2xl sm:text-3xl font-bold break-words">
+              Companies
+            </h2>
+          </div>
+
+          <p className="text-slate-500 max-w-2xl text-sm sm:text-base break-words">
+            Track company history, response patterns, and previous positions you
+            applied for.
           </p>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 min-w-[260px]">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 w-full xl:w-auto xl:min-w-[260px]">
           <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold">
             Companies Tracked
           </p>
+
           <p className="text-3xl font-bold mt-2">{visibleCompanies.length}</p>
         </div>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-6">
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-6 break-words">
           {error}
         </div>
       )}
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mb-6">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mb-6 overflow-hidden">
         <div className="relative">
           <Search
             size={17}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
           />
+
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -262,10 +272,12 @@ export const CompaniesPage: React.FC = () => {
       </div>
 
       {visibleCompanies.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-10 text-center">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-10 text-center">
           <Building2 size={36} className="mx-auto text-slate-300 mb-3" />
+
           <h3 className="text-lg font-semibold">No companies found</h3>
-          <p className="text-slate-500 mt-2">
+
+          <p className="text-slate-500 mt-2 text-sm sm:text-base">
             Companies will appear when applications are created.
           </p>
         </div>
@@ -277,18 +289,20 @@ export const CompaniesPage: React.FC = () => {
             return (
               <div
                 key={company.id}
-                className="bg-white border border-slate-200 rounded-2xl shadow-sm p-7"
+                className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-7 overflow-hidden"
               >
-                <div className="flex items-start gap-4 mb-6">
-                  <div className="bg-slate-100 rounded-xl p-3">
+                <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-6">
+                  <div className="bg-slate-100 rounded-xl p-3 shrink-0 w-fit">
                     <Building2 size={24} className="text-slate-600" />
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-xl font-semibold truncate">{company.name}</h3>
+                    <h3 className="text-lg sm:text-xl font-semibold break-words">
+                      {company.name}
+                    </h3>
 
                     {company.location && (
-                      <p className="text-sm text-slate-500 mt-1">
+                      <p className="text-sm text-slate-500 mt-1 break-words">
                         {company.location}
                       </p>
                     )}
@@ -298,7 +312,7 @@ export const CompaniesPage: React.FC = () => {
                         href={company.website}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-sm text-slate-700 underline mt-1 inline-flex items-center gap-1"
+                        className="text-sm text-slate-700 underline mt-2 inline-flex items-center gap-1 break-all"
                       >
                         Website
                         <ExternalLink size={13} />
@@ -321,8 +335,15 @@ export const CompaniesPage: React.FC = () => {
                   }
                   className="mt-5 w-full border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-2"
                 >
-                  {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                  {expanded ? 'Hide application history' : 'View application history'}
+                  {expanded ? (
+                    <ChevronUp size={16} />
+                  ) : (
+                    <ChevronDown size={16} />
+                  )}
+
+                  {expanded
+                    ? 'Hide application history'
+                    : 'View application history'}
                 </button>
 
                 {expanded && (
@@ -336,26 +357,31 @@ export const CompaniesPage: React.FC = () => {
                     <div className="divide-y divide-slate-200">
                       {company.history.map((item) => (
                         <div key={item.id} className="p-4">
-                          <div className="flex items-start justify-between gap-4">
+                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                             <div className="min-w-0">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-start gap-2">
                                 <Briefcase
                                   size={15}
-                                  className="text-slate-400 shrink-0"
+                                  className="text-slate-400 shrink-0 mt-0.5"
                                 />
-                                <p className="font-medium text-slate-900 truncate">
+
+                                <p className="font-medium text-slate-900 break-words">
                                   {item.role_title}
                                 </p>
                               </div>
 
-                              <div className="flex items-center gap-2 mt-2 text-sm text-slate-500">
-                                <CalendarDays size={14} />
-                                Applied: {formatDate(item.date_applied || item.created_at)}
+                              <div className="flex items-center gap-2 mt-2 text-sm text-slate-500 break-words">
+                                <CalendarDays size={14} className="shrink-0" />
+
+                                Applied:{' '}
+                                {formatDate(
+                                  item.date_applied || item.created_at
+                                )}
                               </div>
                             </div>
 
                             <span
-                              className={`rounded-full px-2.5 py-1 text-xs font-medium shrink-0 ${statusClass(
+                              className={`rounded-full px-2.5 py-1 text-xs font-medium shrink-0 w-fit ${statusClass(
                                 item.status
                               )}`}
                             >
@@ -376,9 +402,36 @@ export const CompaniesPage: React.FC = () => {
   );
 };
 
-const StatCard = ({ label, value }: { label: string; value: number }) => (
-  <div className="border border-slate-200 rounded-xl p-4 bg-white">
-    <p className="text-sm text-slate-500">{label}</p>
-    <p className="text-2xl font-bold mt-2">{value}</p>
+const StatCard = ({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) => (
+  <div className="border border-slate-200 rounded-xl p-4 bg-white overflow-hidden">
+    <p className="text-sm text-slate-500 break-words">{label}</p>
+
+    <p className="text-2xl font-bold mt-2 break-words">{value}</p>
+  </div>
+);
+
+const CompaniesSkeleton = () => (
+  <div className="w-full max-w-full overflow-hidden">
+    <div className="mb-8">
+      <div className="h-8 w-56 bg-slate-200 rounded-lg animate-pulse mb-2" />
+      <div className="h-4 w-full max-w-96 bg-slate-100 rounded-lg animate-pulse" />
+    </div>
+
+    <div className="h-16 bg-white border border-slate-200 rounded-2xl animate-pulse mb-6" />
+
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div
+          key={index}
+          className="h-72 bg-white border border-slate-200 rounded-2xl animate-pulse"
+        />
+      ))}
+    </div>
   </div>
 );
