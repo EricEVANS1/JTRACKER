@@ -268,7 +268,7 @@ export const AppLayout: React.FC = () => {
         </div>
       )}
 
-      <main className="lg:ml-64 p-4 sm:p-6 lg:p-8 w-full max-w-full overflow-x-hidden">
+      <main className="w-full max-w-full overflow-x-hidden p-4 sm:p-6 lg:ml-64 lg:w-[calc(100%-16rem)] lg:p-8">
         <Outlet />
       </main>
     </div>
