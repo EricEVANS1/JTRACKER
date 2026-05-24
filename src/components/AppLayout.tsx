@@ -99,20 +99,23 @@ export const AppLayout: React.FC = () => {
       { label: 'Companies', path: '/companies', icon: Building2, enabled: true },
       { label: 'Analytics', path: '/analytics', icon: BarChart3, enabled: true },
       { label: 'CV Manager', path: '/cv-manager', icon: FileText, enabled: true },
+
       {
         label: 'Gmail Sync',
         path: '/gmail-sync',
         icon: Mail,
         enabled: FEATURES.GMAIL_SYNC,
-        badge: 'Paused',
+        badge: FEATURES.GMAIL_SYNC ? undefined : 'Paused',
       },
+
       {
         label: 'Email Events',
         path: '/email-events',
         icon: Inbox,
-        enabled: FEATURES.EMAIL_EVENTS,
-        badge: 'Paused',
+        enabled: true,
+        badge: 'AI',
       },
+
       {
         label: 'Notifications',
         path: '/notifications',
@@ -120,6 +123,7 @@ export const AppLayout: React.FC = () => {
         enabled: true,
         badge: notificationCount > 0 ? String(notificationCount) : undefined,
       },
+
       {
         label: 'Shared With Me',
         path: '/shared-with-me',
@@ -127,6 +131,7 @@ export const AppLayout: React.FC = () => {
         enabled: true,
         badge: sharedCount > 0 ? String(sharedCount) : undefined,
       },
+
       { label: 'Recruiters', path: '/recruiters', icon: Users, enabled: true },
       { label: 'Kanban', path: '/kanban', icon: Columns3, enabled: true },
       { label: 'Settings', path: '/settings', icon: Settings, enabled: true },

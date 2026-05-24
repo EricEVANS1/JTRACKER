@@ -1,4 +1,4 @@
 export const FEATURES = {
-  GMAIL_SYNC: false,
-  EMAIL_EVENTS: false,
+  GMAIL_SYNC: true,
+  EMAIL_EVENTS: true,
 };

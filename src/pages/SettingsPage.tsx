@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Bell,
+  Bot,
+  Briefcase,
   CheckCircle2,
-  Globe,
   Download,
   Link2,
   Loader2,
@@ -12,13 +13,12 @@ import {
   Save,
   Settings,
   Shield,
-  Smartphone,
   Trash2,
   Upload,
   UserCircle,
   X,
-  Zap,
 } from 'lucide-react';
+
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { FEATURES } from '../config/features';
@@ -30,46 +30,58 @@ interface Profile {
   avatar_url: string | null;
 }
 
-type TabId = 'profile' | 'notifications' | 'integrations' | 'account';
-
-interface NotificationPrefs {
-  followUpReminders: boolean;
-  ghostingAlerts: boolean;
-  offerDeadlines: boolean;
-  sharedOpportunities: boolean;
-  interviewCountdown: boolean;
-  weeklyDigest: boolean;
+interface UserSettings {
+  target_role: string | null;
+  preferred_locations: string | null;
+  preferred_work_type: string | null;
+  salary_expectation: string | null;
+  currency: string | null;
+  ai_email_analysis_enabled: boolean;
+  ai_cv_analysis_enabled: boolean;
+  ai_confidence_threshold: number;
+  auto_save_ai_insights: boolean;
+  gmail_sync_enabled: boolean;
+  gmail_max_emails_per_sync: number;
+  gmail_recruitment_only: boolean;
 }
 
+type TabId = 'profile' | 'jobSearch' | 'ai' | 'gmail' | 'notifications' | 'privacy' | 'account';
+
 const AVATAR_BUCKET = 'avatars';
+
+const DEFAULT_SETTINGS: UserSettings = {
+  target_role: '',
+  preferred_locations: '',
+  preferred_work_type: 'hybrid',
+  salary_expectation: '',
+  currency: 'PLN',
+  ai_email_analysis_enabled: true,
+  ai_cv_analysis_enabled: true,
+  ai_confidence_threshold: 80,
+  auto_save_ai_insights: true,
+  gmail_sync_enabled: true,
+  gmail_max_emails_per_sync: 10,
+  gmail_recruitment_only: true,
+};
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'profile', label: 'Profile' },
+  { id: 'jobSearch', label: 'Job Search' },
+  { id: 'ai', label: 'AI Assistant' },
+  { id: 'gmail', label: 'Gmail Sync' },
+  { id: 'notifications', label: 'Notifications' },
+  { id: 'privacy', label: 'Privacy' },
+  { id: 'account', label: 'Account' },
+];
 
 const inputCls =
   'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed transition';
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: 'profile', label: 'Profile' },
-  { id: 'notifications', label: 'Notifications' },
-  { id: 'integrations', label: 'Integrations' },
-  { id: 'account', label: 'Account' },
-];
-
-const DEFAULT_NOTIF_PREFS: NotificationPrefs = {
-  followUpReminders: true,
-  ghostingAlerts: true,
-  offerDeadlines: true,
-  sharedOpportunities: true,
-  interviewCountdown: false,
-  weeklyDigest: false,
-};
-
-const Toggle: React.FC<{
-  enabled: boolean;
-  onChange: (v: boolean) => void;
-}> = ({ enabled, onChange }) => (
+const Toggle = ({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) => (
   <button
     type="button"
     onClick={() => onChange(!enabled)}
-    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1 ${
+    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
       enabled ? 'bg-slate-900' : 'bg-slate-200'
     }`}
   >
@@ -81,168 +93,116 @@ const Toggle: React.FC<{
   </button>
 );
 
-const ToggleRow: React.FC<{
-  label: string;
-  hint: string;
-  enabled: boolean;
-  onChange: (v: boolean) => void;
-  last?: boolean;
-}> = ({ label, hint, enabled, onChange, last }) => (
-  <div
-    className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4 ${
-      !last ? 'border-b border-slate-100' : ''
-    }`}
-  >
-    <div className="min-w-0">
-      <p className="text-sm font-medium text-slate-900">{label}</p>
-      <p className="text-xs text-slate-500 mt-0.5">{hint}</p>
-    </div>
-    <Toggle enabled={enabled} onChange={onChange} />
-  </div>
-);
-
-const IntegrationRow: React.FC<{
-  icon: React.ReactNode;
-  name: string;
-  description: string;
-  status: 'active' | 'paused' | 'coming_soon';
-  onAction?: () => void;
-  last?: boolean;
-}> = ({ icon, name, description, status, onAction, last }) => {
-  const statusConfig = {
-    active: { dot: 'bg-emerald-500', label: 'Active', labelCls: 'text-emerald-600' },
-    paused: { dot: 'bg-amber-400', label: 'Paused', labelCls: 'text-amber-600' },
-    coming_soon: { dot: 'bg-slate-300', label: 'Coming soon', labelCls: 'text-slate-400' },
-  }[status];
-
-  return (
-    <div
-      className={`flex flex-col sm:flex-row sm:items-center gap-4 py-4 ${
-        !last ? 'border-b border-slate-100' : ''
-      }`}
-    >
-      <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0 text-slate-600">
-        {icon}
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-slate-900">{name}</p>
-        <p className="text-xs text-slate-500 mt-0.5 break-words">{description}</p>
-      </div>
-
-      <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 w-full sm:w-auto">
-        <div className="flex items-center gap-1.5">
-          <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
-          <span className={`text-xs font-medium ${statusConfig.labelCls}`}>
-            {statusConfig.label}
-          </span>
-        </div>
-
-        {status !== 'coming_soon' && onAction && (
-          <button
-            onClick={onAction}
-            disabled={status === 'paused'}
-            className="text-xs text-slate-500 border border-slate-200 px-3 py-1 rounded-lg hover:bg-slate-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {status === 'active' ? 'Manage' : 'Connect'}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
-
 export const SettingsPage: React.FC = () => {
   const { user, signOut } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabId>('profile');
-
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
+
   const [fullName, setFullName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
+
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [deletingAvatar, setDeletingAvatar] = useState(false);
-  const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-
-  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIF_PREFS);
-  const [savingNotifs, setSavingNotifs] = useState(false);
-  const [notifMessage, setNotifMessage] = useState('');
-
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteInput, setDeleteInput] = useState('');
-  const [signingOut, setSigningOut] = useState(false);
+  const [error, setError] = useState('');
 
   const email = profile?.email || user?.email || '';
-
-  const hasChanges = useMemo(
-    () =>
-      fullName.trim() !== (profile?.full_name || '') ||
-      avatarUrl.trim() !== (profile?.avatar_url || ''),
-    [fullName, avatarUrl, profile]
-  );
-
-  const isAvatarValid = useMemo(() => {
-    if (!avatarUrl.trim()) return true;
-    try {
-      const url = new URL(avatarUrl.trim());
-      return ['http:', 'https:'].includes(url.protocol);
-    } catch {
-      return false;
-    }
-  }, [avatarUrl]);
 
   const avatarInitials = useMemo(() => {
     const name = fullName.trim() || email;
     return name
       .split(' ')
-      .map((w) => w[0])
+      .map((word) => word[0])
       .join('')
       .slice(0, 2)
       .toUpperCase();
   }, [fullName, email]);
 
-  const fetchProfile = async () => {
+  const fetchData = async () => {
     if (!user) return;
 
     setLoading(true);
     setError('');
-    setMessage('');
 
-    const { data, error } = await supabase
+    const { data: profileData, error: profileError } = await supabase
       .from('profiles')
       .select('id, full_name, email, avatar_url')
       .eq('id', user.id)
       .single();
 
-    if (error) {
-      setError(error.message);
+    if (profileError) {
+      setError(profileError.message);
     } else {
-      setProfile(data);
-      setFullName(data.full_name || '');
-      setAvatarUrl(data.avatar_url || '');
+      setProfile(profileData);
+      setFullName(profileData.full_name || '');
+      setAvatarUrl(profileData.avatar_url || '');
+    }
+
+    const { data: settingsData, error: settingsError } = await supabase
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (settingsError) {
+      setError(settingsError.message);
+    } else if (settingsData) {
+      setSettings({
+        ...DEFAULT_SETTINGS,
+        ...settingsData,
+      });
+    } else {
+      await supabase.from('user_settings').insert({
+        user_id: user.id,
+        ...DEFAULT_SETTINGS,
+      });
+      setSettings(DEFAULT_SETTINGS);
     }
 
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchProfile();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchData();
   }, [user?.id]);
 
-  const handleSaveProfile = async () => {
+  const updateSetting = <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const saveSettings = async () => {
     if (!user) return;
 
-    if (!isAvatarValid) {
-      setError('Avatar URL must be a valid http or https link.');
-      return;
+    setSavingSettings(true);
+    setError('');
+    setMessage('');
+
+    const { error } = await supabase
+      .from('user_settings')
+      .upsert({
+        user_id: user.id,
+        ...settings,
+        updated_at: new Date().toISOString(),
+      });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setMessage('Settings saved successfully.');
     }
 
-    setSaving(true);
+    setSavingSettings(false);
+  };
+
+  const saveProfile = async () => {
+    if (!user) return;
+
+    setSavingProfile(true);
     setError('');
     setMessage('');
 
@@ -258,37 +218,21 @@ export const SettingsPage: React.FC = () => {
       setError(error.message);
     } else {
       setMessage('Profile updated successfully.');
-      await fetchProfile();
+      await fetchData();
     }
 
-    setSaving(false);
+    setSavingProfile(false);
   };
 
-  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadAvatar = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!user) return;
 
     const file = event.target.files?.[0];
     if (!file) return;
 
+    setUploadingAvatar(true);
     setError('');
     setMessage('');
-
-    const maxFileSize = 2 * 1024 * 1024;
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-
-    if (!allowedTypes.includes(file.type)) {
-      setError('Please upload a JPG, PNG, WEBP, or GIF image.');
-      event.target.value = '';
-      return;
-    }
-
-    if (file.size > maxFileSize) {
-      setError('Profile picture must be smaller than 2MB.');
-      event.target.value = '';
-      return;
-    }
-
-    setUploadingAvatar(true);
 
     try {
       const fileExt = file.name.split('.').pop()?.toLowerCase() || 'png';
@@ -296,171 +240,110 @@ export const SettingsPage: React.FC = () => {
 
       const { error: uploadError } = await supabase.storage
         .from(AVATAR_BUCKET)
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true,
-        });
+        .upload(filePath, file, { upsert: true });
 
       if (uploadError) throw uploadError;
 
       const { data } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(filePath);
-      const publicUrl = data.publicUrl;
 
-      const { error: profileError } = await supabase
+      setAvatarUrl(data.publicUrl);
+
+      await supabase
         .from('profiles')
-        .update({ avatar_url: publicUrl })
+        .update({ avatar_url: data.publicUrl })
         .eq('id', user.id);
 
-      if (profileError) throw profileError;
-
-      setAvatarUrl(publicUrl);
-      setProfile((prev) => (prev ? { ...prev, avatar_url: publicUrl } : prev));
       setMessage('Profile picture uploaded successfully.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload profile picture.');
+      setError(err instanceof Error ? err.message : 'Failed to upload avatar.');
     } finally {
       setUploadingAvatar(false);
       event.target.value = '';
     }
   };
 
-  const handleRemoveAvatar = async () => {
+  const clearAIInsights = async () => {
     if (!user) return;
 
-    setDeletingAvatar(true);
-    setError('');
-    setMessage('');
-
     const { error } = await supabase
-      .from('profiles')
-      .update({ avatar_url: null })
-      .eq('id', user.id);
+      .from('email_events')
+      .update({ ai_insight: null })
+      .eq('user_id', user.id);
+
+    setMessage(error ? '' : 'AI insights cleared.');
+    setError(error?.message || '');
+  };
+
+  const clearEmailEvents = async () => {
+    if (!user) return;
+
+    const { error } = await supabase.from('email_events').delete().eq('user_id', user.id);
+
+    setMessage(error ? '' : 'Email events deleted.');
+    setError(error?.message || '');
+  };
+
+  const exportApplications = async () => {
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('applications')
+      .select('role_title,status,date_applied,created_at')
+      .eq('user_id', user.id);
 
     if (error) {
       setError(error.message);
-      setDeletingAvatar(false);
       return;
     }
 
-    setAvatarUrl('');
-    setProfile((prev) => (prev ? { ...prev, avatar_url: null } : prev));
-    setMessage('Profile picture removed.');
-    setDeletingAvatar(false);
-  };
-
-  const handleReset = () => {
-    setFullName(profile?.full_name || '');
-    setAvatarUrl(profile?.avatar_url || '');
-    setError('');
-    setMessage('');
-  };
-
-  const handleSaveNotifications = async () => {
-    setSavingNotifs(true);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    setNotifMessage('Notification preferences saved.');
-    setSavingNotifs(false);
-    setTimeout(() => setNotifMessage(''), 3000);
-  };
-
-  const handleSignOut = async () => {
-    setSigningOut(true);
-    await signOut();
-  };
-
-  const handleExportData = async () => {
-    if (!user) return;
-
-    const { data } = await supabase
-      .from('applications')
-      .select('role_title, status, date_applied, created_at')
-      .eq('user_id', user.id);
-
-    if (!data?.length) return;
-
+    const rows = data || [];
     const csv = [
       ['Role', 'Status', 'Date Applied', 'Created At'].join(','),
-      ...data.map((r) =>
-        [r.role_title, r.status, r.date_applied, r.created_at].join(',')
+      ...rows.map((row) =>
+        [row.role_title, row.status, row.date_applied, row.created_at]
+          .map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`)
+          .join(',')
       ),
     ].join('\n');
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const anchor = document.createElement('a');
 
-    a.href = url;
-    a.download = 'jtracker-applications.csv';
-    a.click();
+    anchor.href = url;
+    anchor.download = 'jtracker-applications.csv';
+    anchor.click();
 
     URL.revokeObjectURL(url);
   };
 
   if (loading) {
-    return (
-      <div className="w-full max-w-full overflow-hidden">
-        <div className="mb-8">
-          <div className="h-8 w-40 bg-slate-200 rounded-lg animate-pulse mb-2" />
-          <div className="h-4 w-full max-w-80 bg-slate-100 rounded-lg animate-pulse" />
-        </div>
-
-        <div className="flex gap-2 mb-6 overflow-x-auto">
-          {TABS.map((tab) => (
-            <div
-              key={tab.id}
-              className="h-9 w-28 bg-slate-100 rounded-lg animate-pulse shrink-0"
-            />
-          ))}
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 max-w-3xl">
-          <div className="flex items-center gap-4 mb-8">
-            <div className="w-16 h-16 rounded-full bg-slate-100 animate-pulse shrink-0" />
-            <div className="space-y-2 min-w-0 flex-1">
-              <div className="h-5 w-40 bg-slate-200 rounded animate-pulse" />
-              <div className="h-4 w-full max-w-56 bg-slate-100 rounded animate-pulse" />
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
-            <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
-            <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
-          </div>
-        </div>
-      </div>
-    );
+    return <div className="bg-white border border-slate-200 rounded-2xl p-8">Loading settings...</div>;
   }
 
   return (
-    <div className="w-full max-w-full overflow-hidden">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Settings size={24} className="text-slate-700" />
-            <h2 className="text-2xl font-bold">Settings</h2>
-          </div>
-
-          <p className="text-slate-500 text-sm">
-            Manage your profile, notifications, integrations, and account.
-          </p>
+    <div className="w-full max-w-5xl">
+      <div className="mb-6">
+        <div className="flex items-center gap-2 mb-1">
+          <Settings size={24} />
+          <h2 className="text-2xl font-bold">Settings</h2>
         </div>
-
-        {hasChanges && activeTab === 'profile' && (
-          <div className="text-xs bg-amber-50 border border-amber-200 text-amber-700 px-3 py-2 rounded-lg flex items-center gap-1.5 w-fit">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
-            Unsaved changes
-          </div>
-        )}
+        <p className="text-sm text-slate-500">
+          Control how JTracker uses your profile, Gmail, AI, and job-search data.
+        </p>
       </div>
 
-      <div className="w-full overflow-x-auto mb-6">
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl min-w-max sm:w-fit">
+      <div className="overflow-x-auto mb-6">
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-max">
           {TABS.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
+              onClick={() => {
+                setActiveTab(tab.id);
+                setMessage('');
+                setError('');
+              }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'bg-white text-slate-900 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700'
@@ -472,562 +355,250 @@ export const SettingsPage: React.FC = () => {
         </div>
       </div>
 
+      {message && <Feedback type="success" message={message} onClose={() => setMessage('')} />}
+      {error && <Feedback type="error" message={error} onClose={() => setError('')} />}
+
       {activeTab === 'profile' && (
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6 max-w-5xl">
-          <div className="space-y-5 min-w-0">
-            {error && (
-              <FeedbackMessage
-                type="error"
-                message={error}
-                onClose={() => setError('')}
-              />
+        <Card title="Profile" icon={<UserCircle size={16} />}>
+          <div className="flex flex-col sm:flex-row gap-5 mb-6">
+            {avatarUrl ? (
+              <img src={avatarUrl} className="w-20 h-20 rounded-full object-cover border" />
+            ) : (
+              <div className="w-20 h-20 rounded-full bg-slate-900 text-white flex items-center justify-center text-xl font-bold">
+                {avatarInitials}
+              </div>
             )}
 
-            {message && (
-              <FeedbackMessage
-                type="success"
-                message={message}
-                onClose={() => setMessage('')}
+            <div className="flex-1">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={uploadAvatar}
+                className="hidden"
               />
-            )}
 
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-5 p-4 sm:p-6 border-b border-slate-100">
-                <div className="shrink-0">
-                  {avatarUrl && isAvatarValid ? (
-                    <img
-                      src={avatarUrl}
-                      alt="Profile"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                      }}
-                      className="w-20 h-20 rounded-full object-cover border-2 border-slate-200"
-                    />
-                  ) : (
-                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center border-2 border-slate-200">
-                      {avatarInitials ? (
-                        <span className="text-white font-semibold text-xl tracking-tight">
-                          {avatarInitials}
-                        </span>
-                      ) : (
-                        <UserCircle size={40} className="text-slate-400" />
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-lg font-semibold break-words">
-                    {fullName.trim() || 'Your Profile'}
-                  </h3>
-
-                  <p className="text-slate-500 text-sm break-words">{email}</p>
-
-                  <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 mt-4">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
-                      onChange={handleAvatarUpload}
-                      className="hidden"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploadingAvatar}
-                      className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
-                    >
-                      {uploadingAvatar ? (
-                        <Loader2 size={15} className="animate-spin" />
-                      ) : (
-                        <Upload size={15} />
-                      )}
-                      {uploadingAvatar ? 'Uploading...' : 'Upload Picture'}
-                    </button>
-
-                    {avatarUrl && (
-                      <button
-                        type="button"
-                        onClick={handleRemoveAvatar}
-                        disabled={deletingAvatar || uploadingAvatar}
-                        className="w-full sm:w-auto border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition disabled:opacity-50"
-                      >
-                        {deletingAvatar ? 'Removing...' : 'Remove'}
-                      </button>
-                    )}
-                  </div>
-
-                  <p className="text-xs text-slate-400 mt-2">
-                    JPG, PNG, WEBP, or GIF. Max size: 2MB.
-                  </p>
-                </div>
-              </div>
-
-              <div className="p-4 sm:p-6 space-y-5">
-                <Field label="Full Name">
-                  <input
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder="Your full name"
-                    className={inputCls}
-                  />
-                </Field>
-
-                <Field label="Avatar URL">
-                  <div className="relative">
-                    <Link2
-                      size={14}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    />
-                    <input
-                      value={avatarUrl}
-                      onChange={(e) => setAvatarUrl(e.target.value)}
-                      placeholder="https://example.com/avatar.jpg"
-                      className={`${inputCls} pl-9 ${
-                        !isAvatarValid ? 'border-red-300 focus:ring-red-300' : ''
-                      }`}
-                    />
-                  </div>
-
-                  {!isAvatarValid && (
-                    <p className="text-xs text-red-500 mt-1.5">
-                      Enter a valid http or https image URL.
-                    </p>
-                  )}
-
-                  <p className="text-xs text-slate-400 mt-1.5">
-                    You can upload a picture above or paste an external image URL here.
-                  </p>
-                </Field>
-
-                <Field label="Email">
-                  <div className="relative">
-                    <Mail
-                      size={14}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    />
-                    <input value={email} disabled className={`${inputCls} pl-9`} />
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1.5">
-                    Managed through your login provider.
-                  </p>
-                </Field>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:justify-end gap-3 px-4 sm:px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  disabled={!hasChanges || saving || uploadingAvatar}
-                  className="w-full sm:w-auto border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm disabled:opacity-50 hover:bg-slate-100 transition"
-                >
-                  Reset
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleSaveProfile}
-                  disabled={saving || !hasChanges || !isAvatarValid || uploadingAvatar}
-                  className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 hover:bg-slate-700 transition inline-flex items-center justify-center gap-2"
-                >
-                  <Save size={14} />
-                  {saving ? 'Saving...' : 'Save Profile'}
-                </button>
-              </div>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAvatar}
+                className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2"
+              >
+                {uploadingAvatar ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+                {uploadingAvatar ? 'Uploading...' : 'Upload Picture'}
+              </button>
             </div>
           </div>
 
-          <aside className="space-y-5 min-w-0">
-            <div className="bg-slate-900 text-white rounded-2xl shadow-sm p-4 sm:p-6">
-              <p className="text-xs text-slate-400 uppercase tracking-widest mb-4">
-                Account Summary
-              </p>
+          <Field label="Full Name">
+            <input className={inputCls} value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          </Field>
 
-              <div className="flex items-center gap-3 mb-5 min-w-0">
-                {avatarUrl && isAvatarValid ? (
-                  <img
-                    src={avatarUrl}
-                    alt="Preview"
-                    className="w-11 h-11 rounded-full object-cover border border-white/10 shrink-0"
-                  />
-                ) : (
-                  <div className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center shrink-0">
-                    {avatarInitials ? (
-                      <span className="text-white font-semibold text-sm">
-                        {avatarInitials}
-                      </span>
-                    ) : (
-                      <UserCircle size={24} className="text-slate-300" />
-                    )}
-                  </div>
-                )}
+          <Field label="Avatar URL">
+            <input className={inputCls} value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} />
+          </Field>
 
-                <div className="min-w-0">
-                  <p className="font-semibold text-sm break-words">
-                    {fullName.trim() || 'Unnamed User'}
-                  </p>
-                  <p className="text-xs text-slate-400 break-words">{email}</p>
-                </div>
-              </div>
+          <Field label="Email">
+            <input className={inputCls} value={email} disabled />
+          </Field>
 
-              <div className="space-y-3 text-sm border-t border-white/10 pt-4">
-                <SummaryRow label="Plan" value="Free" />
-                <SummaryRow
-                  label="Profile"
-                  value={fullName.trim() ? 'Complete' : 'Incomplete'}
-                />
-                <SummaryRow label="Avatar" value={avatarUrl.trim() ? 'Set' : 'Not set'} />
-                <div className="flex justify-between gap-4">
-                  <span className="text-slate-400">User ID</span>
-                  <span className="truncate max-w-[130px] text-xs font-mono text-slate-300">
-                    {user?.id?.slice(0, 12)}…
-                  </span>
-                </div>
-              </div>
-            </div>
+          <SaveBar saving={savingProfile} onSave={saveProfile} label="Save Profile" />
+        </Card>
+      )}
 
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-5">
-              <h3 className="text-sm font-semibold mb-2 text-slate-900">
-                Profile tips
-              </h3>
-              <p className="text-sm text-slate-500 leading-relaxed">
-                Add a real name and photo — they appear when you share opportunities with
-                your network, making your shares feel more personal and trusted.
-              </p>
-            </div>
-          </aside>
-        </div>
+      {activeTab === 'jobSearch' && (
+        <Card title="Job Search Preferences" icon={<Briefcase size={16} />}>
+          <Field label="Target Role">
+            <input
+              className={inputCls}
+              value={settings.target_role || ''}
+              onChange={(e) => updateSetting('target_role', e.target.value)}
+              placeholder="Junior Software Engineer, Technical Support Engineer..."
+            />
+          </Field>
+
+          <Field label="Preferred Locations">
+            <input
+              className={inputCls}
+              value={settings.preferred_locations || ''}
+              onChange={(e) => updateSetting('preferred_locations', e.target.value)}
+              placeholder="Poland, Germany, Remote, United States..."
+            />
+          </Field>
+
+          <Field label="Work Type">
+            <select
+              className={inputCls}
+              value={settings.preferred_work_type || 'hybrid'}
+              onChange={(e) => updateSetting('preferred_work_type', e.target.value)}
+            >
+              <option value="remote">Remote</option>
+              <option value="hybrid">Hybrid</option>
+              <option value="onsite">On-site</option>
+              <option value="any">Any</option>
+            </select>
+          </Field>
+
+          <Field label="Salary Expectation">
+            <input
+              className={inputCls}
+              value={settings.salary_expectation || ''}
+              onChange={(e) => updateSetting('salary_expectation', e.target.value)}
+              placeholder="Example: 10,000 gross monthly"
+            />
+          </Field>
+
+          <Field label="Currency">
+            <select
+              className={inputCls}
+              value={settings.currency || 'PLN'}
+              onChange={(e) => updateSetting('currency', e.target.value)}
+            >
+              <option value="PLN">PLN</option>
+              <option value="EUR">EUR</option>
+              <option value="USD">USD</option>
+              <option value="GBP">GBP</option>
+            </select>
+          </Field>
+
+          <SaveBar saving={savingSettings} onSave={saveSettings} label="Save Preferences" />
+        </Card>
+      )}
+
+      {activeTab === 'ai' && (
+        <Card title="AI Assistant" icon={<Bot size={16} />}>
+          <ToggleRow
+            label="AI email analysis"
+            hint="Analyze recruitment emails for urgency, next action, tone, and red flags."
+            enabled={settings.ai_email_analysis_enabled}
+            onChange={(v) => updateSetting('ai_email_analysis_enabled', v)}
+          />
+
+          <ToggleRow
+            label="AI CV analysis"
+            hint="Allow JTracker to analyze CVs and generate improvement suggestions."
+            enabled={settings.ai_cv_analysis_enabled}
+            onChange={(v) => updateSetting('ai_cv_analysis_enabled', v)}
+          />
+
+          <ToggleRow
+            label="Auto-save AI insights"
+            hint="Store AI results so analysis does not disappear after refresh."
+            enabled={settings.auto_save_ai_insights}
+            onChange={(v) => updateSetting('auto_save_ai_insights', v)}
+          />
+
+          <Field label={`Confidence Threshold: ${settings.ai_confidence_threshold}%`}>
+            <input
+              type="range"
+              min={50}
+              max={95}
+              value={settings.ai_confidence_threshold}
+              onChange={(e) => updateSetting('ai_confidence_threshold', Number(e.target.value))}
+              className="w-full"
+            />
+          </Field>
+
+          <SaveBar saving={savingSettings} onSave={saveSettings} label="Save AI Settings" />
+        </Card>
+      )}
+
+      {activeTab === 'gmail' && (
+        <Card title="Gmail Sync" icon={<Mail size={16} />}>
+          <ToggleRow
+            label="Gmail sync enabled"
+            hint="Allow JTracker to process synced Gmail recruitment emails."
+            enabled={settings.gmail_sync_enabled && FEATURES.GMAIL_SYNC}
+            onChange={(v) => updateSetting('gmail_sync_enabled', v)}
+          />
+
+          <ToggleRow
+            label="Recruitment-only mode"
+            hint="Ignore newsletters, receipts, promotions, and non-job-search emails."
+            enabled={settings.gmail_recruitment_only}
+            onChange={(v) => updateSetting('gmail_recruitment_only', v)}
+          />
+
+          <Field label="Max emails per sync">
+            <input
+              type="number"
+              min={5}
+              max={50}
+              className={inputCls}
+              value={settings.gmail_max_emails_per_sync}
+              onChange={(e) => updateSetting('gmail_max_emails_per_sync', Number(e.target.value))}
+            />
+          </Field>
+
+          <SaveBar saving={savingSettings} onSave={saveSettings} label="Save Gmail Settings" />
+        </Card>
       )}
 
       {activeTab === 'notifications' && (
-        <div className="max-w-2xl space-y-5">
-          {notifMessage && (
-            <FeedbackMessage
-              type="success"
-              message={notifMessage}
-              onClose={() => setNotifMessage('')}
-            />
-          )}
-
-          <SettingsCard
-            icon={<Zap size={15} className="text-slate-700" />}
-            title="Smart Alerts"
-            description="Intelligent notifications generated from your application activity."
-          >
-            <ToggleRow
-              label="Follow-up reminders"
-              hint="Alert when an application has had no activity for 7+ days."
-              enabled={notifPrefs.followUpReminders}
-              onChange={(v) => setNotifPrefs((p) => ({ ...p, followUpReminders: v }))}
-            />
-
-            <ToggleRow
-              label="Ghosting alerts"
-              hint="Flag applications with no response after 21 days."
-              enabled={notifPrefs.ghostingAlerts}
-              onChange={(v) => setNotifPrefs((p) => ({ ...p, ghostingAlerts: v }))}
-            />
-
-            <ToggleRow
-              label="Offer deadline warnings"
-              hint="Remind you when an offer decision is approaching."
-              enabled={notifPrefs.offerDeadlines}
-              onChange={(v) => setNotifPrefs((p) => ({ ...p, offerDeadlines: v }))}
-            />
-
-            <ToggleRow
-              label="Shared opportunity alerts"
-              hint="Notify when someone shares a job opportunity with you."
-              enabled={notifPrefs.sharedOpportunities}
-              onChange={(v) => setNotifPrefs((p) => ({ ...p, sharedOpportunities: v }))}
-            />
-
-            <ToggleRow
-              label="Interview countdown"
-              hint="24-hour reminder before a scheduled interview."
-              enabled={notifPrefs.interviewCountdown}
-              onChange={(v) => setNotifPrefs((p) => ({ ...p, interviewCountdown: v }))}
-              last
-            />
-          </SettingsCard>
-
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div className="px-4 sm:px-6 py-4 border-b border-slate-100">
-              <div className="flex items-center gap-2 mb-0.5">
-                <Bell size={15} className="text-slate-700" />
-                <h3 className="text-base font-semibold">Email Digest</h3>
-              </div>
-              <p className="text-xs text-slate-500 break-words">
-                Receive a summary of your job search activity to {email}.
-              </p>
-            </div>
-
-            <div className="px-4 sm:px-6">
-              <ToggleRow
-                label="Weekly digest"
-                hint="Summary of applications, responses, and follow-ups every Monday."
-                enabled={notifPrefs.weeklyDigest}
-                onChange={(v) => setNotifPrefs((p) => ({ ...p, weeklyDigest: v }))}
-                last
-              />
-            </div>
-
-            <div className="px-4 sm:px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <p className="text-xs text-slate-400">
-                Email digests require the Pro plan to send automatically.
-              </p>
-
-              <button
-                onClick={handleSaveNotifications}
-                disabled={savingNotifs}
-                className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50 hover:bg-slate-700 transition inline-flex items-center justify-center gap-2"
-              >
-                <Save size={14} />
-                {savingNotifs ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <Card title="Notifications" icon={<Bell size={16} />}>
+          <p className="text-sm text-slate-500">
+            Notification storage can be connected next. For now, JTracker uses your application and email data to show in-app alerts.
+          </p>
+        </Card>
       )}
 
-      {activeTab === 'integrations' && (
-        <div className="max-w-2xl space-y-5">
-          <SettingsCard
-            title="Connected Services"
-            description="External services that power JTracker's intelligence features."
-          >
-            <IntegrationRow
-              icon={<Mail size={18} />}
-              name="Gmail"
-              description="Auto-classify job emails — confirmations, interviews, rejections, and offers."
-              status={FEATURES.GMAIL_SYNC ? 'active' : 'paused'}
-              onAction={() => {}}
-            />
+      {activeTab === 'privacy' && (
+        <Card title="Privacy & Data" icon={<Shield size={16} />}>
+          <p className="text-sm text-slate-500 mb-4">
+            AI analysis sends selected email snippets and metadata to your configured AI provider. Full email body analysis should stay optional.
+          </p>
 
-            <IntegrationRow
-              icon={<Bell size={18} />}
-              name="Push Notifications"
-              description="Real-time alerts in the browser when your application status changes."
-              status="active"
-              onAction={() => {}}
-            />
+          <ActionRow
+            title="Export applications"
+            description="Download your applications as a CSV file."
+            label="Export"
+            icon={<Download size={14} />}
+            onClick={exportApplications}
+          />
 
-            <IntegrationRow
-              icon={<Smartphone size={18} />}
-              name="WhatsApp Sharing"
-              description="Share job opportunities directly via WhatsApp with a pre-filled message."
-              status="active"
-              onAction={() => {}}
-            />
+          <ActionRow
+            title="Clear AI insights"
+            description="Remove saved AI analysis from email events."
+            label="Clear"
+            icon={<Trash2 size={14} />}
+            onClick={clearAIInsights}
+          />
 
-            <IntegrationRow
-              icon={<Globe size={18} />}
-              name="Chrome Extension"
-              description="Save job listings to JTracker in one click from any job board."
-              status="coming_soon"
-              last
-            />
-          </SettingsCard>
-
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div className="px-4 sm:px-6 py-4 border-b border-slate-100">
-              <div className="flex items-center gap-2 mb-0.5">
-                <Link2 size={15} className="text-slate-700" />
-                <h3 className="text-base font-semibold">Public Share Link</h3>
-              </div>
-              <p className="text-xs text-slate-500">
-                Anyone with this link can view opportunities you choose to share publicly.
-              </p>
-            </div>
-
-            <div className="p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  readOnly
-                  value={`https://jtracker.app/share/${user?.id?.slice(0, 8)}`}
-                  className={`${inputCls} font-mono text-xs`}
-                />
-
-                <button
-                  onClick={() =>
-                    navigator.clipboard.writeText(
-                      `https://jtracker.app/share/${user?.id?.slice(0, 8)}`
-                    )
-                  }
-                  className="w-full sm:w-auto border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition shrink-0"
-                >
-                  Copy
-                </button>
-              </div>
-
-              <p className="text-xs text-slate-400 mt-2">
-                Revoking generates a new link. The old link stops working immediately.
-              </p>
-            </div>
-          </div>
-        </div>
+          <ActionRow
+            title="Delete email events"
+            description="Remove synced email event records from JTracker."
+            label="Delete"
+            danger
+            icon={<Trash2 size={14} />}
+            onClick={clearEmailEvents}
+          />
+        </Card>
       )}
 
       {activeTab === 'account' && (
-        <div className="max-w-2xl space-y-5">
-          <div className="bg-slate-900 text-white rounded-2xl shadow-sm p-4 sm:p-6">
-            <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
-              Current Plan
-            </p>
+        <Card title="Account" icon={<Shield size={16} />}>
+          <Field label="User ID">
+            <input className={`${inputCls} font-mono text-xs`} value={user?.id || ''} readOnly />
+          </Field>
 
-            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-4">
-              <div>
-                <p className="text-xl font-bold">Free</p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Up to 20 applications · Manual sync only
-                </p>
-              </div>
+          <Field label="Email">
+            <input className={inputCls} value={email} disabled />
+          </Field>
 
-              <button className="w-full sm:w-auto bg-blue-500 hover:bg-blue-400 text-white text-sm font-medium px-4 py-2 rounded-lg transition shrink-0">
-                Upgrade to Pro
-              </button>
-            </div>
-
-            <div className="space-y-1.5 text-sm border-t border-white/10 pt-4">
-              <SummaryRow label="Applications" value="4 / 20" />
-              <SummaryRow label="Gmail sync" value="Manual only" />
-              <SummaryRow label="Email classification" value="Keyword-based" />
-              <SummaryRow label="Recruiters" value="5 max" />
-            </div>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div className="px-4 sm:px-6 py-4 border-b border-slate-100">
-              <h3 className="text-base font-semibold">Account Information</h3>
-            </div>
-
-            <div className="p-4 sm:p-6 space-y-4">
-              <Field label="User ID">
-                <input
-                  value={user?.id || ''}
-                  readOnly
-                  className={`${inputCls} font-mono text-xs`}
-                />
-                <p className="text-xs text-slate-400 mt-1.5">
-                  Use this when contacting support.
-                </p>
-              </Field>
-
-              <Field label="Email">
-                <input value={email} disabled className={inputCls} />
-              </Field>
-            </div>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div className="px-4 sm:px-6 py-4 border-b border-slate-100">
-              <div className="flex items-center gap-2 mb-0.5">
-                <Shield size={15} className="text-slate-700" />
-                <h3 className="text-base font-semibold">Data & Privacy</h3>
-              </div>
-              <p className="text-xs text-slate-500">
-                Export or manage your personal data.
-              </p>
-            </div>
-
-            <div className="divide-y divide-slate-100">
-              <AccountActionRow
-                title="Export your data"
-                description="Download all applications, events, and recruiter data as CSV."
-                buttonLabel="Export CSV"
-                icon={<Download size={13} />}
-                onClick={handleExportData}
-              />
-
-              <AccountActionRow
-                title="Sign out all devices"
-                description="Invalidates all active sessions across every device."
-                buttonLabel={signingOut ? 'Signing out…' : 'Sign out'}
-                icon={<LogOut size={13} />}
-                onClick={handleSignOut}
-                disabled={signingOut}
-              />
-            </div>
-          </div>
-
-          <div className="border border-red-200 rounded-2xl overflow-hidden">
-            <div className="bg-red-50 px-4 sm:px-6 py-3 border-b border-red-200 flex items-center gap-2">
-              <AlertCircle size={14} className="text-red-500" />
-              <span className="text-sm font-semibold text-red-700">Danger Zone</span>
-            </div>
-
-            <div className="bg-white px-4 sm:px-6 py-4">
-              {!showDeleteConfirm ? (
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">Delete account</p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Permanently removes all your data. This cannot be undone.
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={() => setShowDeleteConfirm(true)}
-                    className="w-full sm:w-auto bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-sm hover:bg-red-100 transition inline-flex items-center justify-center gap-1.5 shrink-0"
-                  >
-                    <Trash2 size={13} />
-                    Delete
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-sm text-red-700 font-medium">
-                    Type{' '}
-                    <span className="font-mono bg-red-100 px-1.5 py-0.5 rounded">
-                      DELETE
-                    </span>{' '}
-                    to confirm.
-                  </p>
-
-                  <input
-                    value={deleteInput}
-                    onChange={(e) => setDeleteInput(e.target.value)}
-                    placeholder="DELETE"
-                    className={`${inputCls} border-red-200 focus:ring-red-300`}
-                  />
-
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <button
-                      onClick={() => {
-                        setShowDeleteConfirm(false);
-                        setDeleteInput('');
-                      }}
-                      className="w-full sm:flex-1 border border-slate-200 text-slate-600 py-2 rounded-lg text-sm hover:bg-slate-50 transition"
-                    >
-                      Cancel
-                    </button>
-
-                    <button
-                      disabled={deleteInput !== 'DELETE'}
-                      className="w-full sm:flex-1 bg-red-600 text-white py-2 rounded-lg text-sm disabled:opacity-40 hover:bg-red-700 transition"
-                    >
-                      Confirm Delete
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+          <button
+            onClick={signOut}
+            className="mt-4 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2"
+          >
+            <LogOut size={14} />
+            Sign Out
+          </button>
+        </Card>
       )}
     </div>
   );
 };
 
-const Field = ({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) => (
-  <label className="block">
+const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <label className="block mb-4">
     <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
       {label}
     </span>
@@ -1035,95 +606,121 @@ const Field = ({
   </label>
 );
 
-const FeedbackMessage = ({
+const Card = ({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) => (
+  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+    <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+      {icon}
+      <h3 className="font-semibold">{title}</h3>
+    </div>
+
+    <div className="p-5">{children}</div>
+  </div>
+);
+
+const ToggleRow = ({
+  label,
+  hint,
+  enabled,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  enabled: boolean;
+  onChange: (v: boolean) => void;
+}) => (
+  <div className="flex items-center justify-between gap-4 border-b border-slate-100 py-4">
+    <div>
+      <p className="text-sm font-medium">{label}</p>
+      <p className="text-xs text-slate-500 mt-0.5">{hint}</p>
+    </div>
+    <Toggle enabled={enabled} onChange={onChange} />
+  </div>
+);
+
+const SaveBar = ({
+  saving,
+  onSave,
+  label,
+}: {
+  saving: boolean;
+  onSave: () => void;
+  label: string;
+}) => (
+  <div className="flex justify-end pt-4 border-t border-slate-100">
+    <button
+      onClick={onSave}
+      disabled={saving}
+      className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2 disabled:opacity-50"
+    >
+      <Save size={14} />
+      {saving ? 'Saving...' : label}
+    </button>
+  </div>
+);
+
+const Feedback = ({
   type,
   message,
   onClose,
 }: {
-  type: 'error' | 'success';
+  type: 'success' | 'error';
   message: string;
   onClose: () => void;
 }) => (
   <div
-    className={`rounded-xl p-4 flex items-start gap-3 border ${
-      type === 'error'
-        ? 'bg-red-50 border-red-200 text-red-700'
-        : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+    className={`mb-4 rounded-xl p-4 flex items-start gap-3 border ${
+      type === 'success'
+        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+        : 'bg-red-50 border-red-200 text-red-700'
     }`}
   >
-    {type === 'error' ? (
-      <AlertCircle size={16} className="shrink-0 mt-0.5" />
-    ) : (
-      <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
-    )}
-
-    <span className="text-sm flex-1 break-words">{message}</span>
-
-    <button onClick={onClose} className="opacity-70 hover:opacity-100">
+    {type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+    <span className="text-sm flex-1">{message}</span>
+    <button onClick={onClose}>
       <X size={16} />
     </button>
   </div>
 );
 
-const SettingsCard = ({
-  icon,
+const ActionRow = ({
   title,
   description,
-  children,
-}: {
-  icon?: React.ReactNode;
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-}) => (
-  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-    <div className="px-4 sm:px-6 py-4 border-b border-slate-100">
-      <div className="flex items-center gap-2 mb-0.5">
-        {icon}
-        <h3 className="text-base font-semibold">{title}</h3>
-      </div>
-      {description && <p className="text-xs text-slate-500">{description}</p>}
-    </div>
-
-    <div className="px-4 sm:px-6">{children}</div>
-  </div>
-);
-
-const SummaryRow = ({ label, value }: { label: string; value: string }) => (
-  <div className="flex justify-between gap-4">
-    <span className="text-slate-400">{label}</span>
-    <span className="font-medium text-right break-words">{value}</span>
-  </div>
-);
-
-const AccountActionRow = ({
-  title,
-  description,
-  buttonLabel,
+  label,
   icon,
   onClick,
-  disabled,
+  danger,
 }: {
   title: string;
   description: string;
-  buttonLabel: string;
+  label: string;
   icon: React.ReactNode;
   onClick: () => void;
-  disabled?: boolean;
+  danger?: boolean;
 }) => (
-  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 px-4 sm:px-6 py-4">
+  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-t border-slate-100 py-4">
     <div>
-      <p className="text-sm font-medium text-slate-900">{title}</p>
+      <p className="text-sm font-medium">{title}</p>
       <p className="text-xs text-slate-500 mt-0.5">{description}</p>
     </div>
 
     <button
       onClick={onClick}
-      disabled={disabled}
-      className="w-full sm:w-auto border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5 shrink-0 disabled:opacity-50"
+      className={`px-3 py-2 rounded-lg text-sm inline-flex items-center gap-2 border ${
+        danger
+          ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'
+          : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+      }`}
     >
       {icon}
-      {buttonLabel}
+      {label}
     </button>
   </div>
 );
