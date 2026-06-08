@@ -21,9 +21,11 @@ import { KanbanPage } from './pages/KanbanPage';
 import { RecruiterDetailsPage } from './pages/RecruiterDetailsPage';
 import { SharedWithMePage } from './pages/SharedWithMePage';
 import { PublicSharePage } from './pages/PublicSharePage';
+import { ResumeBuilderPage } from './pages/ResumeBuilderPage';
+import { ResumeBuilderStartPage } from './pages/ResumeBuilderStartPage';
 
 /* ADD THESE */
-import { GmailSyncPage } from './pages/GmailSyncPage';
+import { EmailSyncPage } from './pages/EmailSyncPage';
 import { EmailEventsPage } from './pages/EmailEventsPage';
 
 const App: React.FC = () => {
@@ -63,8 +65,10 @@ const App: React.FC = () => {
             <Route path="/kanban" element={<KanbanPage />} />
 
             {/* NEW */}
-            <Route path="/gmail-sync" element={<GmailSyncPage />} />
+            <Route path="/email-sync" element={<EmailSyncPage />} />
             <Route path="/email-events" element={<EmailEventsPage />} />
+            <Route path="/resume-builder" element={<ResumeBuilderStartPage />} />
+            <Route path="/resume-builder/:analysisId" element={<ResumeBuilderPage />} />
           </Route>
 
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
