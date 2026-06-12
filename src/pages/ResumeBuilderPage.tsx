@@ -32,6 +32,7 @@ import type {
   EducationItem,
   ExperienceItem,
   FormattingSettings,
+  FontFamily,
   PersonalInfo,
   ProjectItem,
   ResumeBuilderState,
@@ -39,6 +40,8 @@ import type {
   SkillsAwards,
   TemplateId,
 } from '../types/resumeBuilder';
+
+
 
 // ---- PDF / DOCX — lazy-loaded to avoid bundle issues if not installed ----
 let jsPDF: any = null;
