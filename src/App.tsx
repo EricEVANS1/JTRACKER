@@ -13,7 +13,6 @@ import { CVManagerPage } from './pages/CVManagerPage';
 import { CompaniesPage } from './pages/CompaniesPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { NotificationsPage } from './pages/NotificationsPage';
 import { FollowUpsPage } from './pages/FollowUpsPage';
 import { ArchivedApplicationsPage } from './pages/ArchivedApplicationsPage';
 import { RecruitersPage } from './pages/RecruitersPage';
@@ -23,10 +22,6 @@ import { SharedWithMePage } from './pages/SharedWithMePage';
 import { PublicSharePage } from './pages/PublicSharePage';
 import { ResumeBuilderPage } from './pages/ResumeBuilderPage';
 import { ResumeBuilderStartPage } from './pages/ResumeBuilderStartPage';
-
-/* ADD THESE */
-import { EmailSyncPage } from './pages/EmailSyncPage';
-import { EmailEventsPage } from './pages/EmailEventsPage';
 
 const App: React.FC = () => {
   return (
@@ -51,10 +46,15 @@ const App: React.FC = () => {
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
 
-            <Route path="/notifications" element={<NotificationsPage />} />
+            <Route
+              path="/notifications"
+              element={<Navigate to="/settings?tab=notifications" replace />}
+            />
+
             <Route path="/shared-with-me" element={<SharedWithMePage />} />
             <Route path="/follow-ups" element={<FollowUpsPage />} />
             <Route path="/archived" element={<ArchivedApplicationsPage />} />
+
             <Route
               path="/archived-applications"
               element={<ArchivedApplicationsPage />}
@@ -64,9 +64,16 @@ const App: React.FC = () => {
             <Route path="/recruiters/:id" element={<RecruiterDetailsPage />} />
             <Route path="/kanban" element={<KanbanPage />} />
 
-            {/* NEW */}
-            <Route path="/email-sync" element={<EmailSyncPage />} />
-            <Route path="/email-events" element={<EmailEventsPage />} />
+            <Route
+              path="/email-sync"
+              element={<Navigate to="/settings?tab=emailSync" replace />}
+            />
+
+            <Route
+              path="/email-events"
+              element={<Navigate to="/settings?tab=emailEvents" replace />}
+            />
+
             <Route path="/resume-builder" element={<ResumeBuilderStartPage />} />
             <Route path="/resume-builder/:analysisId" element={<ResumeBuilderPage />} />
           </Route>

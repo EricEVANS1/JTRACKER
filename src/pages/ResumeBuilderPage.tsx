@@ -19,12 +19,26 @@ import {
   Plus,
   RefreshCcw,
   Save,
-  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { optimizeResumeForJob } from '../lib/resumeTailoring';
+import type {
+  AnalysisRecord,
+  CvVersionRecord,
+  CustomSection,
+  CustomSectionType,
+  EducationItem,
+  ExperienceItem,
+  FormattingSettings,
+  PersonalInfo,
+  ProjectItem,
+  ResumeBuilderState,
+  SectionVisibility,
+  SkillsAwards,
+  TemplateId,
+} from '../types/resumeBuilder';
 
 // ---- PDF / DOCX — lazy-loaded to avoid bundle issues if not installed ----
 let jsPDF: any = null;
@@ -53,60 +67,6 @@ const loadFileSaver = async () => {
 // ============================================================
 // TYPES
 // ============================================================
-type TemplateId = 'single' | 'two_column' | 'modern' | 'clean' | 'classic_ats';
-type PageSize = 'a4' | 'letter';
-type FontFamily = 'serif' | 'sans' | 'mono';
-type CustomSectionType = 'text' | 'items' | 'skills';
-
-type FormattingSettings = {
-  template: TemplateId;
-  pageSize: PageSize;
-  margins: { top: number; bottom: number; left: number; right: number };
-  spacing: { section: number; item: number; line: number };
-  fontSize: { base: number; headers: number };
-  fonts: { header: FontFamily; body: FontFamily };
-  compactMode: boolean;
-};
-
-type PersonalInfo = {
-  fullName: string; jobTitle: string; email: string; phone: string;
-  location: string; website: string; linkedin: string; github: string;
-};
-
-type ExperienceItem = { id: string; jobTitle: string; company: string; location: string; years: string; bullets: string[] };
-type EducationItem = { id: string; institution: string; degree: string; years: string; description: string };
-type ProjectItem = { id: string; name: string; role: string; years: string; link: string; bullets: string[] };
-type SkillsAwards = { technicalSkills: string; languages: string; trainingCertifications: string; awards: string };
-type CustomSection = { id: string; title: string; type: CustomSectionType; content: string; items: string[]; visible: boolean; collapsed: boolean };
-type SectionVisibility = { personal: boolean; summary: boolean; experience: boolean; education: boolean; projects: boolean; skillsAwards: boolean };
-
-type ResumeBuilderState = {
-  personal: PersonalInfo; summary: string; experience: ExperienceItem[];
-  education: EducationItem[]; projects: ProjectItem[]; skillsAwards: SkillsAwards;
-  customSections: CustomSection[]; sectionVisibility: SectionVisibility;
-};
-
-type AnalysisRecord = {
-  id: string;
-  user_id: string;
-  cv_version_id: string;
-  job_title: string | null;
-  company_name: string | null;
-  generated_cv: string | null;
-  score: number | null;
-  matched_keywords?: string[] | null;
-  partial_keywords?: string[] | null;
-  missing_keywords?: string[] | null;
-  ats_keyword_evidence?: any[] | null;
-  extended_data?: any;
-};
-
-type CvVersionRecord = {
-  id: string;
-  cv_text: string | null;
-  structured_cv: any | null;
-  cv_suggestions?: any | null;
-};
 
 // ============================================================
 // CONSTANTS
@@ -144,7 +104,7 @@ const templateOptions: Array<{ id: TemplateId; label: string; description: strin
 const makeSafeFileName = (name?: string | null) =>
   (name?.trim() || 'optimized-cv').replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase();
 
-const lineList = (value: string) => value.split('\n').map(v => v.trim()).filter(Boolean);
+
 const joinContact = (p: PersonalInfo) => [p.email, p.phone, p.location, p.website, p.linkedin, p.github].filter(Boolean).join(' | ');
 const headingKey = (line: string) => line.trim().toLowerCase().replace(/[:\-]/g, '').replace(/\s+/g, ' ');
 
@@ -778,32 +738,304 @@ const buildPlainTextResume = (state: ResumeBuilderState, jobTitle?: string | nul
 // ============================================================
 // EXPORT FUNCTIONS
 // ============================================================
-const exportAsPDF = async (state: ResumeBuilderState, formatting: FormattingSettings, jobTitle?: string | null, fileName = 'resume.pdf') => {
-  const text = buildPlainTextResume(state, jobTitle);
-  if (!text.trim()) return;
+const exportAsPDF = async (
+  state: ResumeBuilderState,
+  formatting: FormattingSettings,
+  jobTitle?: string | null,
+  fileName = 'resume.pdf',
+) => {
+  if (!buildPlainTextResume(state, jobTitle).trim()) return;
+
   const PDF = await loadPdfLib();
-  if (!PDF) { alert('PDF export requires jsPDF. Run: npm install jspdf'); return; }
-  const doc = new PDF({ unit: 'mm', format: formatting.pageSize === 'a4' ? 'a4' : 'letter' });
+  if (!PDF) {
+    alert('PDF export requires jsPDF. Run: npm install jspdf');
+    return;
+  }
+
+  const doc = new PDF({
+    unit: 'mm',
+    format: formatting.pageSize === 'a4' ? 'a4' : 'letter',
+  });
+
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const maxWidth = pageWidth - formatting.margins.left - formatting.margins.right;
-  const baseFont = 8 + formatting.fontSize.base;
-  const headingFont = baseFont + formatting.fontSize.headers;
-  const lineHeight = formatting.compactMode ? baseFont * 0.42 : baseFont * (0.42 + formatting.spacing.line * 0.025);
-  let y = formatting.margins.top;
-  text.split('\n').forEach(paragraph => {
-    const isHeading = paragraph.trim() && paragraph.trim() === paragraph.trim().toUpperCase() && paragraph.trim().length < 50;
-    doc.setFont(formatting.fonts.body === 'serif' ? 'times' : 'helvetica', isHeading ? 'bold' : 'normal');
-    doc.setFontSize(isHeading ? headingFont : baseFont);
-    if (isHeading) y += formatting.spacing.section * 0.8;
-    const lines = doc.splitTextToSize(paragraph || ' ', maxWidth);
+
+  const template = formatting.template;
+  const classic = template === 'classic_ats';
+  const modern = template === 'modern';
+  const clean = template === 'clean';
+  const two = template === 'two_column';
+
+  const margin = {
+    top: formatting.margins.top,
+    right: formatting.margins.right,
+    bottom: formatting.margins.bottom,
+    left: formatting.margins.left,
+  };
+
+  const baseFont = formatting.compactMode
+    ? 8 + formatting.fontSize.base * 0.6
+    : classic
+      ? 9 + formatting.fontSize.base * 0.45
+      : 8 + formatting.fontSize.base * 0.75;
+
+  const headingFont = baseFont + formatting.fontSize.headers * 0.7 + (modern ? 1.2 : 0);
+  const nameFont = headingFont + (classic ? 5 : modern ? 6 : 4);
+  const lineHeight = formatting.compactMode ? baseFont * 0.45 : baseFont * (0.48 + formatting.spacing.line * 0.025);
+  const itemGap = formatting.compactMode ? 1.5 : 2 + formatting.spacing.item * 0.35;
+  const sectionGap = formatting.compactMode ? 3 : 3.5 + formatting.spacing.section * 0.55;
+  const accent = modern ? [37, 99, 235] : [17, 24, 39];
+
+  const bodyFont = formatting.fonts.body === 'serif' ? 'times' : formatting.fonts.body === 'mono' ? 'courier' : 'helvetica';
+  const headerFont = formatting.fonts.header === 'serif' ? 'times' : formatting.fonts.header === 'mono' ? 'courier' : 'helvetica';
+
+  let y = margin.top;
+
+  const mainLeft = margin.left;
+  const mainRight = pageWidth - margin.right;
+  const contentWidth = mainRight - mainLeft;
+
+  const sideWidth = two ? Math.min(52, contentWidth * 0.31) : 0;
+  const gap = two ? 7 : 0;
+  const bodyLeft = two ? mainLeft + sideWidth + gap : mainLeft;
+  const bodyWidth = two ? contentWidth - sideWidth - gap : contentWidth;
+
+  const ensureSpace = (needed = 8) => {
+    if (y + needed > pageHeight - margin.bottom) {
+      doc.addPage();
+      y = margin.top;
+    }
+  };
+
+  const setText = (font = bodyFont, style: 'normal' | 'bold' | 'italic' = 'normal', size = baseFont, color: number[] = [17, 24, 39]) => {
+    doc.setFont(font, style);
+    doc.setFontSize(size);
+    doc.setTextColor(color[0], color[1], color[2]);
+  };
+
+  const drawWrapped = (
+    value: string,
+    x: number,
+    width: number,
+    options?: { bullet?: boolean; bold?: boolean; italic?: boolean; size?: number; color?: number[] },
+  ) => {
+    const cleanValue = String(value || '').trim();
+    if (!cleanValue) return;
+
+    setText(bodyFont, options?.bold ? 'bold' : options?.italic ? 'italic' : 'normal', options?.size ?? baseFont, options?.color);
+    const prefix = options?.bullet ? '• ' : '';
+    const lines = doc.splitTextToSize(`${prefix}${cleanValue}`, width);
+
     lines.forEach((line: string) => {
-      if (y > pageHeight - formatting.margins.bottom) { doc.addPage(); y = formatting.margins.top; }
-      doc.text(line, formatting.margins.left, y);
+      ensureSpace(lineHeight + 2);
+      doc.text(line, x, y);
       y += lineHeight;
     });
-    y += isHeading ? formatting.spacing.section * 0.8 : formatting.spacing.item * 0.6;
+  };
+
+  const heading = (title: string, x = bodyLeft, width = bodyWidth) => {
+    ensureSpace(headingFont + 5);
+    y += sectionGap * 0.35;
+
+    setText(headerFont, 'bold', headingFont, accent);
+    doc.text(title.toUpperCase(), x, y);
+
+    const lineY = y + 1.5;
+    doc.setDrawColor(modern ? 147 : 17, modern ? 197 : 24, modern ? 253 : 39);
+    doc.setLineWidth(classic || clean ? 0.45 : modern ? 0.7 : 0.25);
+    doc.line(x, lineY, x + width, lineY);
+
+    y += headingFont * 0.45 + 3;
+  };
+
+  const roleHeader = (left: string, right: string, x = bodyLeft, width = bodyWidth) => {
+    ensureSpace(lineHeight + 3);
+    setText(bodyFont, 'bold', baseFont);
+
+    const rightWidth = right ? doc.getTextWidth(right) : 0;
+    doc.text(left || '', x, y);
+
+    if (right) {
+      doc.text(right, x + width - rightWidth, y);
+    }
+
+    y += lineHeight;
+  };
+
+  const subLine = (left: string, right = '', x = bodyLeft, width = bodyWidth) => {
+    ensureSpace(lineHeight + 2);
+    setText(bodyFont, classic ? 'italic' : 'normal', baseFont, [55, 65, 81]);
+
+    const rightWidth = right ? doc.getTextWidth(right) : 0;
+    doc.text(left || '', x, y);
+
+    if (right) {
+      doc.text(right, x + width - rightWidth, y);
+    }
+
+    y += lineHeight;
+  };
+
+  // Header
+  if (state.sectionVisibility.personal) {
+    const fullName = state.personal.fullName || 'Your Name';
+    const contact = joinContact(state.personal);
+
+    if (classic || clean) {
+      setText(headerFont, 'bold', nameFont);
+      doc.text(fullName, pageWidth / 2, y, { align: 'center' });
+      y += nameFont * 0.45 + 2;
+
+      if (state.personal.jobTitle && !classic) {
+        setText(bodyFont, 'bold', baseFont, [55, 65, 81]);
+        doc.text(state.personal.jobTitle, pageWidth / 2, y, { align: 'center' });
+        y += lineHeight;
+      }
+
+      if (contact) {
+        setText(bodyFont, 'normal', baseFont - 0.5, [55, 65, 81]);
+        doc.text(contact, pageWidth / 2, y, { align: 'center' });
+        y += lineHeight + sectionGap;
+      }
+    } else {
+      setText(headerFont, 'bold', nameFont, accent);
+      doc.text(fullName.toUpperCase(), mainLeft, y);
+      y += nameFont * 0.45 + 2;
+
+      if (state.personal.jobTitle) {
+        setText(bodyFont, modern ? 'bold' : 'normal', baseFont, modern ? [30, 64, 175] : [55, 65, 81]);
+        doc.text(state.personal.jobTitle, mainLeft, y);
+        y += lineHeight;
+      }
+
+      if (contact) {
+        setText(bodyFont, 'normal', baseFont - 0.5, [75, 85, 99]);
+        doc.text(contact, mainLeft, y);
+        y += lineHeight + sectionGap;
+      }
+
+      if (modern) {
+        doc.setDrawColor(37, 99, 235);
+        doc.setLineWidth(1);
+        doc.line(mainLeft, y - sectionGap * 0.6, mainRight, y - sectionGap * 0.6);
+      }
+    }
+  }
+
+  // Optional side column for two-column template.
+  if (two && state.sectionVisibility.skillsAwards) {
+    const savedY = y;
+    let sideY = y;
+
+    const sideText = (value: string, opts?: { bold?: boolean; size?: number }) => {
+      const prevY = y;
+      y = sideY;
+      drawWrapped(value, mainLeft, sideWidth, { ...opts, size: opts?.size ?? baseFont - 0.6 });
+      sideY = y;
+      y = prevY;
+    };
+
+    const sideHeading = (title: string) => {
+      const prevY = y;
+      y = sideY;
+      heading(title, mainLeft, sideWidth);
+      sideY = y;
+      y = prevY;
+    };
+
+    const skills = formatCompactSkillsSection(state.skillsAwards, jobTitle);
+    if (skills.length) {
+      sideHeading('Skills');
+      skills.forEach(line => sideText(line, { size: baseFont - 0.8 }));
+    }
+
+    doc.setDrawColor(229, 231, 235);
+    doc.setLineWidth(0.2);
+    doc.line(mainLeft + sideWidth + gap / 2, savedY - 1, mainLeft + sideWidth + gap / 2, pageHeight - margin.bottom);
+
+    y = savedY;
+  }
+
+  // Main content
+  if (state.sectionVisibility.summary && state.summary.trim()) {
+    heading(classic ? 'Profile' : 'Professional Summary');
+    drawWrapped(state.summary.trim(), bodyLeft, bodyWidth);
+    y += sectionGap * 0.35;
+  }
+
+  if (classic && state.sectionVisibility.education && state.education.length) {
+    heading('Education');
+    state.education.forEach(edu => {
+      roleHeader(edu.institution, edu.years);
+      if (edu.degree) subLine(edu.degree);
+      if (edu.description) drawWrapped(edu.description, bodyLeft, bodyWidth, { color: [55, 65, 81] });
+      y += itemGap;
+    });
+  }
+
+  if (state.sectionVisibility.experience && state.experience.length) {
+    heading(classic ? 'Work Experience' : 'Experience');
+
+    state.experience.forEach(exp => {
+      if (classic) {
+        roleHeader(exp.company || exp.jobTitle, exp.location);
+        subLine(exp.company ? exp.jobTitle : '', exp.years);
+      } else {
+        roleHeader(exp.jobTitle, exp.years);
+        if (exp.company || exp.location) {
+          subLine([exp.company, exp.location].filter(Boolean).join(' · '));
+        }
+      }
+
+      exp.bullets.filter(Boolean).forEach(b => drawWrapped(b, bodyLeft + 2.5, bodyWidth - 2.5, { bullet: true }));
+      y += itemGap;
+    });
+  }
+
+  if (!classic && state.sectionVisibility.education && state.education.length) {
+    heading('Education');
+    state.education.forEach(edu => {
+      roleHeader(edu.institution, edu.years);
+      if (edu.degree) subLine(edu.degree);
+      if (edu.description) drawWrapped(edu.description, bodyLeft, bodyWidth, { color: [55, 65, 81] });
+      y += itemGap;
+    });
+  }
+
+  if (!two && state.sectionVisibility.skillsAwards) {
+    const skills = formatCompactSkillsSection(state.skillsAwards, jobTitle);
+    if (skills.length) {
+      heading('Technical Skills & Competencies');
+      skills.forEach(line => drawWrapped(line, bodyLeft + 2.5, bodyWidth - 2.5, { bullet: true }));
+      y += sectionGap * 0.35;
+    }
+  }
+
+  if (state.sectionVisibility.projects && state.projects.length) {
+    heading(classic ? 'Project Experience' : 'Projects');
+
+    state.projects.forEach(project => {
+      roleHeader(project.name, project.years);
+      if (project.role || project.link) {
+        subLine([project.role, project.link].filter(Boolean).join(' · '));
+      }
+      project.bullets.filter(Boolean).forEach(b => drawWrapped(b, bodyLeft + 2.5, bodyWidth - 2.5, { bullet: true }));
+      y += itemGap;
+    });
+  }
+
+  state.customSections.filter(s => s.visible).forEach(section => {
+    const content = section.type === 'text'
+      ? [section.content]
+      : section.items.filter(Boolean);
+
+    if (!content.some(Boolean)) return;
+
+    heading(section.title);
+    content.filter(Boolean).forEach(item => drawWrapped(item, bodyLeft + (section.type === 'text' ? 0 : 2.5), bodyWidth - 2.5, { bullet: section.type !== 'text' }));
+    y += sectionGap * 0.35;
   });
+
   doc.save(fileName);
 };
 
@@ -1032,7 +1264,7 @@ export const ResumeBuilderPage: React.FC = () => {
       </div>
 
       {/* Main grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_680px] gap-6 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_560px] gap-6 items-start">
 
         {/* EDITOR PANEL */}
         <div className={`space-y-4 xl:max-h-[calc(100vh-180px)] xl:overflow-y-auto xl:pr-2 xl:pb-8 ${activeTab === 'preview' ? 'hidden xl:block' : ''}`}>
@@ -1089,7 +1321,7 @@ export const ResumeBuilderPage: React.FC = () => {
                 <span className="text-sm font-semibold text-slate-700">Live Preview</span>
                 <span className="text-xs text-slate-400">{formatting.pageSize === 'a4' ? 'A4' : 'US Letter'}</span>
               </div>
-              <div className="p-4 bg-slate-100 xl:max-h-[calc(100vh-210px)] overflow-y-auto flex justify-center items-start">
+              <div className="p-5 bg-slate-50 xl:max-h-[calc(100vh-240px)] overflow-y-auto flex justify-center">
                 <ResumePreview resume={resume} formatting={formatting} jobTitle={jobTitle} />
               </div>
             </div>
@@ -1483,14 +1715,12 @@ const ResumePreview: React.FC<{
     <div style={{
       background: 'white',
       padding: `${formatting.margins.top * 3}px ${formatting.margins.right * 3}px ${formatting.margins.bottom * 3}px ${formatting.margins.left * 3}px`,
-      width: formatting.pageSize === 'a4' ? 620 : 640,
-      maxWidth: '100%',
-      minHeight: formatting.pageSize === 'a4' ? 877 : 828,
+      width: formatting.pageSize === 'a4' ? 420 : 440,
+      minHeight: formatting.pageSize === 'a4' ? 594 : 570,
       fontFamily,
-      boxShadow: '0 8px 24px rgba(15,23,42,0.12)',
+      boxShadow: '0 1px 3px rgba(15,23,42,0.12)',
       border: '1px solid #e5e7eb',
       color: '#111827',
-      boxSizing: 'border-box',
     }}>
       {resume.sectionVisibility.personal && <header style={{ textAlign: classic ? 'center' : 'left', borderBottom: classic ? 'none' : '1px solid #e5e7eb', paddingBottom: 8, marginBottom: sectionGap }}>
         <h1 style={{ fontSize: classic ? headerPx + 7 : headerPx + 3, fontWeight: 700, color: '#111827', textTransform: classic ? 'none' : 'uppercase', letterSpacing: classic ? 0 : '0.03em', margin: 0, fontFamily: headerFontFamily }}>{resume.personal.fullName || 'Your Name'}</h1>
@@ -1498,7 +1728,7 @@ const ResumePreview: React.FC<{
         {joinContact(resume.personal) && <p style={{ fontSize: basePx - 1, color: classic ? '#111827' : '#6b7280', marginTop: 3 }}>{joinContact(resume.personal)}</p>}
       </header>}
       {two ? (
-        <div style={{ display: 'grid', gridTemplateColumns: '30% 1fr', gap: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '32% 1fr', gap: 16 }}>
           <aside style={{ borderRight: '1px solid #e5e7eb', paddingRight: 12 }}>{resume.sectionVisibility.skillsAwards && skills}</aside>
           <main>{main}</main>
         </div>

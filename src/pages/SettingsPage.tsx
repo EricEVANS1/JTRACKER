@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   Bell,
@@ -6,7 +7,7 @@ import {
   Briefcase,
   CheckCircle2,
   Download,
-  Link2,
+  Inbox,
   Loader2,
   LogOut,
   Mail,
@@ -28,6 +29,9 @@ interface Profile {
   full_name: string | null;
   email: string | null;
   avatar_url: string | null;
+  linkedin_url: string | null;
+  github_url: string | null;
+  portfolio_url: string | null;
 }
 
 interface UserSettings {
@@ -45,7 +49,15 @@ interface UserSettings {
   gmail_recruitment_only: boolean;
 }
 
-type TabId = 'profile' | 'jobSearch' | 'ai' | 'gmail' | 'notifications' | 'privacy' | 'account';
+type TabId =
+  | 'profile'
+  | 'jobSearch'
+  | 'ai'
+  | 'emailSync'
+  | 'emailEvents'
+  | 'notifications'
+  | 'privacy'
+  | 'account';
 
 const AVATAR_BUCKET = 'avatars';
 
@@ -68,16 +80,26 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'profile', label: 'Profile' },
   { id: 'jobSearch', label: 'Job Search' },
   { id: 'ai', label: 'AI Assistant' },
-  { id: 'gmail', label: 'Gmail Sync' },
+  { id: 'emailSync', label: 'Email Sync' },
+  { id: 'emailEvents', label: 'Email Events' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'privacy', label: 'Privacy' },
   { id: 'account', label: 'Account' },
 ];
 
+const isValidTab = (value: string | null): value is TabId =>
+  Boolean(value && TABS.some((tab) => tab.id === value));
+
 const inputCls =
   'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed transition';
 
-const Toggle = ({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) => (
+const Toggle = ({
+  enabled,
+  onChange,
+}: {
+  enabled: boolean;
+  onChange: (v: boolean) => void;
+}) => (
   <button
     type="button"
     onClick={() => onChange(!enabled)}
@@ -96,13 +118,19 @@ const Toggle = ({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean
 export const SettingsPage: React.FC = () => {
   const { user, signOut } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState<TabId>('profile');
+  const tabFromUrl = searchParams.get('tab');
+  const activeTab: TabId = isValidTab(tabFromUrl) ? tabFromUrl : 'profile';
+
   const [profile, setProfile] = useState<Profile | null>(null);
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
 
   const [fullName, setFullName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [linkedinUrl, setLinkedinUrl] = useState('');
+  const [githubUrl, setGithubUrl] = useState('');
+  const [portfolioUrl, setPortfolioUrl] = useState('');
 
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -113,8 +141,15 @@ export const SettingsPage: React.FC = () => {
 
   const email = profile?.email || user?.email || '';
 
+  const setActiveTab = (tab: TabId) => {
+    setSearchParams({ tab });
+    setMessage('');
+    setError('');
+  };
+
   const avatarInitials = useMemo(() => {
     const name = fullName.trim() || email;
+
     return name
       .split(' ')
       .map((word) => word[0])
@@ -131,7 +166,9 @@ export const SettingsPage: React.FC = () => {
 
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .select('id, full_name, email, avatar_url')
+      .select(
+        'id, full_name, email, avatar_url, linkedin_url, github_url, portfolio_url',
+      )
       .eq('id', user.id)
       .single();
 
@@ -141,6 +178,9 @@ export const SettingsPage: React.FC = () => {
       setProfile(profileData);
       setFullName(profileData.full_name || '');
       setAvatarUrl(profileData.avatar_url || '');
+      setLinkedinUrl(profileData.linkedin_url || '');
+      setGithubUrl(profileData.github_url || '');
+      setPortfolioUrl(profileData.portfolio_url || '');
     }
 
     const { data: settingsData, error: settingsError } = await supabase
@@ -161,6 +201,7 @@ export const SettingsPage: React.FC = () => {
         user_id: user.id,
         ...DEFAULT_SETTINGS,
       });
+
       setSettings(DEFAULT_SETTINGS);
     }
 
@@ -169,9 +210,13 @@ export const SettingsPage: React.FC = () => {
 
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  const updateSetting = <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => {
+  const updateSetting = <K extends keyof UserSettings>(
+    key: K,
+    value: UserSettings[K],
+  ) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -182,13 +227,11 @@ export const SettingsPage: React.FC = () => {
     setError('');
     setMessage('');
 
-    const { error } = await supabase
-      .from('user_settings')
-      .upsert({
-        user_id: user.id,
-        ...settings,
-        updated_at: new Date().toISOString(),
-      });
+    const { error } = await supabase.from('user_settings').upsert({
+      user_id: user.id,
+      ...settings,
+      updated_at: new Date().toISOString(),
+    });
 
     if (error) {
       setError(error.message);
@@ -210,7 +253,9 @@ export const SettingsPage: React.FC = () => {
       .from('profiles')
       .update({
         full_name: fullName.trim() || null,
-        avatar_url: avatarUrl.trim() || null,
+        linkedin_url: linkedinUrl.trim() || null,
+        github_url: githubUrl.trim() || null,
+        portfolio_url: portfolioUrl.trim() || null,
       })
       .eq('id', user.id);
 
@@ -288,8 +333,29 @@ export const SettingsPage: React.FC = () => {
 
     const { data, error } = await supabase
       .from('applications')
-      .select('role_title,status,date_applied,created_at')
-      .eq('user_id', user.id);
+      .select(`
+        role_title,
+        status,
+        date_applied,
+        last_status_changed_at,
+        application_link,
+        cv_version_id,
+        interview_possible,
+        interview_started_at,
+        final_interview_started_at,
+        companies (
+          name
+        ),
+        cv_versions (
+          name
+        ),
+        interview_notes (
+          interview_stage,
+          interview_date
+        )
+      `)
+      .eq('user_id', user.id)
+      .order('date_applied', { ascending: false });
 
     if (error) {
       setError(error.message);
@@ -297,72 +363,119 @@ export const SettingsPage: React.FC = () => {
     }
 
     const rows = data || [];
+
     const csv = [
-      ['Role', 'Status', 'Date Applied', 'Created At'].join(','),
-      ...rows.map((row) =>
-        [row.role_title, row.status, row.date_applied, row.created_at]
+      [
+        'Company',
+        'Role',
+        'Status',
+        'Date Applied',
+        'Status Updated At',
+        'Interview Possible',
+        'Interview Date',
+        'Interview Stage',
+        'CV Version Used',
+        'Application Link',
+      ].join(','),
+
+      ...rows.map((row: any) => {
+        const latestInterview = row.interview_notes?.[0];
+
+        const interviewPossible =
+          Boolean(row.interview_possible) ||
+          ['interview', 'final_interview', 'offer'].includes(row.status) ||
+          Boolean(row.interview_started_at) ||
+          Boolean(row.final_interview_started_at) ||
+          Boolean(latestInterview?.interview_date);
+
+        return [
+          row.companies?.name,
+          row.role_title,
+          row.status,
+          row.date_applied,
+          row.last_status_changed_at,
+          interviewPossible ? 'Yes' : 'No',
+          latestInterview?.interview_date ||
+            row.interview_started_at ||
+            row.final_interview_started_at,
+          latestInterview?.interview_stage,
+          row.cv_versions?.name,
+          row.application_link,
+        ]
           .map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`)
-          .join(',')
-      ),
+          .join(',');
+      }),
     ].join('\n');
 
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
 
     anchor.href = url;
-    anchor.download = 'jtracker-applications.csv';
+    anchor.download = 'jtracker-applications-detailed.csv';
     anchor.click();
 
     URL.revokeObjectURL(url);
   };
 
   if (loading) {
-    return <div className="bg-white border border-slate-200 rounded-2xl p-8">Loading settings...</div>;
+    return (
+      <div className="bg-white border border-slate-200 rounded-2xl p-8">
+        Loading settings...
+      </div>
+    );
   }
 
   return (
-    <div className="w-full max-w-5xl">
+    <div className="w-full max-w-6xl">
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-1">
           <Settings size={24} />
           <h2 className="text-2xl font-bold">Settings</h2>
         </div>
+
         <p className="text-sm text-slate-500">
-          Control how JTracker uses your profile, Gmail, AI, and job-search data.
+          Control how JTracker uses your profile, email sync, notifications, AI,
+          and job-search data.
         </p>
       </div>
 
-      <div className="overflow-x-auto mb-6">
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-max">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => {
-                setActiveTab(tab.id);
-                setMessage('');
-                setError('');
-              }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+      <div className="sticky top-0 z-20 bg-slate-50/95 backdrop-blur pb-4 mb-2">
+        <div className="overflow-x-auto">
+          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-max">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {message && <Feedback type="success" message={message} onClose={() => setMessage('')} />}
+      {message && (
+        <Feedback type="success" message={message} onClose={() => setMessage('')} />
+      )}
+
       {error && <Feedback type="error" message={error} onClose={() => setError('')} />}
 
       {activeTab === 'profile' && (
         <Card title="Profile" icon={<UserCircle size={16} />}>
           <div className="flex flex-col sm:flex-row gap-5 mb-6">
             {avatarUrl ? (
-              <img src={avatarUrl} className="w-20 h-20 rounded-full object-cover border" />
+              <img
+                src={avatarUrl}
+                className="w-20 h-20 rounded-full object-cover border"
+                alt="Profile avatar"
+              />
             ) : (
               <div className="w-20 h-20 rounded-full bg-slate-900 text-white flex items-center justify-center text-xl font-bold">
                 {avatarInitials}
@@ -379,27 +492,75 @@ export const SettingsPage: React.FC = () => {
               />
 
               <button
+                type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploadingAvatar}
-                className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2"
+                className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2 disabled:opacity-50"
               >
-                {uploadingAvatar ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+                {uploadingAvatar ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <Upload size={15} />
+                )}
                 {uploadingAvatar ? 'Uploading...' : 'Upload Picture'}
               </button>
+
+              <p className="text-xs text-slate-500 mt-2">
+                Upload a profile picture. Manual avatar URL editing has been removed.
+              </p>
             </div>
           </div>
 
           <Field label="Full Name">
-            <input className={inputCls} value={fullName} onChange={(e) => setFullName(e.target.value)} />
-          </Field>
-
-          <Field label="Avatar URL">
-            <input className={inputCls} value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} />
+            <input
+              className={inputCls}
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Your full name"
+            />
           </Field>
 
           <Field label="Email">
             <input className={inputCls} value={email} disabled />
           </Field>
+
+          <div className="mt-6 border-t border-slate-100 pt-5">
+            <h4 className="text-sm font-semibold text-slate-900 mb-1">
+              Professional Links
+            </h4>
+
+            <p className="text-xs text-slate-500 mb-4">
+              These links can be reused later in CVs, recruiter messages, and
+              applications.
+            </p>
+
+            <Field label="LinkedIn URL">
+              <input
+                className={inputCls}
+                value={linkedinUrl}
+                onChange={(e) => setLinkedinUrl(e.target.value)}
+                placeholder="https://www.linkedin.com/in/your-profile"
+              />
+            </Field>
+
+            <Field label="GitHub URL">
+              <input
+                className={inputCls}
+                value={githubUrl}
+                onChange={(e) => setGithubUrl(e.target.value)}
+                placeholder="https://github.com/your-username"
+              />
+            </Field>
+
+            <Field label="Portfolio URL">
+              <input
+                className={inputCls}
+                value={portfolioUrl}
+                onChange={(e) => setPortfolioUrl(e.target.value)}
+                placeholder="https://your-portfolio.com"
+              />
+            </Field>
+          </div>
 
           <SaveBar saving={savingProfile} onSave={saveProfile} label="Save Profile" />
         </Card>
@@ -493,7 +654,9 @@ export const SettingsPage: React.FC = () => {
               min={50}
               max={95}
               value={settings.ai_confidence_threshold}
-              onChange={(e) => updateSetting('ai_confidence_threshold', Number(e.target.value))}
+              onChange={(e) =>
+                updateSetting('ai_confidence_threshold', Number(e.target.value))
+              }
               className="w-full"
             />
           </Field>
@@ -502,12 +665,16 @@ export const SettingsPage: React.FC = () => {
         </Card>
       )}
 
-      {activeTab === 'gmail' && (
-        <Card title="Gmail Sync" icon={<Mail size={16} />}>
+      {activeTab === 'emailSync' && (
+        <Card title="Email Sync" icon={<Mail size={16} />}>
+          <p className="text-sm text-slate-500 mb-4">
+            Manage how JTracker processes recruitment emails from your connected mailbox.
+          </p>
+
           <ToggleRow
-            label="Gmail sync enabled"
-            hint="Allow JTracker to process synced Gmail recruitment emails."
-            enabled={settings.gmail_sync_enabled && FEATURES.GMAIL_SYNC}
+            label="Email sync enabled"
+            hint="Allow JTracker to process synced Gmail or Outlook recruitment emails."
+            enabled={settings.gmail_sync_enabled && FEATURES.EMAIL_SYNC}
             onChange={(v) => updateSetting('gmail_sync_enabled', v)}
           />
 
@@ -525,26 +692,76 @@ export const SettingsPage: React.FC = () => {
               max={50}
               className={inputCls}
               value={settings.gmail_max_emails_per_sync}
-              onChange={(e) => updateSetting('gmail_max_emails_per_sync', Number(e.target.value))}
+              onChange={(e) =>
+                updateSetting('gmail_max_emails_per_sync', Number(e.target.value))
+              }
             />
           </Field>
 
-          <SaveBar saving={savingSettings} onSave={saveSettings} label="Save Gmail Settings" />
+          <SaveBar saving={savingSettings} onSave={saveSettings} label="Save Email Settings" />
+        </Card>
+      )}
+
+      {activeTab === 'emailEvents' && (
+        <Card title="Email Events" icon={<Inbox size={16} />}>
+          <p className="text-sm text-slate-500 mb-4">
+            Review and manage recruitment emails that JTracker has converted into
+            application events.
+          </p>
+
+          <ActionRow
+            title="Clear AI insights"
+            description="Remove saved AI analysis from email events while keeping the email event records."
+            label="Clear"
+            icon={<Trash2 size={14} />}
+            onClick={clearAIInsights}
+          />
+
+          <ActionRow
+            title="Delete email events"
+            description="Remove synced email event records from JTracker."
+            label="Delete"
+            danger
+            icon={<Trash2 size={14} />}
+            onClick={clearEmailEvents}
+          />
         </Card>
       )}
 
       {activeTab === 'notifications' && (
         <Card title="Notifications" icon={<Bell size={16} />}>
-          <p className="text-sm text-slate-500">
-            Notification storage can be connected next. For now, JTracker uses your application and email data to show in-app alerts.
+          <p className="text-sm text-slate-500 mb-4">
+            Manage your in-app alerts, unread notifications, and reminder behavior.
           </p>
+
+          <ToggleRow
+            label="Application reminders"
+            hint="Show reminders for follow-ups, interviews, and important application dates."
+            enabled={true}
+            onChange={() => {}}
+          />
+
+          <ToggleRow
+            label="Shared opportunity alerts"
+            hint="Show alerts when another JTracker user shares an opportunity with you."
+            enabled={true}
+            onChange={() => {}}
+          />
+
+          <ToggleRow
+            label="Email event alerts"
+            hint="Show alerts when recruitment emails are linked to applications."
+            enabled={true}
+            onChange={() => {}}
+          />
         </Card>
       )}
 
       {activeTab === 'privacy' && (
         <Card title="Privacy & Data" icon={<Shield size={16} />}>
           <p className="text-sm text-slate-500 mb-4">
-            AI analysis sends selected email snippets and metadata to your configured AI provider. Full email body analysis should stay optional.
+            AI analysis sends selected email snippets and metadata to your configured AI
+            provider. Full email body analysis should stay optional.
           </p>
 
           <ActionRow
@@ -577,7 +794,11 @@ export const SettingsPage: React.FC = () => {
       {activeTab === 'account' && (
         <Card title="Account" icon={<Shield size={16} />}>
           <Field label="User ID">
-            <input className={`${inputCls} font-mono text-xs`} value={user?.id || ''} readOnly />
+            <input
+              className={`${inputCls} font-mono text-xs`}
+              value={user?.id || ''}
+              readOnly
+            />
           </Field>
 
           <Field label="Email">
@@ -585,6 +806,7 @@ export const SettingsPage: React.FC = () => {
           </Field>
 
           <button
+            type="button"
             onClick={signOut}
             className="mt-4 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2"
           >
@@ -597,7 +819,13 @@ export const SettingsPage: React.FC = () => {
   );
 };
 
-const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+const Field = ({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) => (
   <label className="block mb-4">
     <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
       {label}
@@ -641,6 +869,7 @@ const ToggleRow = ({
       <p className="text-sm font-medium">{label}</p>
       <p className="text-xs text-slate-500 mt-0.5">{hint}</p>
     </div>
+
     <Toggle enabled={enabled} onChange={onChange} />
   </div>
 );
@@ -656,6 +885,7 @@ const SaveBar = ({
 }) => (
   <div className="flex justify-end pt-4 border-t border-slate-100">
     <button
+      type="button"
       onClick={onSave}
       disabled={saving}
       className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2 disabled:opacity-50"
@@ -683,8 +913,10 @@ const Feedback = ({
     }`}
   >
     {type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+
     <span className="text-sm flex-1">{message}</span>
-    <button onClick={onClose}>
+
+    <button type="button" onClick={onClose}>
       <X size={16} />
     </button>
   </div>
@@ -712,6 +944,7 @@ const ActionRow = ({
     </div>
 
     <button
+      type="button"
       onClick={onClick}
       className={`px-3 py-2 rounded-lg text-sm inline-flex items-center gap-2 border ${
         danger

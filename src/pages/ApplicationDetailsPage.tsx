@@ -255,6 +255,10 @@ export const ApplicationDetailsPage: React.FC = () => {
   const [editNotes, setEditNotes] = useState('');
   const [editRecruiterId, setEditRecruiterId] = useState('');
   const [editFollowUpDate, setEditFollowUpDate] = useState('');
+  const [editJobDescription, setEditJobDescription] = useState('');
+  const [editInterviewPossible, setEditInterviewPossible] = useState(false);
+  const [editRejectionReason, setEditRejectionReason] = useState('');
+  const [editRejectionCategory, setEditRejectionCategory] = useState('');
 
   const [interviewStage, setInterviewStage] = useState('');
   const [interviewDate, setInterviewDate] = useState('');
@@ -377,6 +381,11 @@ export const ApplicationDetailsPage: React.FC = () => {
         : ''
     );
 
+    setEditJobDescription(normalizedApplication.job_description || '');
+    setEditInterviewPossible(Boolean(normalizedApplication.interview_possible));
+    setEditRejectionReason(normalizedApplication.rejection_reason || '');
+    setEditRejectionCategory(normalizedApplication.rejection_category || '');
+
     if (interviewResult.data) {
       const data = interviewResult.data as InterviewNote;
       setInterviewNote(data);
@@ -463,19 +472,25 @@ export const ApplicationDetailsPage: React.FC = () => {
 
     const { error: updateError } = await supabase
       .from('applications')
+
       .update({
-        role_title: editRoleTitle,
-        application_link: editApplicationLink || null,
-        source: editSource || null,
-        date_applied: editDateApplied || null,
-        email_used: editEmailUsed || user.email || null,
-        location: editLocation || null,
-        job_type: editJobType || null,
-        salary_range: editSalaryRange || null,
-        notes: editNotes || null,
-        recruiter_id: editRecruiterId || null,
-        follow_up_date: editFollowUpDate ? new Date(editFollowUpDate).toISOString() : null,
-      })
+  role_title: editRoleTitle,
+  application_link: editApplicationLink || null,
+  source: editSource || null,
+  date_applied: editDateApplied || null,
+  email_used: editEmailUsed || user.email || null,
+  location: editLocation || null,
+  job_type: editJobType || null,
+  salary_range: editSalaryRange || null,
+  notes: editNotes || null,
+  recruiter_id: editRecruiterId || null,
+  follow_up_date: editFollowUpDate ? new Date(editFollowUpDate).toISOString() : null,
+
+  job_description: editJobDescription || null,
+  interview_possible: editInterviewPossible,
+  rejection_reason: editRejectionReason || null,
+  rejection_category: editRejectionCategory || null,
+})
       .eq('id', id)
       .eq('user_id', user.id);
 
@@ -971,8 +986,148 @@ Best regards,`;
               {savingDetails ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
+
+          <div className="mt-4">
+  <Field label="Job Description">
+    <textarea
+      value={editJobDescription}
+      onChange={(e) => setEditJobDescription(e.target.value)}
+      placeholder="Paste the full job description here..."
+      className={`${inputCls} min-h-48`}
+    />
+  </Field>
+</div>
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+  <Field label="Interview Possible">
+    <select
+      value={editInterviewPossible ? 'yes' : 'no'}
+      onChange={(e) => setEditInterviewPossible(e.target.value === 'yes')}
+      className={inputCls}
+    >
+      <option value="no">No</option>
+      <option value="yes">Yes</option>
+    </select>
+  </Field>
+
+  <Field label="Rejection Category">
+    <select
+      value={editRejectionCategory}
+      onChange={(e) => setEditRejectionCategory(e.target.value)}
+      className={inputCls}
+    >
+      <option value="">Select category</option>
+      <option value="generic_rejection">Generic rejection</option>
+      <option value="experience_mismatch">Experience mismatch</option>
+      <option value="language_requirement">Language requirement</option>
+      <option value="work_authorization">Work authorization</option>
+      <option value="salary_mismatch">Salary mismatch</option>
+      <option value="location_mismatch">Location mismatch</option>
+      <option value="role_closed">Role closed</option>
+      <option value="failed_assessment">Failed assessment</option>
+      <option value="after_interview">After interview</option>
+      <option value="no_response">No response</option>
+    </select>
+  </Field>
+</div>
+
+<div className="mt-4">
+  <Field label="Rejection Reason">
+    <textarea
+      value={editRejectionReason}
+      onChange={(e) => setEditRejectionReason(e.target.value)}
+      placeholder="Add any reason from the rejection email or your own notes..."
+      className={`${inputCls} min-h-24`}
+    />
+  </Field>
+</div>
+
+
+
+
         </Section>
       )}
+
+      <Section
+  title="Application Intelligence"
+  description="Track the CV, match score, fit label, and job description connected to this application."
+>
+  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+    <InfoCard
+      icon={<FileText size={16} />}
+      label="Match Score"
+      value={
+        application.match_score != null
+          ? `${application.match_score}/100`
+          : 'Not analyzed'
+      }
+    />
+
+    <InfoCard
+      icon={<CheckCircle2 size={16} />}
+      label="Fit Label"
+      value={application.fit_label || 'Not set'}
+    />
+
+    <InfoCard
+      icon={<Clipboard size={16} />}
+      label="Role Category"
+      value={application.role_category || 'Not classified'}
+    />
+
+    <InfoCard
+      icon={<CalendarDays size={16} />}
+      label="Interview Possible"
+      value={application.interview_possible ? 'Yes' : 'No'}
+    />
+  </div>
+
+  <div className="border border-slate-200 rounded-xl p-4 bg-slate-50 mb-4">
+    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+      Job Description
+    </p>
+
+    {application.job_description ? (
+      <p className="text-sm text-slate-700 whitespace-pre-wrap max-h-64 overflow-y-auto">
+        {application.job_description}
+      </p>
+    ) : (
+      <p className="text-sm text-slate-500">
+        No job description saved yet. Add it in Edit Details so this application can be analyzed properly.
+      </p>
+    )}
+  </div>
+
+  <div className="flex flex-col sm:flex-row gap-3">
+    {application.analysis_id ? (
+      <Link
+        to={`/resume-builder/${application.analysis_id}`}
+        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm"
+      >
+        <FileText size={15} />
+        Open Resume Builder
+      </Link>
+    ) : (
+      <button
+        type="button"
+        disabled
+        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-slate-200 text-slate-500 px-4 py-2 rounded-lg text-sm cursor-not-allowed"
+      >
+        <FileText size={15} />
+        Resume Builder unavailable
+      </button>
+    )}
+
+    <button
+      type="button"
+      disabled
+      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 border border-slate-300 text-slate-400 px-4 py-2 rounded-lg text-sm cursor-not-allowed"
+    >
+      <RefreshCw size={15} />
+      Analyze this application
+    </button>
+  </div>
+</Section>
 
       <Section title="Interview Preparation" description="Store preparation notes, interview stage, and questions for this application.">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">

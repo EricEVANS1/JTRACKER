@@ -10,11 +10,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.12.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@react-oauth/google": "^0.13.5",
-    "@supabase/supabase-js": "^2.105.4",
+    "@supabase/ssr": "^0.10.3",
+    "@supabase/supabase-js": "^2.106.2",
     "docx": "^9.6.1",
     "file-saver": "^2.0.5",
     "jspdf": "^4.2.1",

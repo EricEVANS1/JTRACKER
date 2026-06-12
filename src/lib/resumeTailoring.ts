@@ -7,6 +7,13 @@
 // It does not touch layout, personal information, education, projects, save, or export.
 // It does not add missing_keywords automatically.
 
+
+import type {
+  ExperienceItem,
+  ResumeBuilderState,
+  SkillsAwards,
+} from '../types/resumeBuilder';
+
 export type TailoringChangeType =
   | 'bullet_optimized'
   | 'bullet_fragments_merged'
@@ -24,32 +31,6 @@ export type TailoringChange = {
   reason: string;
 };
 
-type ExperienceItem = {
-  id: string;
-  jobTitle: string;
-  company: string;
-  location: string;
-  years: string;
-  bullets: string[];
-};
-
-type SkillsAwards = {
-  technicalSkills: string;
-  languages: string;
-  trainingCertifications: string;
-  awards: string;
-};
-
-type ResumeBuilderState = {
-  personal: unknown;
-  summary: string;
-  experience: ExperienceItem[];
-  education: unknown[];
-  projects: unknown[];
-  skillsAwards: SkillsAwards;
-  customSections: unknown[];
-  sectionVisibility: unknown;
-};
 
 type AnalysisRecordLike = {
   matched_keywords?: string[] | null;
