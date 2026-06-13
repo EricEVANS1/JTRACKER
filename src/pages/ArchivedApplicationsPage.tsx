@@ -19,12 +19,45 @@ interface CompanyJoin {
   name: string;
 }
 
-interface RawArchivedApplication extends Omit<Application, 'companies'> {
-  companies?: CompanyJoin | CompanyJoin[] | null;
+interface CVVersionJoin {
+  id: string;
+  name: string;
 }
 
-interface ArchivedApplication extends Omit<RawArchivedApplication, 'companies'> {
+interface RecruiterJoin {
+  id: string;
+  name: string;
+  email: string | null;
+}
+
+interface RawArchivedApplication extends Omit<Application, 'companies' | 'cv_versions' | 'recruiters'> {
+  companies?: CompanyJoin | CompanyJoin[] | null;
+  cv_versions?: CVVersionJoin | CVVersionJoin[] | null;
+  recruiters?: RecruiterJoin | RecruiterJoin[] | null;
+
+  response_received_at?: string | null;
+  assessment_received_at?: string | null;
+  interview_started_at?: string | null;
+  final_interview_started_at?: string | null;
+  offer_received_at?: string | null;
+  rejected_at?: string | null;
+  withdrawn_at?: string | null;
+  ghosted_at?: string | null;
+  last_status_changed_at?: string | null;
+  status_updated_at?: string | null;
+
+  reached_interview?: boolean | null;
+  rejected_after_interview?: boolean | null;
+  final_response_pending?: boolean | null;
+  interview_count?: number | null;
+  outcome_reason?: string | null;
+}
+
+interface ArchivedApplication
+  extends Omit<RawArchivedApplication, 'companies' | 'cv_versions' | 'recruiters'> {
   companies: CompanyJoin | null;
+  cv_versions: CVVersionJoin | null;
+  recruiters: RecruiterJoin | null;
 }
 
 const firstOrNull = <T,>(value: T | T[] | null | undefined): T | null => {
@@ -36,7 +69,7 @@ const formatStatus = (status: string) =>
   status.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 
 const formatDateTime = (date?: string | null) => {
-  if (!date) return '-';
+  if (!date) return 'Not set';
 
   return new Date(date).toLocaleString('en-GB', {
     day: 'numeric',
@@ -63,6 +96,23 @@ const statusClass = (status: string) => {
   };
 
   return styles[status] || styles.archived;
+};
+
+const outcomeClass = (application: ArchivedApplication) => {
+  if (application.rejected_after_interview) return 'bg-red-50 text-red-700';
+  if (application.final_response_pending) return 'bg-indigo-50 text-indigo-700';
+  if (application.reached_interview) return 'bg-emerald-50 text-emerald-700';
+
+  return 'bg-slate-100 text-slate-600';
+};
+
+const getOutcomeLabel = (application: ArchivedApplication) => {
+  if (application.rejected_after_interview) return 'Declined after interview';
+  if (application.final_response_pending) return 'Awaiting interview response';
+  if (application.reached_interview) return 'Interview reached';
+  if (application.outcome_reason) return formatStatus(application.outcome_reason);
+
+  return 'No interview recorded';
 };
 
 const inputCls =
@@ -93,25 +143,36 @@ export const ArchivedApplicationsPage: React.FC = () => {
         *,
         companies (
           name
+        ),
+        cv_versions (
+          id,
+          name
+        ),
+        recruiters (
+          id,
+          name,
+          email
         )
       `)
       .eq('user_id', user.id)
-      .eq('archived', true)
-      .order('archived_at', { ascending: false });
+      .or('archived.eq.true,status.eq.archived')
+      .order('archived_at', { ascending: false, nullsFirst: false });
 
     if (error) {
       setError(error.message);
       return;
     }
 
-    const normalized: ArchivedApplication[] = ((data || []) as RawArchivedApplication[]).map(
+    const normalised: ArchivedApplication[] = ((data || []) as RawArchivedApplication[]).map(
       (application) => ({
         ...application,
         companies: firstOrNull(application.companies),
+        cv_versions: firstOrNull(application.cv_versions),
+        recruiters: firstOrNull(application.recruiters),
       })
     );
 
-    setApplications(normalized);
+    setApplications(normalised);
   };
 
   const loadPage = async () => {
@@ -132,16 +193,18 @@ export const ArchivedApplicationsPage: React.FC = () => {
   }, [user?.id]);
 
   const filteredApplications = useMemo(() => {
-    const term = search.toLowerCase();
+    const term = search.toLowerCase().trim();
 
     return applications.filter((application) => {
-      if (!term.trim()) return true;
+      if (!term) return true;
 
       return (
         application.role_title.toLowerCase().includes(term) ||
-        application.companies?.name.toLowerCase().includes(term) ||
+        Boolean(application.companies?.name?.toLowerCase().includes(term)) ||
         application.status.toLowerCase().includes(term) ||
-        application.source?.toLowerCase().includes(term)
+        Boolean(application.source?.toLowerCase().includes(term)) ||
+        Boolean(application.cv_versions?.name?.toLowerCase().includes(term)) ||
+        Boolean(application.outcome_reason?.toLowerCase().includes(term))
       );
     });
   }, [applications, search]);
@@ -152,21 +215,40 @@ export const ArchivedApplicationsPage: React.FC = () => {
       rejected: applications.filter((app) => app.status === 'rejected').length,
       withdrawn: applications.filter((app) => app.status === 'withdrawn').length,
       ghosted: applications.filter((app) => app.status === 'ghosted').length,
+      interviewReached: applications.filter(
+        (app) =>
+          app.reached_interview ||
+          app.interview_started_at ||
+          app.final_interview_started_at ||
+          app.rejected_after_interview
+      ).length,
+      rejectedAfterInterview: applications.filter((app) => app.rejected_after_interview).length,
     };
   }, [applications]);
 
   const handleRestoreApplication = async (application: ArchivedApplication) => {
     if (!user) return;
 
+    const confirmed = window.confirm(
+      'Restore this application to your active pipeline?'
+    );
+
+    if (!confirmed) return;
+
     setRestoringId(application.id);
     setError('');
     setMessage('');
+
+    const now = new Date().toISOString();
 
     const { error } = await supabase
       .from('applications')
       .update({
         archived: false,
         archived_at: null,
+        status: application.status === 'archived' ? 'applied' : application.status,
+        last_status_changed_at: now,
+        status_updated_at: now,
       })
       .eq('id', application.id)
       .eq('user_id', user.id);
@@ -182,32 +264,32 @@ export const ArchivedApplicationsPage: React.FC = () => {
       application_id: application.id,
       event_type: 'application_restored',
       title: 'Application restored',
-      description: 'Application was restored from archive.',
-      event_date: new Date().toISOString(),
+      description: 'Application was restored from the archive into the active pipeline.',
+      event_date: now,
     });
 
     setApplications((prev) => prev.filter((item) => item.id !== application.id));
-    setMessage('Application restored.');
+    setMessage('Application restored to active pipeline.');
     setRestoringId('');
   };
 
-  const handleDeleteApplication = async (applicationId: string) => {
+  const handleDeleteApplication = async (application: ArchivedApplication) => {
     const confirmed = window.confirm(
-      'Delete this archived application permanently? This cannot be undone.'
+      `Permanently delete "${application.role_title}"? This cannot be undone.`
     );
 
     if (!confirmed || !user) return;
 
-    setDeletingId(applicationId);
+    setDeletingId(application.id);
     setError('');
     setMessage('');
 
     const { error } = await supabase
       .from('applications')
       .delete()
-      .eq('id', applicationId)
+      .eq('id', application.id)
       .eq('user_id', user.id)
-      .eq('archived', true);
+      .or('archived.eq.true,status.eq.archived');
 
     if (error) {
       setError(error.message);
@@ -216,7 +298,7 @@ export const ArchivedApplicationsPage: React.FC = () => {
     }
 
     setApplications((prev) =>
-      prev.filter((application) => application.id !== applicationId)
+      prev.filter((item) => item.id !== application.id)
     );
 
     setMessage('Archived application permanently deleted.');
@@ -239,16 +321,18 @@ export const ArchivedApplicationsPage: React.FC = () => {
           </div>
 
           <p className="text-slate-500 max-w-2xl text-sm sm:text-base break-words">
-            Review archived applications, restore them to your active pipeline, or
-            permanently delete old records.
+            Review closed applications, restore useful records, or permanently delete old entries.
+            Archived records remain useful for interview history, CV performance, and rejection analysis.
           </p>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full xl:w-auto">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 w-full xl:w-auto">
           <StatCard label="Archived" value={stats.total} />
           <StatCard label="Rejected" value={stats.rejected} />
           <StatCard label="Withdrawn" value={stats.withdrawn} />
           <StatCard label="Ghosted" value={stats.ghosted} />
+          <StatCard label="Interviews" value={stats.interviewReached} />
+          <StatCard label="After Interview" value={stats.rejectedAfterInterview} />
         </div>
       </div>
 
@@ -266,7 +350,7 @@ export const ArchivedApplicationsPage: React.FC = () => {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search archived role, company, source, or status..."
+              placeholder="Search archived role, company, CV version, source, or status..."
               className={inputCls}
             />
           </div>
@@ -278,7 +362,7 @@ export const ArchivedApplicationsPage: React.FC = () => {
             className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
           >
             <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
-            Refresh
+            {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -288,8 +372,8 @@ export const ArchivedApplicationsPage: React.FC = () => {
           <Archive size={38} className="mx-auto text-slate-300 mb-3" />
           <h3 className="text-lg font-semibold">No archived applications found</h3>
           <p className="text-slate-500 text-sm sm:text-base mt-2 max-w-xl mx-auto">
-            Archived applications will appear here when you move them out of your
-            active pipeline.
+            Applications will appear here after you archive them from the active pipeline.
+            Rejected applications are not automatically archived unless you choose to move them here.
           </p>
         </div>
       ) : (
@@ -301,6 +385,8 @@ export const ArchivedApplicationsPage: React.FC = () => {
                   <th className="text-left px-4 py-3">Company</th>
                   <th className="text-left px-4 py-3">Role</th>
                   <th className="text-left px-4 py-3">Status</th>
+                  <th className="text-left px-4 py-3">Outcome</th>
+                  <th className="text-left px-4 py-3">CV</th>
                   <th className="text-left px-4 py-3">Archived</th>
                   <th className="text-left px-4 py-3">Actions</th>
                 </tr>
@@ -310,14 +396,19 @@ export const ArchivedApplicationsPage: React.FC = () => {
                 {filteredApplications.map((application) => (
                   <tr
                     key={application.id}
-                    className="border-b border-slate-100 last:border-b-0"
+                    className="border-b border-slate-100 last:border-b-0 align-top"
                   >
                     <td className="px-4 py-4 break-words">
                       {application.companies?.name || 'Unknown Company'}
                     </td>
 
                     <td className="px-4 py-4 font-medium break-words">
-                      {application.role_title}
+                      <div>{application.role_title}</div>
+                      {application.source && (
+                        <p className="text-xs text-slate-400 mt-1">
+                          Source: {formatStatus(application.source)}
+                        </p>
+                      )}
                     </td>
 
                     <td className="px-4 py-4">
@@ -328,6 +419,20 @@ export const ArchivedApplicationsPage: React.FC = () => {
                       >
                         {formatStatus(application.status)}
                       </span>
+                    </td>
+
+                    <td className="px-4 py-4">
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium ${outcomeClass(
+                          application
+                        )}`}
+                      >
+                        {getOutcomeLabel(application)}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-4 text-slate-500">
+                      {application.cv_versions?.name || 'No CV'}
                     </td>
 
                     <td className="px-4 py-4 text-slate-500">
@@ -364,6 +469,12 @@ export const ArchivedApplicationsPage: React.FC = () => {
                     <h3 className="font-semibold mt-1 break-words">
                       {application.role_title}
                     </h3>
+
+                    {application.cv_versions?.name && (
+                      <p className="text-xs text-slate-400 mt-1">
+                        CV: {application.cv_versions.name}
+                      </p>
+                    )}
                   </div>
 
                   <span
@@ -375,9 +486,28 @@ export const ArchivedApplicationsPage: React.FC = () => {
                   </span>
                 </div>
 
-                <p className="text-sm text-slate-500 mt-4 break-words">
-                  Archived: {formatDateTime(application.archived_at)}
-                </p>
+                <div className="flex flex-wrap gap-2 mt-4">
+                  <span
+                    className={`w-fit px-2.5 py-1 rounded-full text-xs font-medium ${outcomeClass(
+                      application
+                    )}`}
+                  >
+                    {getOutcomeLabel(application)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 text-sm">
+                  <CompactMeta label="Archived" value={formatDateTime(application.archived_at)} />
+                  <CompactMeta label="Source" value={application.source ? formatStatus(application.source) : 'Not set'} />
+                  <CompactMeta label="Interview Count" value={String(application.interview_count || 0)} />
+                  <CompactMeta label="Recruiter" value={application.recruiters?.name || 'None'} />
+                </div>
+
+                {application.notes && (
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 whitespace-pre-wrap">
+                    {application.notes}
+                  </div>
+                )}
 
                 <div className="mt-4">
                   <ApplicationActions
@@ -408,7 +538,7 @@ const ApplicationActions = ({
   deleting: boolean;
   restoring: boolean;
   onRestore: (application: ArchivedApplication) => void;
-  onDelete: (applicationId: string) => void;
+  onDelete: (application: ArchivedApplication) => void;
 }) => (
   <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3">
     <Link
@@ -440,7 +570,7 @@ const ApplicationActions = ({
     </button>
 
     <button
-      onClick={() => onDelete(application.id)}
+      onClick={() => onDelete(application)}
       disabled={deleting || restoring}
       className="inline-flex items-center justify-center gap-1 text-red-600 hover:text-red-800 text-sm disabled:opacity-50 w-full sm:w-auto"
     >
@@ -484,6 +614,13 @@ const StatCard = ({ label, value }: { label: string; value: number }) => (
   <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
     <p className="text-xs text-slate-400">{label}</p>
     <p className="text-xl font-bold text-slate-900">{value}</p>
+  </div>
+);
+
+const CompactMeta = ({ label, value }: { label: string; value: string }) => (
+  <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 min-w-0">
+    <p className="text-[11px] text-slate-400">{label}</p>
+    <p className="text-sm font-medium text-slate-700 break-words">{value}</p>
   </div>
 );
 

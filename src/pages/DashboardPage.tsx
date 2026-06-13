@@ -1,3 +1,14 @@
+// src/pages/DashboardPage.tsx
+//
+// Dashboard — JTracker pipeline intelligence view.
+//
+// Engineering notes:
+// - Keep "current status" separate from "historical journey".
+// - A rejected application can still have reached interview stage.
+// - Percentages should always use a clear denominator.
+// - Wishlist roles are excluded from submitted-application conversion metrics.
+// - This makes the dashboard useful for decision-making, not just counting statuses.
+
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
@@ -23,6 +34,23 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
 import type { Application } from '../types/application';
+
+type DashboardApplication = Application & {
+  reached_interview?: boolean | null;
+  rejected_after_interview?: boolean | null;
+  final_response_pending?: boolean | null;
+  interview_count?: number | null;
+  outcome_reason?: string | null;
+  interview_started_at?: string | null;
+  final_interview_started_at?: string | null;
+  response_received_at?: string | null;
+  assessment_received_at?: string | null;
+  offer_received_at?: string | null;
+  rejected_at?: string | null;
+  withdrawn_at?: string | null;
+  ghosted_at?: string | null;
+  archived?: boolean | null;
+};
 
 interface RecentEvent {
   id: string;
@@ -82,6 +110,19 @@ const chartColors = [
   '#1e293b',
 ];
 
+const closedStatuses = ['rejected', 'withdrawn', 'ghosted', 'archived'];
+
+const responseStatuses = [
+  'confirmation_received',
+  'assessment',
+  'interview',
+  'final_interview',
+  'offer',
+  'rejected',
+  'withdrawn',
+  'ghosted',
+];
+
 const formatStatus = (status: string) =>
   status.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 
@@ -100,6 +141,19 @@ const formatDuration = (ms?: number | null) => {
   return `${(ms / 1000).toFixed(1)}s`;
 };
 
+const safePercent = (value: number, total: number) => {
+  if (!total || total <= 0) return 0;
+  return Math.round((value / total) * 100);
+};
+
+const hasReachedInterview = (app: DashboardApplication) =>
+  Boolean(
+    app.reached_interview ||
+      app.interview_started_at ||
+      app.final_interview_started_at ||
+      ['interview', 'final_interview', 'offer'].includes(app.status)
+  );
+
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
 
@@ -112,7 +166,7 @@ export const DashboardPage: React.FC = () => {
     dismissOnboarding,
   } = useOnboarding();
 
-  const [applications, setApplications] = useState<Application[]>([]);
+  const [applications, setApplications] = useState<DashboardApplication[]>([]);
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
   const [emailEvents, setEmailEvents] = useState<EmailEvent[]>([]);
   const [ignoredEmails, setIgnoredEmails] = useState<IgnoredEmailEvent[]>([]);
@@ -201,29 +255,53 @@ export const DashboardPage: React.FC = () => {
       supabase.from('cv_versions').select('id').eq('user_id', user.id),
     ]);
 
-    if (applicationsResult.error) setError(applicationsResult.error.message);
-    else setApplications(applicationsResult.data || []);
+    if (applicationsResult.error) {
+      setError(applicationsResult.error.message);
+    } else {
+      setApplications((applicationsResult.data || []) as DashboardApplication[]);
+    }
 
-    if (eventsResult.error) setError(eventsResult.error.message);
-    else setRecentEvents((eventsResult.data || []) as unknown as RecentEvent[]);
+    if (eventsResult.error) {
+      setError(eventsResult.error.message);
+    } else {
+      setRecentEvents((eventsResult.data || []) as unknown as RecentEvent[]);
+    }
 
-    if (emailEventsResult.error) setError(emailEventsResult.error.message);
-    else setEmailEvents(emailEventsResult.data || []);
+    if (emailEventsResult.error) {
+      setError(emailEventsResult.error.message);
+    } else {
+      setEmailEvents(emailEventsResult.data || []);
+    }
 
-    if (ignoredEmailsResult.error) setError(ignoredEmailsResult.error.message);
-    else setIgnoredEmails(ignoredEmailsResult.data || []);
+    if (ignoredEmailsResult.error) {
+      setError(ignoredEmailsResult.error.message);
+    } else {
+      setIgnoredEmails(ignoredEmailsResult.data || []);
+    }
 
-    if (syncSessionsResult.error) setError(syncSessionsResult.error.message);
-    else setLatestSync((syncSessionsResult.data?.[0] || null) as GmailSyncSession | null);
+    if (syncSessionsResult.error) {
+      setError(syncSessionsResult.error.message);
+    } else {
+      setLatestSync((syncSessionsResult.data?.[0] || null) as GmailSyncSession | null);
+    }
 
-    if (recruitersResult.error) setError(recruitersResult.error.message);
-    else setRecruiters(recruitersResult.data || []);
+    if (recruitersResult.error) {
+      setError(recruitersResult.error.message);
+    } else {
+      setRecruiters(recruitersResult.data || []);
+    }
 
-    if (recruiterInteractionsResult.error) setError(recruiterInteractionsResult.error.message);
-    else setRecruiterInteractions(recruiterInteractionsResult.data || []);
+    if (recruiterInteractionsResult.error) {
+      setError(recruiterInteractionsResult.error.message);
+    } else {
+      setRecruiterInteractions(recruiterInteractionsResult.data || []);
+    }
 
-    if (cvVersionsResult.error) setError(cvVersionsResult.error.message);
-    else setCvVersions(cvVersionsResult.data || []);
+    if (cvVersionsResult.error) {
+      setError(cvVersionsResult.error.message);
+    } else {
+      setCvVersions(cvVersionsResult.data || []);
+    }
   };
 
   const loadDashboard = async () => {
@@ -245,37 +323,82 @@ export const DashboardPage: React.FC = () => {
 
   const stats = useMemo(() => {
     const total = applications.length;
-    const active = applications.filter((app) => !app.archived).length;
-    const archived = applications.filter((app) => app.archived).length;
 
-    const interviews = applications.filter((app) =>
+    // Product metric note:
+    // Wishlist roles are tracked, but they are not real submitted applications.
+    // They should not dilute response, interview, rejection, or offer rates.
+    const wishlist = applications.filter((app) => app.status === 'wishlist').length;
+
+    const submitted = applications.filter((app) => app.status !== 'wishlist').length;
+
+    const archived = applications.filter(
+      (app) => app.archived || app.status === 'archived'
+    ).length;
+
+    const active = applications.filter(
+      (app) =>
+        !app.archived &&
+        !closedStatuses.includes(app.status) &&
+        app.status !== 'wishlist'
+    ).length;
+
+    const pending = applications.filter((app) =>
+      ['applied', 'confirmation_received'].includes(app.status)
+    ).length;
+
+    const assessments = applications.filter((app) => app.status === 'assessment').length;
+
+    const currentInterviews = applications.filter((app) =>
       ['interview', 'final_interview'].includes(app.status)
     ).length;
 
+    // Historical interview metric:
+    // This counts every application that ever reached interview stage,
+    // even if the current status is now rejected.
+    const totalInterviewsReached = applications.filter((app) =>
+      hasReachedInterview(app)
+    ).length;
+
+    const awaitingFinalInterviewResponse = applications.filter((app) =>
+      Boolean(app.final_response_pending) ||
+      ['interview', 'final_interview'].includes(app.status)
+    ).length;
+
+    const rejectedAfterInterview = applications.filter((app) =>
+      Boolean(app.rejected_after_interview)
+    ).length;
+
     const offers = applications.filter((app) => app.status === 'offer').length;
+
     const rejections = applications.filter((app) => app.status === 'rejected').length;
 
-    const pending = applications.filter((app) =>
-      ['wishlist', 'applied'].includes(app.status)
+    const rejectedBeforeInterview = applications.filter(
+      (app) =>
+        app.status === 'rejected' &&
+        !app.rejected_after_interview &&
+        !hasReachedInterview(app)
     ).length;
 
-    const responses = applications.filter((app) =>
-      [
-        'confirmation_received',
-        'assessment',
-        'interview',
-        'final_interview',
-        'offer',
-        'rejected',
-        'withdrawn',
-        'ghosted',
-      ].includes(app.status)
+    const withdrawn = applications.filter((app) => app.status === 'withdrawn').length;
+    const ghosted = applications.filter((app) => app.status === 'ghosted').length;
+
+    const clearResponses = applications.filter((app) =>
+      responseStatuses.includes(app.status)
     ).length;
 
-    const responseRate = total > 0 ? Math.round((responses / total) * 100) : 0;
-    const interviewRate = total > 0 ? Math.round((interviews / total) * 100) : 0;
-    const offerRate = total > 0 ? Math.round((offers / total) * 100) : 0;
-    const rejectionRate = total > 0 ? Math.round((rejections / total) * 100) : 0;
+    const closedResponses = applications.filter((app) =>
+      ['rejected', 'withdrawn', 'ghosted', 'offer'].includes(app.status)
+    ).length;
+
+    const responseRate = safePercent(clearResponses, submitted);
+    const historicalInterviewRate = safePercent(totalInterviewsReached, submitted);
+    const currentInterviewRate = safePercent(currentInterviews, submitted);
+    const offerRate = safePercent(offers, submitted);
+    const rejectionRate = safePercent(rejections, submitted);
+    const postInterviewDeclineRate = safePercent(
+      rejectedAfterInterview,
+      totalInterviewsReached
+    );
 
     const statusCounts = applications.reduce<Record<string, number>>((acc, app) => {
       acc[app.status] = (acc[app.status] || 0) + 1;
@@ -289,20 +412,44 @@ export const DashboardPage: React.FC = () => {
       }))
       .sort((a, b) => b.value - a.value);
 
+    const rejectionBreakdownData = [
+      {
+        name: 'Before Interview',
+        value: rejectedBeforeInterview,
+      },
+      {
+        name: 'After Interview',
+        value: rejectedAfterInterview,
+      },
+    ].filter((item) => item.value > 0);
+
     return {
       total,
+      wishlist,
+      submitted,
       active,
       archived,
       pending,
-      interviews,
+      assessments,
+      currentInterviews,
+      totalInterviewsReached,
+      awaitingFinalInterviewResponse,
+      rejectedAfterInterview,
+      rejectedBeforeInterview,
       offers,
       rejections,
-      responses,
+      withdrawn,
+      ghosted,
+      closedResponses,
+      clearResponses,
       responseRate,
-      interviewRate,
+      historicalInterviewRate,
+      currentInterviewRate,
       offerRate,
       rejectionRate,
+      postInterviewDeclineRate,
       statusChartData,
+      rejectionBreakdownData,
     };
   }, [applications]);
 
@@ -315,9 +462,9 @@ export const DashboardPage: React.FC = () => {
     const review = latestSync?.review_count || 0;
     const rejected = latestSync?.rejected_count || 0;
 
-    const acceptanceRate = scanned > 0 ? Math.round((accepted / scanned) * 100) : 0;
-    const reviewRate = scanned > 0 ? Math.round((review / scanned) * 100) : 0;
-    const rejectionRate = scanned > 0 ? Math.round((rejected / scanned) * 100) : 0;
+    const acceptanceRate = safePercent(accepted, scanned);
+    const reviewRate = safePercent(review, scanned);
+    const rejectionRate = safePercent(rejected, scanned);
 
     return {
       totalEmails: gmailEmails.length,
@@ -341,19 +488,15 @@ export const DashboardPage: React.FC = () => {
       return 'Start by adding your first application. Once you add data, this dashboard will show real pipeline performance.';
     }
 
-    if (stats.offerRate > 0) {
-      return 'You have offers in the pipeline. Focus on follow-ups, negotiation, and keeping active opportunities organized.';
-    }
-
-    if (stats.interviewRate >= 20) {
-      return 'Your interview conversion looks healthy. Keep tracking recruiter interactions and prepare deeply for active interviews.';
+    if (stats.totalInterviewsReached > 0) {
+      return `${stats.total} applications tracked. ${stats.submitted} have been submitted, ${stats.clearResponses} received a clear response, and ${stats.totalInterviewsReached} reached interview stage. You currently have ${stats.awaitingFinalInterviewResponse} interview-stage application awaiting a final response, while ${stats.rejectedAfterInterview} previous interview-stage applications were declined.`;
     }
 
     if (stats.responseRate < 25) {
-      return 'Your response rate is low. Improve your CV targeting, track which CV versions perform best, and apply more selectively.';
+      return `${stats.total} applications tracked. Your response rate is currently ${stats.responseRate}%, so the main focus should be CV targeting, stronger keywords, and follow-ups.`;
     }
 
-    return 'Your pipeline is active. Keep updating statuses after every recruiter interaction or email response.';
+    return `${stats.total} applications tracked. ${stats.submitted} have been submitted and ${stats.clearResponses} have received a clear response. Keep updating statuses after every recruiter interaction or email response.`;
   }, [stats]);
 
   const metricCards = [
@@ -361,37 +504,37 @@ export const DashboardPage: React.FC = () => {
       label: 'Total Applications',
       value: stats.total,
       icon: Briefcase,
-      helper: 'All tracked applications',
+      helper: 'All tracked roles, including wishlist items',
     },
     {
-      label: 'Active',
-      value: stats.active,
+      label: 'Submitted',
+      value: stats.submitted,
       icon: TrendingUp,
-      helper: 'Currently open',
+      helper: 'Applications actually sent',
     },
     {
-      label: 'Pending',
+      label: 'Waiting',
       value: stats.pending,
       icon: Clock,
-      helper: 'Wishlist or applied',
+      helper: 'Applied or confirmation received',
     },
     {
-      label: 'Interviews',
-      value: stats.interviews,
+      label: 'Assessments',
+      value: stats.assessments,
+      icon: FileText,
+      helper: 'Currently at assessment stage',
+    },
+    {
+      label: 'Current Interviews',
+      value: stats.currentInterviews,
       icon: CalendarCheck,
-      helper: 'Interview stages',
-    },
-    {
-      label: 'Offers',
-      value: stats.offers,
-      icon: Trophy,
-      helper: 'Successful outcomes',
+      helper: 'Currently in interview stage',
     },
     {
       label: 'Archived',
       value: stats.archived,
       icon: Archive,
-      helper: 'Closed or hidden',
+      helper: 'Closed or hidden records',
     },
   ];
 
@@ -538,7 +681,7 @@ export const DashboardPage: React.FC = () => {
         <div className="min-w-0">
           <h2 className="text-2xl sm:text-3xl font-bold mb-1 break-words">Dashboard</h2>
           <p className="text-slate-500 text-sm sm:text-base break-words">
-            Job search overview, Gmail sync performance, recruiters, CVs, and recent activity.
+            Job search overview, conversion metrics, interview journey, Gmail sync performance, recruiters, CVs, and recent activity.
           </p>
         </div>
 
@@ -563,10 +706,10 @@ export const DashboardPage: React.FC = () => {
 
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-widest text-slate-400 mb-1">
-              Pipeline Insight
+              Pipeline Story
             </p>
             <h3 className="text-base sm:text-lg font-semibold mb-1 break-words">
-              {stats.active} active applications from {stats.total} total
+              {stats.total} applications tracked · {stats.submitted} submitted
             </h3>
             <p className="text-sm text-slate-300 leading-relaxed break-words">
               {insight}
@@ -603,11 +746,100 @@ export const DashboardPage: React.FC = () => {
         })}
       </div>
 
+      <SectionHeader
+        title="Interview Journey"
+        description="Historical interview progress, including applications that later became rejected."
+      />
+
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
-        <RateCard label="Response Rate" value={`${stats.responseRate}%`} />
-        <RateCard label="Interview Rate" value={`${stats.interviewRate}%`} />
-        <RateCard label="Offer Rate" value={`${stats.offerRate}%`} positive />
-        <RateCard label="Rejection Rate" value={`${stats.rejectionRate}%`} negative />
+        <MiniCard
+          label="Interviews Reached"
+          value={stats.totalInterviewsReached}
+          icon={CalendarCheck}
+          helper="Historical total, including rejected interview outcomes"
+        />
+
+        <MiniCard
+          label="Awaiting Final Response"
+          value={stats.awaitingFinalInterviewResponse}
+          icon={Clock}
+          helper="Interview-stage applications still pending"
+        />
+
+        <MiniCard
+          label="Declined After Interview"
+          value={stats.rejectedAfterInterview}
+          icon={XCircle}
+          helper="Rejected after reaching interview stage"
+        />
+
+        <MiniCard
+          label="Post-Interview Decline Rate"
+          value={stats.postInterviewDeclineRate}
+          icon={TrendingUp}
+          helper={`${stats.rejectedAfterInterview} of ${stats.totalInterviewsReached} interview-stage applications declined`}
+          suffix="%"
+        />
+      </div>
+
+      <SectionHeader
+        title="Conversion Metrics"
+        description="Each percentage shows the numerator and denominator so the metric is easier to understand."
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+        <RateCard
+          label="Response Rate"
+          value={`${stats.responseRate}%`}
+          helper={`${stats.clearResponses} of ${stats.submitted} submitted applications received a clear response`}
+        />
+
+        <RateCard
+          label="Historical Interview Rate"
+          value={`${stats.historicalInterviewRate}%`}
+          helper={`${stats.totalInterviewsReached} of ${stats.submitted} submitted applications reached interview stage`}
+        />
+
+        <RateCard
+          label="Rejection Rate"
+          value={`${stats.rejectionRate}%`}
+          helper={`${stats.rejections} of ${stats.submitted} submitted applications were rejected`}
+          negative
+        />
+
+        <RateCard
+          label="Offer Rate"
+          value={`${stats.offerRate}%`}
+          helper={`${stats.offers} offers recorded from ${stats.submitted} submitted applications`}
+          positive
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+        <RateCard
+          label="Current Interview Stage"
+          value={`${stats.currentInterviewRate}%`}
+          helper={`${stats.currentInterviews} of ${stats.submitted} submitted applications are currently in interview stage`}
+        />
+
+        <RateCard
+          label="Rejected Before Interview"
+          value={String(stats.rejectedBeforeInterview)}
+          helper="Rejected applications with no interview recorded"
+          negative
+        />
+
+        <RateCard
+          label="Withdrawn"
+          value={String(stats.withdrawn)}
+          helper="Applications you chose to withdraw"
+        />
+
+        <RateCard
+          label="Ghosted"
+          value={String(stats.ghosted)}
+          helper="Applications marked as no clear response"
+        />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -635,10 +867,10 @@ export const DashboardPage: React.FC = () => {
         <div className="space-y-6 min-w-0">
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden">
             <h3 className="text-lg sm:text-xl font-semibold break-words">
-              Applications by Status
+              Applications by Current Status
             </h3>
             <p className="text-slate-500 text-sm mt-1 mb-6 break-words">
-              Breakdown of your current application pipeline.
+              Current state of your application pipeline. Historical interview outcomes are shown separately above.
             </p>
 
             {stats.statusChartData.length === 0 ? (
@@ -741,9 +973,23 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-              <RateCard label="Accepted Rate" value={`${gmailStats.acceptanceRate}%`} positive />
-              <RateCard label="Review Rate" value={`${gmailStats.reviewRate}%`} />
-              <RateCard label="Rejected Rate" value={`${gmailStats.rejectionRate}%`} negative />
+              <RateCard
+                label="Accepted Rate"
+                value={`${gmailStats.acceptanceRate}%`}
+                helper={`${gmailStats.accepted} of ${gmailStats.scanned} scanned emails were accepted`}
+                positive
+              />
+              <RateCard
+                label="Review Rate"
+                value={`${gmailStats.reviewRate}%`}
+                helper={`${gmailStats.review} of ${gmailStats.scanned} scanned emails need review`}
+              />
+              <RateCard
+                label="Rejected Rate"
+                value={`${gmailStats.rejectionRate}%`}
+                helper={`${gmailStats.rejected} of ${gmailStats.scanned} scanned emails were rejected`}
+                negative
+              />
             </div>
 
             {latestSync?.error_message && (
@@ -814,6 +1060,19 @@ export const DashboardPage: React.FC = () => {
   );
 };
 
+const SectionHeader = ({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) => (
+  <div className="mb-4">
+    <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+    <p className="text-sm text-slate-500 mt-1">{description}</p>
+  </div>
+);
+
 const ErrorMessage = ({
   error,
   onClear,
@@ -880,21 +1139,30 @@ const SetupChecklistItem = ({
 const RateCard = ({
   label,
   value,
+  helper,
   positive,
   negative,
 }: {
   label: string;
   value: string;
+  helper?: string;
   positive?: boolean;
   negative?: boolean;
 }) => (
   <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm overflow-hidden">
     <p className="text-sm text-slate-500 break-words">{label}</p>
+
     <div className="flex items-end justify-between gap-3 mt-3">
       <p className="text-2xl sm:text-3xl font-bold break-words">{value}</p>
       {positive && <Trophy size={18} className="text-slate-400 shrink-0" />}
       {negative && <XCircle size={18} className="text-slate-400 shrink-0" />}
     </div>
+
+    {helper && (
+      <p className="text-xs text-slate-400 mt-3 leading-relaxed break-words">
+        {helper}
+      </p>
+    )}
   </div>
 );
 
@@ -903,17 +1171,22 @@ const MiniCard = ({
   value,
   icon: Icon,
   helper,
+  suffix = '',
 }: {
   label: string;
   value: number;
   icon: React.ElementType;
   helper: string;
+  suffix?: string;
 }) => (
   <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm overflow-hidden">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         <p className="text-sm text-slate-500 break-words">{label}</p>
-        <p className="text-2xl sm:text-3xl font-bold mt-3 break-words">{value}</p>
+        <p className="text-2xl sm:text-3xl font-bold mt-3 break-words">
+          {value}
+          {suffix}
+        </p>
       </div>
 
       <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
