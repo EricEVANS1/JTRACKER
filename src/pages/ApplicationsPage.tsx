@@ -67,10 +67,10 @@ user_id: string;
 company_id: string | null;
 cv_version_id: string | null;
 recruiter_id: string | null;
-role_title: string;
+role_title: string | null;
 application_link: string | null;
 source: string | null;
-status: ApplicationStatus;
+status: ApplicationStatus | null;
 date_applied: string | null;
 email_used: string | null;
 referral: boolean | null;
@@ -107,7 +107,8 @@ cv_versions?: CVVersionJoin | CVVersionJoin[] | null;
 recruiters?: RecruiterJoin | RecruiterJoin[] | null;
 }
 
-interface Application extends Omit<RawApplication, 'companies' | 'cv_versions' | 'recruiters'> {
+interface Application extends Omit<RawApplication, 'companies' | 'cv_versions' | 'recruiters' | 'status'> {
+status: ApplicationStatus;
 companies: CompanyJoin | null;
 cv_versions: CVVersionJoin | null;
 recruiters: RecruiterJoin | null;
@@ -149,8 +150,13 @@ archived: 'bg-zinc-100 text-zinc-600',
 const inputCls =
 'border border-slate-200 rounded-lg px-3 py-2 text-sm w-full bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
 
-const formatStatus = (status: string) =>
-status.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+const formatStatus = (status?: string | null) => {
+if (!status) return 'Not set';
+
+return status
+.replaceAll('_', ' ')
+.replace(/\b\w/g, (char) => char.toUpperCase());
+};
 
 const formatDate = (date?: string | null) => {
 if (!date) return 'Not set';
@@ -285,7 +291,7 @@ setError('');
 const { data, error } = await supabase
   .from('applications')
   .select(`
-    
+    *,
     companies (
       id,
       name
@@ -312,6 +318,8 @@ if (error) {
 
 const normalised: Application[] = ((data || []) as RawApplication[]).map((app) => ({
   ...app,
+  status: app.status || 'applied',
+  role_title: app.role_title || 'Untitled role',
   companies: firstOrNull(app.companies),
   cv_versions: firstOrNull(app.cv_versions),
   recruiters: firstOrNull(app.recruiters),
@@ -324,7 +332,6 @@ setApplications(normalised);
 
 const fetchCVVersions = async () => {
 if (!user) return;
-
 
 const { data, error } = await supabase
   .from('cv_versions')
@@ -356,12 +363,12 @@ loadPage();
 
 const filteredApplications = useMemo(() => {
 return applications.filter((app) => {
-const term = search.toLowerCase();
+const term = search.toLowerCase().trim();
 
 
   const matchesSearch =
-    !search.trim() ||
-    app.role_title.toLowerCase().includes(term) ||
+    !term ||
+    Boolean(app.role_title?.toLowerCase().includes(term)) ||
     Boolean(app.companies?.name?.toLowerCase().includes(term)) ||
     Boolean(app.source?.toLowerCase().includes(term));
 
@@ -375,6 +382,7 @@ const term = search.toLowerCase();
 
 const getLifecycleUpdate = (newStatus: ApplicationStatus, app: Application) => {
 const now = nowIso();
+
 
 const update: Record<string, string | boolean | number | OutcomeReason | null> = {
   status: newStatus,
@@ -476,6 +484,7 @@ if (newStatus === 'ghosted') {
 }
 
 return update;
+
 
 };
 
@@ -583,6 +592,7 @@ await updateApplication(
   'Application marked as having reached interview stage.'
 );
 
+
 };
 
 const handleMarkAwaitingFinalResponse = async (applicationId: string) => {
@@ -649,6 +659,7 @@ await updateApplication(
 const handleDeleteApplication = async (applicationId: string) => {
 if (!user) return;
 
+
 const application = applications.find((app) => app.id === applicationId);
 
 const confirmed = window.confirm(
@@ -674,6 +685,7 @@ if (error) {
 setApplications((prev) => prev.filter((app) => app.id !== applicationId));
 setMessage('Application deleted successfully.');
 
+
 };
 
 const openShareModal = (
@@ -695,7 +707,7 @@ setShareModalOpen(true);
 const buildShareSummary = (app: Application, link?: string) => {
 return `🚀 Opportunity Shared via JTracker
 
-${app.role_title}
+${app.role_title || 'Untitled role'}
 ${app.companies?.name || 'Unknown Company'}${app.location ? ` — ${app.location}` : ''}
 
 Application Link:
@@ -720,7 +732,7 @@ const { data, error } = await supabase
     recipient_user_id: recipientUserId,
     application_id: app.id,
     public_share_id: publicShareId,
-    role_title: app.role_title,
+    role_title: app.role_title || 'Untitled role',
     company_name: app.companies?.name || null,
     location: app.location || null,
     job_link: app.application_link || null,
@@ -762,6 +774,7 @@ return {
 const handleInternalShare = async () => {
 if (!selectedShareApp || !user) return;
 
+
 if (!recipientEmail.trim()) {
   setError('Please enter the recipient email.');
   return;
@@ -793,7 +806,7 @@ try {
     actor_user_id: user.id,
     type: 'shared_opportunity',
     title: 'New shared opportunity',
-    message: `${user.email || 'Someone'} shared ${selectedShareApp.role_title} with you.`,
+    message: `${user.email || 'Someone'} shared ${selectedShareApp.role_title || 'a role'} with you.`,
     related_shared_opportunity_id: sharedOpportunity.id,
     read: false,
   });
@@ -814,6 +827,7 @@ setSharing(false);
 const handleGeneratePublicLink = async () => {
 if (!selectedShareApp) return;
 
+
 setSharing(true);
 setError('');
 setMessage('');
@@ -830,6 +844,7 @@ try {
 }
 
 setSharing(false);
+
 
 };
 
@@ -868,7 +883,6 @@ try {
 
 setSharing(false);
 
-
 };
 
 const getOrCreateCompanyId = async (): Promise<string | null> => {
@@ -896,7 +910,6 @@ const { data: newCompany, error: companyError } = await supabase
 if (companyError) throw new Error(companyError.message);
 
 return newCompany.id;
-
 
 };
 
@@ -970,7 +983,6 @@ try {
 }
 
 setSaving(false);
-
 
 };
 
@@ -1270,9 +1282,9 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
     </div>
   ) : (
     <div className="space-y-4">
-      {filteredApplications.map((app) => (
+      {filteredApplications.map((app, index) => (
         <ApplicationCard
-          key={app.id}
+          key={app.id || `application-${index}`}
           app={app}
           updating={statusUpdatingId === app.id}
           onStatusChange={handleStatusChange}
@@ -1316,7 +1328,7 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
         </div>
 
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
-          <p className="font-semibold break-words">{selectedShareApp.role_title}</p>
+          <p className="font-semibold break-words">{selectedShareApp.role_title || 'Untitled role'}</p>
           <p className="text-sm text-slate-600 break-words">
             {selectedShareApp.companies?.name || 'Unknown Company'}
             {selectedShareApp.location ? ` — ${selectedShareApp.location}` : ''}
@@ -1491,7 +1503,9 @@ return ( <div className="bg-white border border-slate-200 rounded-2xl shadow-sm 
 
 
       <div className="min-w-0">
-        <h3 className="text-base font-semibold text-slate-950 break-words">{app.role_title}</h3>
+        <h3 className="text-base font-semibold text-slate-950 break-words">
+          {app.role_title || 'Untitled role'}
+        </h3>
 
         <p className="text-sm text-slate-500 mt-0.5 break-words">
           {companyName}
@@ -1499,7 +1513,11 @@ return ( <div className="bg-white border border-slate-200 rounded-2xl shadow-sm 
         </p>
 
         <div className="flex flex-wrap items-center gap-2 mt-3">
-          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${statusStyle[app.status]}`}>
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
+              statusStyle[app.status] || statusStyle.applied
+            }`}
+          >
             {formatStatus(app.status)}
           </span>
 
@@ -1572,7 +1590,9 @@ return ( <div className="bg-white border border-slate-200 rounded-2xl shadow-sm 
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
       <div className="flex items-center gap-2">
         <CalendarDays size={15} className="text-slate-500" />
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Lifecycle & Interview Journey</p>
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+          Lifecycle & Interview Journey
+        </p>
       </div>
 
       <button
@@ -1585,11 +1605,11 @@ return ( <div className="bg-white border border-slate-200 rounded-2xl shadow-sm 
     </div>
 
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
-      {lifecycleSteps.map((step) => {
+      {lifecycleSteps.map((step, index) => {
         const complete = Boolean(step.date);
 
         return (
-          <div key={step.label}>
+          <div key={`${step.label}-${index}`}>
             <div className="flex items-center gap-2">
               <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${complete ? 'bg-slate-900' : 'bg-slate-300'}`} />
               <span className={`text-xs font-medium ${complete ? 'text-slate-800' : 'text-slate-400'}`}>
@@ -1597,7 +1617,9 @@ return ( <div className="bg-white border border-slate-200 rounded-2xl shadow-sm 
               </span>
             </div>
 
-            <p className="text-xs text-slate-500 mt-1 ml-4">{complete ? formatDate(step.date) : '—'}</p>
+            <p className="text-xs text-slate-500 mt-1 ml-4">
+              {complete ? formatDate(step.date) : '—'}
+            </p>
           </div>
         );
       })}
@@ -1683,10 +1705,15 @@ onClose: () => void;
     ) : (
       <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
     )}
-    <span className="text-sm flex-1 break-words">{message}</span>
-    <button onClick={onClose} className="opacity-70 hover:opacity-100">
-      <X size={16} />
-    </button>
+
+
+<span className="text-sm flex-1 break-words">{message}</span>
+
+<button onClick={onClose} className="opacity-70 hover:opacity-100">
+  <X size={16} />
+</button>
+
+
   </div>
 );
 
@@ -1724,8 +1751,6 @@ const ApplicationsSkeleton = () => (
   ))}
 </div>
 
-
   </div>
 );
-
 
