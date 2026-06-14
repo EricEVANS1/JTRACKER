@@ -18,71 +18,74 @@ import { ArchivedApplicationsPage } from './pages/ArchivedApplicationsPage';
 import { RecruitersPage } from './pages/RecruitersPage';
 import { KanbanPage } from './pages/KanbanPage';
 import { RecruiterDetailsPage } from './pages/RecruiterDetailsPage';
-import { SharedWithMePage } from './pages/SharedWithMePage';
+import { SharedOpportunitiesPage } from './pages/SharedWithMePage';
 import { PublicSharePage } from './pages/PublicSharePage';
 import { ResumeBuilderPage } from './pages/ResumeBuilderPage';
 import { ResumeBuilderStartPage } from './pages/ResumeBuilderStartPage';
 
 const App: React.FC = () => {
-  return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route path="/auth" element={<AuthPage />} />
-          <Route path="/share/:publicShareId" element={<PublicSharePage />} />
+return ( <BrowserRouter> <AuthProvider> <Routes>
+<Route path="/auth" element={<AuthPage />} />
 
-          <Route
-            element={
-              <ProtectedRoute>
-                <AppLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/applications" element={<ApplicationsPage />} />
-            <Route path="/applications/:id" element={<ApplicationDetailsPage />} />
-            <Route path="/cv-manager" element={<CVManagerPage />} />
-            <Route path="/companies" element={<CompaniesPage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
 
-            <Route
-              path="/notifications"
-              element={<Navigate to="/settings?tab=notifications" replace />}
-            />
+      <Route path="/share/:publicShareId" element={<PublicSharePage />} />
 
-            <Route path="/shared-with-me" element={<SharedWithMePage />} />
-            <Route path="/follow-ups" element={<FollowUpsPage />} />
-            <Route path="/archived" element={<ArchivedApplicationsPage />} />
+      <Route
+        element={
+          <ProtectedRoute>
+            <AppLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/applications" element={<ApplicationsPage />} />
+        <Route path="/applications/:id" element={<ApplicationDetailsPage />} />
+        <Route path="/cv-manager" element={<CVManagerPage />} />
+        <Route path="/companies" element={<CompaniesPage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
 
-            <Route
-              path="/archived-applications"
-              element={<ArchivedApplicationsPage />}
-            />
+        <Route
+          path="/notifications"
+          element={<Navigate to="/settings?tab=notifications" replace />}
+        />
 
-            <Route path="/recruiters" element={<RecruitersPage />} />
-            <Route path="/recruiters/:id" element={<RecruiterDetailsPage />} />
-            <Route path="/kanban" element={<KanbanPage />} />
+        <Route path="/shared" element={<SharedOpportunitiesPage />} />
+        <Route path="/shared-with-me" element={<Navigate to="/shared" replace />} />
 
-            <Route
-              path="/email-sync"
-              element={<Navigate to="/settings?tab=emailSync" replace />}
-            />
+        <Route path="/follow-ups" element={<FollowUpsPage />} />
+        <Route path="/archived" element={<ArchivedApplicationsPage />} />
 
-            <Route
-              path="/email-events"
-              element={<Navigate to="/settings?tab=emailEvents" replace />}
-            />
+        <Route
+          path="/archived-applications"
+          element={<ArchivedApplicationsPage />}
+        />
 
-            <Route path="/resume-builder" element={<ResumeBuilderStartPage />} />
-            <Route path="/resume-builder/:analysisId" element={<ResumeBuilderPage />} />
-          </Route>
+        <Route path="/recruiters" element={<RecruitersPage />} />
+        <Route path="/recruiters/:id" element={<RecruiterDetailsPage />} />
+        <Route path="/kanban" element={<KanbanPage />} />
 
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-      </AuthProvider>
-    </BrowserRouter>
-  );
+        <Route
+          path="/email-sync"
+          element={<Navigate to="/settings?tab=emailSync" replace />}
+        />
+
+        <Route
+          path="/email-events"
+          element={<Navigate to="/settings?tab=emailEvents" replace />}
+        />
+
+        <Route path="/resume-builder" element={<ResumeBuilderStartPage />} />
+        <Route path="/resume-builder/:analysisId" element={<ResumeBuilderPage />} />
+      </Route>
+
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  </AuthProvider>
+</BrowserRouter>
+
+
+);
 };
 
 export default App;

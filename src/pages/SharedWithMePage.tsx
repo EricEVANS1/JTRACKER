@@ -1,474 +1,779 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle,
-  Briefcase,
-  CheckCircle2,
-  Copy,
-  ExternalLink,
-  Eye,
-  Inbox,
-  MapPin,
-  PlusCircle,
-  RefreshCw,
-  UserRound,
-  X,
+AlertCircle,
+CheckCircle2,
+Copy,
+ExternalLink,
+Inbox,
+Link2,
+Plus,
+RefreshCw,
+Send,
+Share2,
+Trash2,
+X,
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import type { SharedOpportunity } from '../types/sharedOpportunity';
 
-interface SenderProfile {
-  full_name: string | null;
-  email: string | null;
+type ShareTab = 'with_me' | 'by_me' | 'public_links';
+
+interface SharedOpportunity {
+id: string;
+sender_user_id: string;
+recipient_user_id: string | null;
+application_id: string | null;
+public_share_id: string | null;
+role_title: string | null;
+company_name: string | null;
+location: string | null;
+job_link: string | null;
+note: string | null;
+include_status: boolean | null;
+include_notes: boolean | null;
+include_experience: boolean | null;
+status_snapshot: string | null;
+notes_snapshot: string | null;
+experience_snapshot: string | null;
+created_at: string;
 }
 
-interface SharedOpportunityWithSender extends SharedOpportunity {
-  sender_profile?: SenderProfile | null;
-  added_to_applications_at?: string | null;
-  added_application_id?: string | null;
-  experience_snapshot?: string | null;
+interface CompanyRecord {
+id: string;
 }
 
-const formatDateTime = (date?: string | null) => {
-  if (!date) return 'Not set';
+const inputCls =
+'border border-slate-200 rounded-lg px-3 py-2 text-sm w-full bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
 
-  return new Date(date).toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+const formatDate = (date?: string | null) => {
+if (!date) return 'Not set';
+
+return new Date(date).toLocaleString('en-GB', {
+day: 'numeric',
+month: 'short',
+year: 'numeric',
+hour: '2-digit',
+minute: '2-digit',
+});
 };
 
-export const SharedWithMePage: React.FC = () => {
-  const { user } = useAuth();
-  const navigate = useNavigate();
+const formatStatus = (status?: string | null) => {
+if (!status) return 'Not shared';
 
-  const [items, setItems] = useState<SharedOpportunityWithSender[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [savingToApplicationsId, setSavingToApplicationsId] = useState<string | null>(null);
+return status
+.replaceAll('_', ' ')
+.replace(/\b\w/g, (char) => char.toUpperCase());
+};
 
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
+const getPublicShareUrl = (publicShareId?: string | null) => {
+if (!publicShareId) return '';
+return `${window.location.origin}/share/${publicShareId}`;
+};
 
-  const fetchShared = async () => {
-    if (!user) return;
+export const SharedOpportunitiesPage: React.FC = () => {
+const { user } = useAuth();
 
-    setError('');
+const [activeTab, setActiveTab] = useState<ShareTab>('with_me');
+const [sharedWithMe, setSharedWithMe] = useState<SharedOpportunity[]>([]);
+const [sharedByMe, setSharedByMe] = useState<SharedOpportunity[]>([]);
+const [publicLinks, setPublicLinks] = useState<SharedOpportunity[]>([]);
+const [loading, setLoading] = useState(true);
+const [refreshing, setRefreshing] = useState(false);
+const [addingId, setAddingId] = useState<string | null>(null);
+const [deletingId, setDeletingId] = useState<string | null>(null);
+const [copiedId, setCopiedId] = useState<string | null>(null);
 
-    const { data: shares, error: sharesError } = await supabase
-      .from('shared_opportunities')
-      .select('*')
-      .eq('recipient_user_id', user.id)
-      .order('created_at', { ascending: false });
+const [error, setError] = useState('');
+const [message, setMessage] = useState('');
 
-    if (sharesError) {
-      setError(sharesError.message);
-      return;
-    }
+const fetchSharedOpportunities = async () => {
+if (!user) return;
 
-    const senderIds = [
-      ...new Set(
-        (shares || [])
-          .map((share) => share.sender_user_id)
-          .filter((id): id is string => Boolean(id))
-      ),
-    ];
 
-    let profileMap = new Map<string, SenderProfile>();
+setError('');
 
-    if (senderIds.length > 0) {
-      const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, full_name, email')
-        .in('id', senderIds);
+const [withMeResult, byMeResult, publicLinksResult] = await Promise.all([
+  supabase
+    .from('shared_opportunities')
+    .select(`
+      id,
+      sender_user_id,
+      recipient_user_id,
+      application_id,
+      public_share_id,
+      role_title,
+      company_name,
+      location,
+      job_link,
+      note,
+      include_status,
+      include_notes,
+      include_experience,
+      status_snapshot,
+      notes_snapshot,
+      experience_snapshot,
+      created_at
+    `)
+    .eq('recipient_user_id', user.id)
+    .order('created_at', { ascending: false }),
 
-      if (profilesError) {
-        setError(profilesError.message);
-        return;
-      }
+  supabase
+    .from('shared_opportunities')
+    .select(`
+      id,
+      sender_user_id,
+      recipient_user_id,
+      application_id,
+      public_share_id,
+      role_title,
+      company_name,
+      location,
+      job_link,
+      note,
+      include_status,
+      include_notes,
+      include_experience,
+      status_snapshot,
+      notes_snapshot,
+      experience_snapshot,
+      created_at
+    `)
+    .eq('sender_user_id', user.id)
+    .not('recipient_user_id', 'is', null)
+    .order('created_at', { ascending: false }),
 
-      profileMap = new Map(
-        (profiles || []).map((profile) => [
-          profile.id,
-          {
-            full_name: profile.full_name,
-            email: profile.email,
-          },
-        ])
-      );
-    }
+  supabase
+    .from('shared_opportunities')
+    .select(`
+      id,
+      sender_user_id,
+      recipient_user_id,
+      application_id,
+      public_share_id,
+      role_title,
+      company_name,
+      location,
+      job_link,
+      note,
+      include_status,
+      include_notes,
+      include_experience,
+      status_snapshot,
+      notes_snapshot,
+      experience_snapshot,
+      created_at
+    `)
+    .eq('sender_user_id', user.id)
+    .is('recipient_user_id', null)
+    .order('created_at', { ascending: false }),
+]);
 
-    const normalized: SharedOpportunityWithSender[] = (
-      (shares || []) as SharedOpportunityWithSender[]
-    ).map((item) => ({
-      ...item,
-      sender_profile: item.sender_user_id
-        ? profileMap.get(item.sender_user_id) || null
-        : null,
-    }));
+if (withMeResult.error) setError(withMeResult.error.message);
+else setSharedWithMe((withMeResult.data || []) as SharedOpportunity[]);
 
-    setItems(normalized);
-  };
+if (byMeResult.error) setError(byMeResult.error.message);
+else setSharedByMe((byMeResult.data || []) as SharedOpportunity[]);
 
-  const loadPage = async () => {
-    setLoading(true);
-    await fetchShared();
-    setLoading(false);
-  };
+if (publicLinksResult.error) setError(publicLinksResult.error.message);
+else setPublicLinks((publicLinksResult.data || []) as SharedOpportunity[]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchShared();
-    setRefreshing(false);
-  };
 
-  useEffect(() => {
-    loadPage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+};
 
-  const handleCopySummary = async (item: SharedOpportunityWithSender) => {
-    const summary = `Opportunity shared via JTracker
+const loadPage = async () => {
+setLoading(true);
+await fetchSharedOpportunities();
+setLoading(false);
+};
 
-${item.role_title}
-${item.company_name || 'Unknown Company'}${item.location ? ` — ${item.location}` : ''}
+const handleRefresh = async () => {
+setRefreshing(true);
+await fetchSharedOpportunities();
+setRefreshing(false);
+};
 
-${item.job_link || 'No job link provided'}
+useEffect(() => {
+loadPage();
+}, [user?.id]);
 
-${item.note || ''}`;
+const activeItems = useMemo(() => {
+if (activeTab === 'with_me') return sharedWithMe;
+if (activeTab === 'by_me') return sharedByMe;
+return publicLinks;
+}, [activeTab, sharedWithMe, sharedByMe, publicLinks]);
 
-    await navigator.clipboard.writeText(summary.trim());
-    setMessage('Opportunity summary copied.');
-  };
+const tabCounts = {
+with_me: sharedWithMe.length,
+by_me: sharedByMe.length,
+public_links: publicLinks.length,
+};
 
-  const getOrCreateCompanyId = async (
-    companyName: string | null | undefined
-  ): Promise<string | null> => {
-    if (!user || !companyName?.trim()) return null;
+const getOrCreateCompanyId = async (companyName?: string | null): Promise<string | null> => {
+if (!user || !companyName?.trim()) return null;
 
-    const cleanCompanyName = companyName.trim();
 
-    const { data: existingCompany, error: findError } = await supabase
-      .from('companies')
-      .select('id')
-      .eq('user_id', user.id)
-      .ilike('name', cleanCompanyName)
-      .maybeSingle();
+const cleanName = companyName.trim();
 
-    if (findError) throw new Error(findError.message);
+const { data: existingCompany, error: findError } = await supabase
+  .from('companies')
+  .select('id')
+  .eq('user_id', user.id)
+  .ilike('name', cleanName)
+  .maybeSingle();
 
-    if (existingCompany) return existingCompany.id;
+if (findError) throw new Error(findError.message);
 
-    const { data: newCompany, error: companyError } = await supabase
-      .from('companies')
-      .insert({
-        user_id: user.id,
-        name: cleanCompanyName,
-      })
-      .select('id')
-      .single();
+if (existingCompany) {
+  return (existingCompany as CompanyRecord).id;
+}
 
-    if (companyError) throw new Error(companyError.message);
+const { data: newCompany, error: createError } = await supabase
+  .from('companies')
+  .insert({
+    user_id: user.id,
+    name: cleanName,
+  })
+  .select('id')
+  .single();
 
-    return newCompany.id;
-  };
+if (createError) throw new Error(createError.message);
 
-  const handleAddToApplications = async (item: SharedOpportunityWithSender) => {
-    if (!user) return;
+return (newCompany as CompanyRecord).id;
 
-    if (item.added_application_id) {
-      navigate(`/applications/${item.added_application_id}`);
-      return;
-    }
 
-    setSavingToApplicationsId(item.id);
-    setError('');
-    setMessage('');
+};
 
-    try {
-      const companyId = await getOrCreateCompanyId(item.company_name);
-      const now = new Date().toISOString();
+const handleAddToTracker = async (opportunity: SharedOpportunity) => {
+if (!user) return;
 
-      const { data: insertedApplication, error: insertError } = await supabase
-        .from('applications')
-        .insert({
-          user_id: user.id,
-          company_id: companyId,
-          role_title: item.role_title,
-          application_link: item.job_link || null,
-          location: item.location || null,
-          status: 'wishlist',
-          source: 'Shared via JTracker',
-          notes: item.note
-            ? `Shared opportunity note:\n${item.note}`
-            : 'Added from a shared JTracker opportunity.',
-          date_applied: null,
-          last_status_changed_at: now,
-        })
-        .select('id')
-        .single();
 
-      if (insertError) throw new Error(insertError.message);
+setAddingId(opportunity.id);
+setError('');
+setMessage('');
 
-      await supabase.from('application_events').insert({
-        user_id: user.id,
-        application_id: insertedApplication.id,
-        event_type: 'created_from_shared_opportunity',
-        title: 'Application created from shared opportunity',
-        description: `Created from shared role: ${item.role_title}.`,
-        event_date: now,
-      });
+try {
+  const companyId = await getOrCreateCompanyId(opportunity.company_name);
+  const now = new Date().toISOString();
 
-      const { error: updateShareError } = await supabase
-        .from('shared_opportunities')
-        .update({
-          added_to_applications_at: now,
-          added_application_id: insertedApplication.id,
-        })
-        .eq('id', item.id)
-        .eq('recipient_user_id', user.id);
+  const { data: insertedApplication, error: insertError } = await supabase
+    .from('applications')
+    .insert({
+      user_id: user.id,
+      company_id: companyId,
+      role_title: opportunity.role_title || 'Untitled shared opportunity',
+      application_link: opportunity.job_link || null,
+      location: opportunity.location || null,
+      source: 'shared_opportunity',
+      status: 'wishlist',
+      date_applied: null,
+      notes: opportunity.note
+        ? `Shared opportunity note:\n${opportunity.note}`
+        : 'Added from a shared opportunity.',
+      priority: 'medium',
+      last_status_changed_at: now,
+      status_updated_at: now,
+    })
+    .select('id')
+    .single();
 
-      if (updateShareError) throw new Error(updateShareError.message);
+  if (insertError) throw new Error(insertError.message);
 
-      setItems((prev) =>
-        prev.map((sharedItem) =>
-          sharedItem.id === item.id
-            ? {
-                ...sharedItem,
-                added_to_applications_at: now,
-                added_application_id: insertedApplication.id,
-              }
-            : sharedItem
-        )
-      );
-
-      setSavingToApplicationsId(null);
-      navigate(`/applications/${insertedApplication.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add opportunity.');
-      setSavingToApplicationsId(null);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="w-full max-w-full overflow-hidden">
-        <div className="h-8 w-52 bg-slate-200 rounded-lg animate-pulse mb-2" />
-        <div className="h-4 w-full max-w-96 bg-slate-100 rounded-lg animate-pulse mb-8" />
-
-        <div className="space-y-4">
-          {[1, 2, 3].map((item) => (
-            <div
-              key={item}
-              className="h-44 bg-white border border-slate-200 rounded-2xl animate-pulse"
-            />
-          ))}
-        </div>
-      </div>
-    );
+  if (insertedApplication?.id) {
+    await supabase.from('application_events').insert({
+      user_id: user.id,
+      application_id: insertedApplication.id,
+      event_type: 'shared_opportunity_added',
+      title: 'Shared opportunity added',
+      description: `Added ${opportunity.role_title || 'shared opportunity'} to tracker.`,
+      event_date: now,
+    });
   }
 
-  return (
-    <div className="w-full max-w-full overflow-hidden">
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5 mb-8">
-        <div className="min-w-0">
-          <div className="flex items-center gap-3 mb-2">
-            <Inbox size={28} className="text-slate-700 shrink-0" />
-            <h2 className="text-2xl sm:text-3xl font-bold break-words">
-              Shared With Me
-            </h2>
-          </div>
+  setMessage('Shared opportunity added to your tracker.');
+} catch (err) {
+  setError(err instanceof Error ? err.message : 'Failed to add shared opportunity.');
+}
 
-          <p className="text-slate-500 text-sm sm:text-base max-w-2xl">
-            Opportunities other JTracker users shared with you. You can add them to your
-            own applications and complete the details from there.
-          </p>
+setAddingId(null);
+
+
+};
+
+const handleCopyPublicLink = async (opportunity: SharedOpportunity) => {
+const link = getPublicShareUrl(opportunity.public_share_id);
+
+
+if (!link) {
+  setError('This opportunity does not have a public share link.');
+  return;
+}
+
+await navigator.clipboard.writeText(link);
+setCopiedId(opportunity.id);
+setMessage('Public share link copied.');
+
+window.setTimeout(() => setCopiedId(null), 2000);
+
+
+};
+
+const handleCopySummary = async (opportunity: SharedOpportunity) => {
+const text = [
+'Opportunity shared via JTracker',
+'',
+opportunity.role_title || 'Untitled role',
+opportunity.company_name || 'Unknown company',
+opportunity.location ? `Location: ${opportunity.location}` : '',
+opportunity.job_link ? `Job link: ${opportunity.job_link}` : '',
+opportunity.note ? `Note: ${opportunity.note}` : '',
+opportunity.public_share_id ? `Public share: ${getPublicShareUrl(opportunity.public_share_id)}` : '',
+]
+.filter(Boolean)
+.join('\n');
+
+
+await navigator.clipboard.writeText(text);
+setCopiedId(opportunity.id);
+setMessage('Share summary copied.');
+
+window.setTimeout(() => setCopiedId(null), 2000);
+
+
+};
+
+const handleDeleteSharedOpportunity = async (opportunityId: string) => {
+if (!user) return;
+
+
+const confirmed = window.confirm('Delete this shared opportunity record? This will not delete the original application.');
+
+if (!confirmed) return;
+
+setDeletingId(opportunityId);
+setError('');
+setMessage('');
+
+const { error } = await supabase
+  .from('shared_opportunities')
+  .delete()
+  .eq('id', opportunityId)
+  .eq('sender_user_id', user.id);
+
+if (error) {
+  setError(error.message);
+  setDeletingId(null);
+  return;
+}
+
+setSharedByMe((prev) => prev.filter((item) => item.id !== opportunityId));
+setPublicLinks((prev) => prev.filter((item) => item.id !== opportunityId));
+setMessage('Shared opportunity deleted.');
+setDeletingId(null);
+
+
+};
+
+if (loading) {
+return <SharedOpportunitiesSkeleton />;
+}
+
+return ( <div className="w-full max-w-full overflow-hidden"> <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8"> <div className="min-w-0"> <h2 className="text-2xl sm:text-3xl font-bold mb-1 break-words">
+Shared Opportunities </h2> <p className="text-slate-500 text-sm sm:text-base break-words">
+Receive job leads from friends, share opportunities, and add shared jobs to your tracker. </p> </div>
+
+
+    <button
+      type="button"
+      onClick={handleRefresh}
+      disabled={refreshing}
+      className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+    >
+      <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
+      {refreshing ? 'Refreshing...' : 'Refresh'}
+    </button>
+  </div>
+
+  {error && <AlertBox type="error" message={error} onClose={() => setError('')} />}
+  {message && <AlertBox type="success" message={message} onClose={() => setMessage('')} />}
+
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+    <OverviewCard
+      title="Shared with me"
+      value={sharedWithMe.length}
+      description="Opportunities other users sent to you."
+      icon={Inbox}
+    />
+    <OverviewCard
+      title="Shared by me"
+      value={sharedByMe.length}
+      description="Direct opportunities you sent to other JTracker users."
+      icon={Send}
+    />
+    <OverviewCard
+      title="Public links"
+      value={publicLinks.length}
+      description="Public links you can share outside JTracker."
+      icon={Link2}
+    />
+  </div>
+
+  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-3 mb-6 overflow-hidden">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+      <TabButton
+        active={activeTab === 'with_me'}
+        label="Shared with me"
+        count={tabCounts.with_me}
+        onClick={() => setActiveTab('with_me')}
+      />
+      <TabButton
+        active={activeTab === 'by_me'}
+        label="Shared by me"
+        count={tabCounts.by_me}
+        onClick={() => setActiveTab('by_me')}
+      />
+      <TabButton
+        active={activeTab === 'public_links'}
+        label="Public links"
+        count={tabCounts.public_links}
+        onClick={() => setActiveTab('public_links')}
+      />
+    </div>
+  </div>
+
+  {activeItems.length === 0 ? (
+    <EmptyState activeTab={activeTab} />
+  ) : (
+    <div className="space-y-4">
+      {activeItems.map((opportunity) => (
+        <SharedOpportunityCard
+          key={opportunity.id}
+          opportunity={opportunity}
+          activeTab={activeTab}
+          adding={addingId === opportunity.id}
+          deleting={deletingId === opportunity.id}
+          copied={copiedId === opportunity.id}
+          onAddToTracker={handleAddToTracker}
+          onCopyPublicLink={handleCopyPublicLink}
+          onCopySummary={handleCopySummary}
+          onDelete={handleDeleteSharedOpportunity}
+        />
+      ))}
+    </div>
+  )}
+</div>
+
+
+);
+};
+
+const SharedOpportunityCard = ({
+opportunity,
+activeTab,
+adding,
+deleting,
+copied,
+onAddToTracker,
+onCopyPublicLink,
+onCopySummary,
+onDelete,
+}: {
+opportunity: SharedOpportunity;
+activeTab: ShareTab;
+adding: boolean;
+deleting: boolean;
+copied: boolean;
+onAddToTracker: (opportunity: SharedOpportunity) => void;
+onCopyPublicLink: (opportunity: SharedOpportunity) => void;
+onCopySummary: (opportunity: SharedOpportunity) => void;
+onDelete: (opportunityId: string) => void;
+}) => {
+const publicUrl = getPublicShareUrl(opportunity.public_share_id);
+
+return ( <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-5 hover:shadow-md transition overflow-hidden"> <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4"> <div className="min-w-0 flex items-start gap-3"> <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center shrink-0"> <Share2 size={19} className="text-slate-700" /> </div>
+
+
+      <div className="min-w-0">
+        <h3 className="text-lg font-semibold text-slate-950 break-words">
+          {opportunity.role_title || 'Untitled role'}
+        </h3>
+
+        <p className="text-sm text-slate-500 mt-1 break-words">
+          {opportunity.company_name || 'Unknown company'}
+          {opportunity.location ? ` · ${opportunity.location}` : ''}
+        </p>
+
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <Badge>{activeTab === 'with_me' ? 'Shared with me' : activeTab === 'by_me' ? 'Shared by me' : 'Public link'}</Badge>
+
+          {opportunity.include_status && (
+            <Badge>Status: {formatStatus(opportunity.status_snapshot)}</Badge>
+          )}
+
+          <Badge>Shared {formatDate(opportunity.created_at)}</Badge>
         </div>
-
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="w-full sm:w-auto border border-slate-200 bg-white rounded-xl px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
-        >
-          <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
-          Refresh
-        </button>
       </div>
+    </div>
 
-      {error && <AlertBox type="error" message={error} onClose={() => setError('')} />}
-      {message && <AlertBox type="success" message={message} onClose={() => setMessage('')} />}
+    <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 w-full xl:w-auto xl:justify-end">
+      {activeTab === 'with_me' && (
+        <button
+          type="button"
+          onClick={() => onAddToTracker(opportunity)}
+          disabled={adding}
+          className="w-full sm:w-auto bg-slate-900 text-white rounded-lg px-3 py-2 text-sm hover:bg-slate-700 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+        >
+          <Plus size={15} />
+          {adding ? 'Adding...' : 'Add to my tracker'}
+        </button>
+      )}
 
-      {items.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-10 text-center">
-          <Briefcase size={38} className="mx-auto text-slate-400 mb-3" />
-          <h3 className="text-lg font-semibold">No shared opportunities yet</h3>
-          <p className="text-slate-500 text-sm sm:text-base mt-2 max-w-md mx-auto">
-            When someone shares a role with you inside JTracker, it will appear here.
+      {opportunity.job_link && (
+        <a
+          href={opportunity.job_link}
+          target="_blank"
+          rel="noreferrer"
+          className="w-full sm:w-auto border border-slate-200 text-slate-700 rounded-lg px-3 py-2 text-sm hover:bg-slate-50 transition inline-flex items-center justify-center gap-2"
+        >
+          <ExternalLink size={15} />
+          Open job
+        </a>
+      )}
+
+      {publicUrl && (
+        <button
+          type="button"
+          onClick={() => onCopyPublicLink(opportunity)}
+          className="w-full sm:w-auto border border-slate-200 text-slate-700 rounded-lg px-3 py-2 text-sm hover:bg-slate-50 transition inline-flex items-center justify-center gap-2"
+        >
+          <Link2 size={15} />
+          {copied ? 'Copied' : 'Copy public link'}
+        </button>
+      )}
+
+      <button
+        type="button"
+        onClick={() => onCopySummary(opportunity)}
+        className="w-full sm:w-auto border border-slate-200 text-slate-700 rounded-lg px-3 py-2 text-sm hover:bg-slate-50 transition inline-flex items-center justify-center gap-2"
+      >
+        <Copy size={15} />
+        Copy summary
+      </button>
+
+      {activeTab !== 'with_me' && (
+        <button
+          type="button"
+          onClick={() => onDelete(opportunity.id)}
+          disabled={deleting}
+          className="w-full sm:w-auto border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm hover:bg-red-50 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+        >
+          <Trash2 size={15} />
+          {deleting ? 'Deleting...' : 'Delete'}
+        </button>
+      )}
+    </div>
+  </div>
+
+  {(opportunity.note || opportunity.notes_snapshot) && (
+    <div className="mt-4 bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-600 leading-relaxed break-words whitespace-pre-wrap">
+      {opportunity.note && (
+        <div>
+          <p className="text-xs uppercase tracking-wide text-slate-400 mb-1">
+            Shared note
           </p>
+          <p>{opportunity.note}</p>
         </div>
-      ) : (
-        <div className="space-y-4">
-          {items.map((item) => {
-            const senderName =
-              item.sender_profile?.full_name ||
-              item.sender_profile?.email ||
-              'JTracker user';
+      )}
 
-            const alreadyAdded = Boolean(item.added_application_id);
-
-            return (
-              <div
-                key={item.id}
-                className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden"
-              >
-                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <h3 className="text-lg sm:text-xl font-bold text-slate-900 break-words">
-                        {item.role_title}
-                      </h3>
-
-                      {item.include_status && item.status_snapshot && (
-                        <span className="rounded-full px-2.5 py-1 text-xs bg-slate-100 text-slate-700 capitalize">
-                          {item.status_snapshot.replaceAll('_', ' ')}
-                        </span>
-                      )}
-
-                      {alreadyAdded && (
-                        <span className="rounded-full px-2.5 py-1 text-xs bg-emerald-50 text-emerald-700">
-                          Added to Applications
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:gap-4 text-sm text-slate-600 mb-3">
-                      <span className="inline-flex items-center gap-1.5 break-words">
-                        <Briefcase size={15} className="shrink-0" />
-                        {item.company_name || 'Unknown Company'}
-                      </span>
-
-                      {item.location && (
-                        <span className="inline-flex items-center gap-1.5 break-words">
-                          <MapPin size={15} className="shrink-0" />
-                          {item.location}
-                        </span>
-                      )}
-
-                      <span className="inline-flex items-center gap-1.5 break-words">
-                        <UserRound size={15} className="shrink-0" />
-                        Shared by {senderName}
-                      </span>
-                    </div>
-
-                    {item.note && (
-                      <p className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3 whitespace-pre-wrap break-words">
-                        {item.note}
-                      </p>
-                    )}
-
-                    {item.include_notes && item.notes_snapshot && (
-                      <p className="text-sm text-slate-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 whitespace-pre-wrap break-words">
-                        Sender notes: {item.notes_snapshot}
-                      </p>
-                    )}
-
-                    {item.include_experience && item.experience_snapshot && (
-                      <p className="text-sm text-slate-700 bg-blue-50 border border-blue-200 rounded-xl p-3 mb-3 whitespace-pre-wrap break-words">
-                        Experience: {item.experience_snapshot}
-                      </p>
-                    )}
-
-                    <p className="text-xs text-slate-500 break-words">
-                      Shared {formatDateTime(item.created_at)}
-                      {item.added_to_applications_at
-                        ? ` · Added ${formatDateTime(item.added_to_applications_at)}`
-                        : ''}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 lg:justify-end w-full lg:w-auto">
-                    {alreadyAdded ? (
-                      <button
-                        onClick={() => navigate(`/applications/${item.added_application_id}`)}
-                        className="w-full sm:w-auto border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2 hover:bg-slate-50"
-                      >
-                        <Eye size={15} />
-                        View Application
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleAddToApplications(item)}
-                        disabled={savingToApplicationsId === item.id}
-                        className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2 disabled:opacity-50"
-                      >
-                        <PlusCircle size={15} />
-                        {savingToApplicationsId === item.id
-                          ? 'Adding...'
-                          : 'Add to Applications'}
-                      </button>
-                    )}
-
-                    <button
-                      onClick={() => handleCopySummary(item)}
-                      className="w-full sm:w-auto border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2 hover:bg-slate-50"
-                    >
-                      <Copy size={15} />
-                      Copy
-                    </button>
-
-                    {item.job_link && (
-                      <a
-                        href={item.job_link}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-full sm:w-auto border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm inline-flex items-center justify-center gap-2 hover:bg-slate-50"
-                      >
-                        Open Role
-                        <ExternalLink size={15} />
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+      {opportunity.include_notes && opportunity.notes_snapshot && (
+        <div className={opportunity.note ? 'mt-4 pt-4 border-t border-slate-200' : ''}>
+          <p className="text-xs uppercase tracking-wide text-slate-400 mb-1">
+            Shared application notes
+          </p>
+          <p>{opportunity.notes_snapshot}</p>
         </div>
       )}
     </div>
-  );
+  )}
+
+  {publicUrl && activeTab === 'public_links' && (
+    <div className="mt-4">
+      <label className="block">
+        <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+          Public share link
+        </span>
+        <input value={publicUrl} readOnly className={inputCls} />
+      </label>
+    </div>
+  )}
+</div>
+
+);
 };
 
-const AlertBox = ({
-  type,
-  message,
-  onClose,
+const OverviewCard = ({
+title,
+value,
+description,
+icon: Icon,
 }: {
-  type: 'error' | 'success';
-  message: string;
-  onClose: () => void;
+title: string;
+value: number;
+description: string;
+icon: React.ElementType;
 }) => (
+
+  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-5 overflow-hidden">
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-sm text-slate-500">{title}</p>
+        <p className="text-3xl font-bold mt-3">{value}</p>
+      </div>
+
+
+  <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+    <Icon size={19} className="text-slate-700" />
+  </div>
+</div>
+
+<p className="text-xs text-slate-400 mt-3 break-words">{description}</p>
+
+
+  </div>
+);
+
+const TabButton = ({
+active,
+label,
+count,
+onClick,
+}: {
+active: boolean;
+label: string;
+count: number;
+onClick: () => void;
+}) => (
+<button
+type="button"
+onClick={onClick}
+className={`rounded-xl px-4 py-3 text-sm font-medium transition flex items-center justify-between gap-3 ${
+      active
+        ? 'bg-slate-900 text-white'
+        : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+    }`}
+
+>
+
+
+<span>{label}</span>
+
+
+
+<span
+  className={`rounded-full px-2 py-0.5 text-xs ${
+    active ? 'bg-white/15 text-white' : 'bg-white text-slate-500'
+  }`}
+>
+  {count}
+</span>
+
+
+  </button>
+);
+
+const AlertBox = ({
+type,
+message,
+onClose,
+}: {
+type: 'error' | 'success';
+message: string;
+onClose: () => void;
+}) => (
+
   <div
     className={`rounded-xl p-4 mb-6 flex items-start gap-3 border ${
       type === 'error'
-        ? 'bg-red-50 text-red-700 border-red-200'
-        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+        ? 'bg-red-50 border-red-200 text-red-700'
+        : 'bg-emerald-50 border-emerald-200 text-emerald-700'
     }`}
   >
     {type === 'error' ? (
-      <AlertCircle size={18} className="mt-0.5 shrink-0" />
+      <AlertCircle size={16} className="shrink-0 mt-0.5" />
     ) : (
-      <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
+      <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
     )}
 
-    <p className="text-sm flex-1 break-words">{message}</p>
 
-    <button onClick={onClose} className="shrink-0 opacity-70 hover:opacity-100">
-      <X size={16} />
-    </button>
+<span className="text-sm flex-1 break-words">{message}</span>
+
+<button type="button" onClick={onClose} className="opacity-70 hover:opacity-100">
+  <X size={16} />
+</button>
+
+
+  </div>
+);
+
+const Badge = ({ children }: { children: React.ReactNode }) => ( <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-600 px-2.5 py-1 text-xs font-medium">
+{children} </span>
+);
+
+const EmptyState = ({ activeTab }: { activeTab: ShareTab }) => {
+const content = {
+with_me: {
+title: 'No shared opportunities yet',
+description: 'When another JTracker user shares a role with you, it will appear here.',
+icon: Inbox,
+},
+by_me: {
+title: 'You have not shared directly yet',
+description: 'Use the Share button on an application card to send a role to another JTracker user.',
+icon: Send,
+},
+public_links: {
+title: 'No public links yet',
+description: 'Generate a public share link from an application card to share a job outside JTracker.',
+icon: Link2,
+},
+}[activeTab];
+
+const Icon = content.icon;
+
+return ( <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 sm:p-12 text-center overflow-hidden"> <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4"> <Icon size={24} className="text-slate-500" /> </div>
+
+
+  <h3 className="text-lg font-semibold text-slate-900">{content.title}</h3>
+  <p className="text-sm text-slate-500 mt-2 max-w-lg mx-auto">{content.description}</p>
+</div>
+
+
+);
+};
+
+const SharedOpportunitiesSkeleton = () => (
+
+  <div className="w-full max-w-full overflow-hidden">
+    <div className="mb-8">
+      <div className="h-8 w-72 bg-slate-200 rounded-lg animate-pulse mb-2" />
+      <div className="h-4 w-full max-w-96 bg-slate-100 rounded-lg animate-pulse" />
+    </div>
+
+
+<div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+  {Array.from({ length: 3 }).map((_, index) => (
+    <div key={index} className="h-32 bg-white border border-slate-200 rounded-2xl animate-pulse" />
+  ))}
+</div>
+
+<div className="h-20 bg-white border border-slate-200 rounded-2xl animate-pulse mb-6" />
+
+<div className="space-y-4">
+  {Array.from({ length: 3 }).map((_, index) => (
+    <div key={index} className="h-44 bg-white border border-slate-200 rounded-2xl animate-pulse" />
+  ))}
+</div>
+
+
   </div>
 );
