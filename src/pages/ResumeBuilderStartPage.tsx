@@ -110,10 +110,10 @@ CV Intelligence workflow </p>
 
       <div className="flex flex-col sm:flex-row gap-3">
         <Link
-          to="/cv-manager"
+          to="/resume-builder/start"
           className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-700 transition"
         >
-          Start from CV Manager
+          Start tailoring
           <ArrowRight size={16} />
         </Link>
 

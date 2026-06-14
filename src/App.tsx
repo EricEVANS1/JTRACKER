@@ -22,11 +22,13 @@ import { SharedOpportunitiesPage } from './pages/SharedWithMePage';
 import { PublicSharePage } from './pages/PublicSharePage';
 import { ResumeBuilderPage } from './pages/ResumeBuilderPage';
 import { ResumeBuilderStartPage } from './pages/ResumeBuilderStartPage';
+import { ResumeBuilderFlowPage } from './pages/ResumeBuilderFlowPage';
 import { TailoredDocumentsHistoryPage } from './pages/TailoredDocumentsHistoryPage';
 
 const App: React.FC = () => {
 return ( <BrowserRouter> <AuthProvider> <Routes>
 <Route path="/auth" element={<AuthPage />} />
+
 
       <Route path="/share/:publicShareId" element={<PublicSharePage />} />
 
@@ -76,6 +78,7 @@ return ( <BrowserRouter> <AuthProvider> <Routes>
         />
 
         <Route path="/resume-builder" element={<ResumeBuilderStartPage />} />
+        <Route path="/resume-builder/start" element={<ResumeBuilderFlowPage />} />
         <Route path="/resume-builder/history" element={<TailoredDocumentsHistoryPage />} />
         <Route path="/resume-builder/:analysisId" element={<ResumeBuilderPage />} />
       </Route>
@@ -90,4 +93,3 @@ return ( <BrowserRouter> <AuthProvider> <Routes>
 };
 
 export default App;
-
