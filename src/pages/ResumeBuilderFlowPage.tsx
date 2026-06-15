@@ -5,6 +5,7 @@ AlertCircle,
 ArrowLeft,
 ArrowRight,
 Brain,
+Briefcase,
 CheckCircle2,
 ClipboardList,
 Copy,
@@ -37,6 +38,19 @@ cv_text_extracted_at: string | null;
 last_score: number | null;
 last_analyzed_at: string | null;
 created_at: string;
+}
+
+interface ApplicationItem {
+id: string;
+role_title: string;
+status: string;
+company_id: string | null;
+created_at: string;
+}
+
+interface CompanyMini {
+id: string;
+name: string;
 }
 
 interface AnalysisResult {
@@ -200,8 +214,14 @@ resetAnalysis,
 } = useCVAnalysis();
 
 const [cvVersions, setCvVersions] = useState<CVVersion[]>([]);
+const [applications, setApplications] = useState<ApplicationItem[]>([]);
+const [companiesById, setCompaniesById] = useState<Record<string, CompanyMini>>({});
+
 const [selectedCvId, setSelectedCvId] = useState('');
+const [selectedApplicationId, setSelectedApplicationId] = useState('');
+
 const [search, setSearch] = useState('');
+const [applicationSearch, setApplicationSearch] = useState('');
 const [jobDescription, setJobDescription] = useState('');
 
 const [manualTextOpen, setManualTextOpen] = useState(false);
@@ -209,8 +229,12 @@ const [manualCvText, setManualCvText] = useState('');
 const [savingManualText, setSavingManualText] = useState(false);
 
 const [loading, setLoading] = useState(true);
+const [loadingApplications, setLoadingApplications] = useState(true);
+const [attaching, setAttaching] = useState(false);
+
 const [pageError, setPageError] = useState('');
 const [message, setMessage] = useState('');
+const [attachedApplicationId, setAttachedApplicationId] = useState<string | null>(null);
 const [copied, setCopied] = useState(false);
 
 const result = analysis as AnalysisResult | null;
@@ -218,6 +242,10 @@ const result = analysis as AnalysisResult | null;
 const selectedCv = useMemo(() => {
 return cvVersions.find((item) => item.id === selectedCvId) || null;
 }, [cvVersions, selectedCvId]);
+
+const selectedApplication = useMemo(() => {
+return applications.find((item) => item.id === selectedApplicationId) || null;
+}, [applications, selectedApplicationId]);
 
 const activeStep = useMemo(() => {
 if (isDone && result) return 4;
@@ -239,6 +267,25 @@ return cvVersions.filter((cv) => {
 
 
 }, [cvVersions, search]);
+
+const filteredApplications = useMemo(() => {
+const term = applicationSearch.trim().toLowerCase();
+
+
+if (!term) return applications;
+
+return applications.filter((application) => {
+  const companyName = application.company_id
+    ? companiesById[application.company_id]?.name || ''
+    : '';
+
+  return `${application.role_title} ${application.status} ${companyName}`
+    .toLowerCase()
+    .includes(term);
+});
+
+
+}, [applications, applicationSearch, companiesById]);
 
 const generatedCvText = result?.generated_cv || '';
 
@@ -270,8 +317,73 @@ setLoading(false);
 
 };
 
+const fetchApplications = async () => {
+if (!user) return;
+
+
+setLoadingApplications(true);
+
+const { data: applicationData, error: applicationError } = await supabase
+  .from('applications')
+  .select('id, role_title, status, company_id, created_at')
+  .eq('user_id', user.id)
+  .or('archived.is.false,archived.is.null')
+  .neq('status', 'archived')
+  .order('created_at', { ascending: false });
+
+if (applicationError) {
+  setPageError(applicationError.message);
+  setApplications([]);
+  setCompaniesById({});
+  setLoadingApplications(false);
+  return;
+}
+
+const safeApplications = (applicationData || []) as ApplicationItem[];
+setApplications(safeApplications);
+
+const companyIds = Array.from(
+  new Set(
+    safeApplications
+      .map((item) => item.company_id)
+      .filter((id): id is string => Boolean(id))
+  )
+);
+
+if (companyIds.length === 0) {
+  setCompaniesById({});
+  setLoadingApplications(false);
+  return;
+}
+
+const { data: companyData, error: companyError } = await supabase
+  .from('companies')
+  .select('id, name')
+  .in('id', companyIds)
+  .eq('user_id', user.id);
+
+if (companyError) {
+  setPageError(companyError.message);
+  setCompaniesById({});
+  setLoadingApplications(false);
+  return;
+}
+
+const nextCompanies: Record<string, CompanyMini> = {};
+
+((companyData || []) as CompanyMini[]).forEach((company) => {
+  nextCompanies[company.id] = company;
+});
+
+setCompaniesById(nextCompanies);
+setLoadingApplications(false);
+
+
+};
+
 useEffect(() => {
 fetchCVVersions();
+fetchApplications();
 }, [user?.id]);
 
 useEffect(() => {
@@ -279,6 +391,11 @@ if (selectedCv) {
 setManualCvText(selectedCv.cv_text || '');
 }
 }, [selectedCv?.id]);
+
+const getCompanyName = (application: ApplicationItem) => {
+if (!application.company_id) return 'No company';
+return companiesById[application.company_id]?.name || 'Unknown company';
+};
 
 const handleSaveManualText = async () => {
 if (!user || !selectedCv) return;
@@ -324,13 +441,14 @@ setMessage('CV text saved successfully.');
 setManualTextOpen(false);
 setSavingManualText(false);
 
+
 };
 
 const handleAnalyse = async () => {
 setPageError('');
 setMessage('');
+setAttachedApplicationId(null);
 setCopied(false);
-
 
 if (!selectedCv) {
   setPageError('Choose a CV first.');
@@ -352,6 +470,7 @@ await analyzeCV({
   cvVersionId: selectedCv.id,
   jobDescription: jobDescription.trim(),
 });
+
 
 };
 
@@ -380,12 +499,66 @@ await exportAsDOCX(generatedCvText, `${baseName}.docx`);
 
 };
 
+const handleAttachToApplication = async () => {
+if (!user || !selectedCv || !result || !selectedApplicationId) {
+setPageError('Select an application before attaching the tailored CV.');
+return;
+}
+
+
+if (!result.id) {
+  setPageError('This analysis does not have a saved analysis ID yet.');
+  return;
+}
+
+setAttaching(true);
+setPageError('');
+setMessage('');
+
+const score = Number(result.score || 0);
+const fitLabel = getScoreLabel(score);
+
+const { error } = await supabase
+  .from('applications')
+  .update({
+    analysis_id: result.id,
+    cv_version_id: selectedCv.id,
+    match_score: score,
+    cv_score_at_apply: score,
+    fit_label: fitLabel,
+    job_description: jobDescription.trim() || null,
+  })
+  .eq('id', selectedApplicationId)
+  .eq('user_id', user.id);
+
+if (error) {
+  setPageError(error.message);
+  setAttaching(false);
+  return;
+}
+
+await supabase.from('application_events').insert({
+  user_id: user.id,
+  application_id: selectedApplicationId,
+  event_type: 'cv_attached',
+  title: 'Tailored CV attached',
+  description: `Attached tailored CV from Resume Builder with match score ${score}/100 (${fitLabel}).`,
+});
+
+setAttachedApplicationId(selectedApplicationId);
+setMessage('Tailored CV attached to application successfully.');
+setAttaching(false);
+
+
+};
+
 const handleReset = () => {
 resetAnalysis();
 setJobDescription('');
 setCopied(false);
 setMessage('');
 setPageError('');
+setAttachedApplicationId(null);
 };
 
 const recommendation = getRecommendation(result);
@@ -409,7 +582,7 @@ Back to Resume Builder </Link>
         </h1>
 
         <p className="text-slate-600 mt-3 max-w-2xl">
-          Choose an existing CV, paste a job description, analyse the match, then generate a tailored CV.
+          Choose an existing CV, paste a job description, analyse the match, then generate and attach a tailored CV.
         </p>
       </div>
 
@@ -828,7 +1001,7 @@ Back to Resume Builder </Link>
             </h2>
 
             <p className="text-sm text-slate-500 mt-1">
-              Copy, download, or continue editing the generated CV.
+              Copy, download, attach, or continue editing the generated CV.
             </p>
           </div>
         </div>
@@ -889,6 +1062,132 @@ Back to Resume Builder </Link>
                 <History size={16} />
                 View history
               </Link>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0">
+                  <Briefcase size={18} className="text-slate-700" />
+                </div>
+
+                <div>
+                  <h3 className="font-semibold text-slate-900">
+                    Attach to application
+                  </h3>
+
+                  <p className="text-sm text-slate-500 mt-1">
+                    Save this CV score and analysis to one of your tracked applications.
+                  </p>
+                </div>
+              </div>
+
+              {attachedApplicationId ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="text-sm font-semibold text-emerald-700">
+                    Tailored CV attached successfully.
+                  </p>
+
+                  <Link
+                    to={`/applications/${attachedApplicationId}`}
+                    className="mt-3 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm text-white hover:bg-emerald-700"
+                  >
+                    Open application
+                    <ArrowRight size={15} />
+                  </Link>
+                </div>
+              ) : (
+                <>
+                  <div className="relative mb-3">
+                    <Search
+                      size={17}
+                      className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+
+                    <input
+                      value={applicationSearch}
+                      onChange={(e) => setApplicationSearch(e.target.value)}
+                      placeholder="Search applications"
+                      className="w-full rounded-xl border border-slate-300 pl-11 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 bg-white"
+                    />
+                  </div>
+
+                  {loadingApplications ? (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-center gap-2 text-sm text-slate-500">
+                      <Loader2 size={15} className="animate-spin" />
+                      Loading applications...
+                    </div>
+                  ) : filteredApplications.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center">
+                      <Briefcase size={26} className="mx-auto text-slate-300 mb-2" />
+
+                      <p className="text-sm font-semibold text-slate-700">
+                        No applications found
+                      </p>
+
+                      <p className="text-xs text-slate-500 mt-1">
+                        Create an application first, then attach the tailored CV.
+                      </p>
+
+                      <Link
+                        to="/applications"
+                        className="mt-3 inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm text-white hover:bg-slate-700"
+                      >
+                        Go to Applications
+                        <ArrowRight size={15} />
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                      {filteredApplications.map((application) => {
+                        const selected = selectedApplicationId === application.id;
+
+                        return (
+                          <button
+                            key={application.id}
+                            type="button"
+                            onClick={() => setSelectedApplicationId(application.id)}
+                            className={`w-full text-left rounded-xl border p-3 transition ${
+                              selected
+                                ? 'border-slate-900 bg-white'
+                                : 'border-slate-200 bg-white hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-sm text-slate-900 break-words">
+                                  {application.role_title}
+                                </p>
+
+                                <p className="text-xs text-slate-500 mt-1 break-words">
+                                  {getCompanyName(application)} · {application.status.replaceAll('_', ' ')}
+                                </p>
+                              </div>
+
+                              {selected && <CheckCircle2 size={17} className="text-slate-900 shrink-0" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleAttachToApplication}
+                    disabled={attaching || !selectedApplicationId}
+                    className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    {attaching ? <Loader2 size={16} className="animate-spin" /> : <Briefcase size={16} />}
+                    {attaching ? 'Attaching...' : 'Attach to application'}
+                  </button>
+
+                  {selectedApplication && (
+                    <p className="text-xs text-slate-500 mt-2">
+                      Selected: {selectedApplication.role_title} · {getCompanyName(selectedApplication)}
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           </>
         )}
