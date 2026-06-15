@@ -1,10 +1,8 @@
-// src/pages/ApplicationsPage.tsx
-
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
 AlertCircle,
 Briefcase,
-CalendarDays,
 CheckCircle2,
 Copy,
 ExternalLink,
@@ -15,6 +13,7 @@ Search,
 Share2,
 Trash2,
 X,
+XCircle,
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
@@ -101,6 +100,12 @@ rejected_after_interview?: boolean | null;
 final_response_pending?: boolean | null;
 interview_count?: number | null;
 outcome_reason?: OutcomeReason;
+
+analysis_id?: string | null;
+match_score?: number | null;
+fit_label?: string | null;
+cv_score_at_apply?: number | null;
+job_description?: string | null;
 
 companies?: CompanyJoin | CompanyJoin[] | null;
 cv_versions?: CVVersionJoin | CVVersionJoin[] | null;
@@ -327,11 +332,11 @@ const normalised: Application[] = ((data || []) as RawApplication[]).map((app) =
 
 setApplications(normalised);
 
-
 };
 
 const fetchCVVersions = async () => {
 if (!user) return;
+
 
 const { data, error } = await supabase
   .from('cv_versions')
@@ -358,7 +363,6 @@ setRefreshing(false);
 
 useEffect(() => {
 loadPage();
-// eslint-disable-next-line react-hooks/exhaustive-deps
 }, [user?.id]);
 
 const filteredApplications = useMemo(() => {
@@ -845,7 +849,6 @@ try {
 
 setSharing(false);
 
-
 };
 
 const handleCopySummary = async () => {
@@ -883,6 +886,7 @@ try {
 
 setSharing(false);
 
+
 };
 
 const getOrCreateCompanyId = async (): Promise<string | null> => {
@@ -910,6 +914,7 @@ const { data: newCompany, error: companyError } = await supabase
 if (companyError) throw new Error(companyError.message);
 
 return newCompany.id;
+
 
 };
 
@@ -983,6 +988,7 @@ try {
 }
 
 setSaving(false);
+
 
 };
 
@@ -1234,7 +1240,7 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
     </form>
   )}
 
-  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mb-6">
+  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mb-5">
     <div className="grid grid-cols-1 xl:grid-cols-[1fr_220px] gap-3">
       <div className="relative">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1281,7 +1287,7 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
       </div>
     </div>
   ) : (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {filteredApplications.map((app, index) => (
         <ApplicationCard
           key={app.id || `application-${index}`}
@@ -1470,23 +1476,40 @@ onMarkInterviewReached: (applicationId: string) => void;
 onMarkAwaitingFinalResponse: (applicationId: string) => void;
 onMarkRejectedAfterInterview: (applicationId: string) => void;
 }) => {
-const [showLifecycle, setShowLifecycle] = useState(false);
+const [showMore, setShowMore] = useState(false);
+
 const companyName = app.companies?.name || 'No company linked';
 
-const lifecycleSteps = [
-{ label: 'Applied', date: app.date_applied || app.created_at },
-{ label: 'Response', date: app.response_received_at },
-{ label: 'Assessment', date: app.assessment_received_at },
-{ label: 'Interview', date: app.interview_started_at },
-{ label: 'Final', date: app.final_interview_started_at },
-{ label: 'Offer', date: app.offer_received_at },
-{ label: 'Rejected', date: app.rejected_at },
-];
+const score =
+app.match_score ??
+app.cv_score_at_apply ??
+null;
+
+const scoreLabel =
+app.fit_label ||
+(score === null
+? null
+: score >= 85
+? 'Strong'
+: score >= 70
+? 'Good'
+: score >= 50
+? 'Fair'
+: 'Needs work');
+
+const scoreClass =
+score === null
+? 'bg-slate-100 text-slate-600'
+: score >= 70
+? 'bg-emerald-50 text-emerald-700'
+: score >= 50
+? 'bg-amber-50 text-amber-700'
+: 'bg-red-50 text-red-700';
 
 const journeyLabel = app.rejected_after_interview
 ? 'Declined after interview'
 : app.final_response_pending
-? 'Awaiting interview response'
+? 'Awaiting final response'
 : app.reached_interview
 ? 'Interview reached'
 : 'No interview recorded';
@@ -1499,184 +1522,238 @@ const journeyClass = app.rejected_after_interview
 ? 'bg-emerald-50 text-emerald-700'
 : 'bg-slate-100 text-slate-600';
 
-return ( <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-5 hover:shadow-md transition overflow-hidden"> <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4"> <div className="flex items-start gap-3 min-w-0"> <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0"> <Briefcase size={18} className="text-slate-600" /> </div>
+const lifecycleSteps = [
+{ label: 'Applied', date: app.date_applied || app.created_at },
+{ label: 'Response', date: app.response_received_at },
+{ label: 'Assessment', date: app.assessment_received_at },
+{ label: 'Interview', date: app.interview_started_at },
+{ label: 'Final', date: app.final_interview_started_at },
+{ label: 'Offer', date: app.offer_received_at },
+];
+
+return ( <div className="group bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md transition overflow-hidden"> <div className="p-4 sm:p-5"> <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4"> <div className="flex items-start gap-3 min-w-0"> <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0"> <Briefcase size={18} className="text-slate-600" /> </div>
 
 
-      <div className="min-w-0">
-        <h3 className="text-base font-semibold text-slate-950 break-words">
-          {app.role_title || 'Untitled role'}
-        </h3>
+        <div className="min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <h3 className="text-base font-semibold text-slate-950 break-words">
+              {app.role_title || 'Untitled role'}
+            </h3>
 
-        <p className="text-sm text-slate-500 mt-0.5 break-words">
-          {companyName}
-          {app.location ? ` · ${app.location}` : ''}
-        </p>
+            <span
+              className={`inline-flex w-fit items-center rounded-full px-2.5 py-1 text-xs font-medium ${
+                statusStyle[app.status] || statusStyle.applied
+              }`}
+            >
+              {formatStatus(app.status)}
+            </span>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2 mt-3">
-          <span
-            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
-              statusStyle[app.status] || statusStyle.applied
-            }`}
-          >
-            {formatStatus(app.status)}
-          </span>
+          <p className="text-sm text-slate-500 mt-1 break-words">
+            {companyName}
+            {app.location ? ` · ${app.location}` : ''}
+          </p>
 
-          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${journeyClass}`}>
-            {journeyLabel}
-          </span>
+          <div className="flex flex-wrap items-center gap-2 mt-3">
+            {score !== null && (
+              <span
+                className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${scoreClass}`}
+              >
+                Score {score}/100{scoreLabel ? ` · ${scoreLabel}` : ''}
+              </span>
+            )}
 
-          {app.priority && <Badge>Priority: {formatStatus(app.priority)}</Badge>}
-          {app.source && <Badge>{formatStatus(app.source)}</Badge>}
-          {app.job_type && <Badge>{app.job_type}</Badge>}
-          {app.cv_versions?.name && <Badge>CV: {app.cv_versions.name}</Badge>}
+            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${journeyClass}`}>
+              {journeyLabel}
+            </span>
+
+            {app.priority && (
+              <Badge>
+                Priority: {formatStatus(app.priority)}
+              </Badge>
+            )}
+
+            {app.cv_versions?.name && (
+              <Badge>
+                CV: {app.cv_versions.name}
+              </Badge>
+            )}
+
+            {app.source && (
+              <Badge>
+                {formatStatus(app.source)}
+              </Badge>
+            )}
+
+            {app.job_type && (
+              <Badge>
+                {app.job_type}
+              </Badge>
+            )}
+          </div>
         </div>
       </div>
-    </div>
 
-    <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 w-full xl:min-w-[360px] xl:justify-end">
-      <select
-        value={app.status}
-        disabled={updating}
-        onChange={(e) => onStatusChange(app.id, e.target.value as ApplicationStatus)}
-        className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition"
-      >
-        {statusOptions
-          .filter((status) => status.value !== 'archived')
-          .map((status) => (
-            <option key={status.value} value={status.value}>
-              {status.label}
-            </option>
-          ))}
-      </select>
+      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 w-full xl:w-auto xl:justify-end">
+        <select
+          value={app.status}
+          disabled={updating}
+          onChange={(e) => onStatusChange(app.id, e.target.value as ApplicationStatus)}
+          className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition disabled:opacity-50"
+        >
+          {statusOptions
+            .filter((status) => status.value !== 'archived')
+            .map((status) => (
+              <option key={status.value} value={status.value}>
+                {status.label}
+              </option>
+            ))}
+        </select>
 
-      <button
-        onClick={() => onShare(app)}
-        className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
-      >
-        <Share2 size={14} />
-        Share
-      </button>
-
-      {app.application_link && (
-        <a
-          href={app.application_link}
-          target="_blank"
-          rel="noreferrer"
-          className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
+        <Link
+          to={`/applications/${app.id}`}
+          className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
         >
           <ExternalLink size={14} />
-          Open Role
-        </a>
-      )}
+          Open
+        </Link>
 
-      <button
-        onClick={() => onDelete(app.id)}
-        className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
-      >
-        <Trash2 size={14} />
-        Delete
-      </button>
-    </div>
-  </div>
+        <button
+          type="button"
+          onClick={() => onShare(app)}
+          className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
+        >
+          <Share2 size={14} />
+          Share
+        </button>
 
-  <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-    <CompactMeta label="Applied" value={formatDate(app.date_applied)} />
-    <CompactMeta label="Follow-up" value={formatDate(app.follow_up_date)} />
-    <CompactMeta label="Last update" value={formatDate(app.last_status_changed_at)} />
-    <CompactMeta label="Recruiter" value={app.recruiters?.name || 'None'} />
-  </div>
+        {app.application_link && (
+          <a
+            href={app.application_link}
+            target="_blank"
+            rel="noreferrer"
+            className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
+          >
+            <ExternalLink size={14} />
+            Role
+          </a>
+        )}
 
-  <div className="mt-5 border border-slate-200 rounded-xl bg-slate-50 p-4">
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-      <div className="flex items-center gap-2">
-        <CalendarDays size={15} className="text-slate-500" />
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-          Lifecycle & Interview Journey
-        </p>
+        <button
+          type="button"
+          onClick={() => onDelete(app.id)}
+          className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-red-50 hover:text-red-700 hover:border-red-200 transition inline-flex items-center justify-center gap-1.5"
+        >
+          <Trash2 size={14} />
+          Delete
+        </button>
       </div>
-
-      <button
-        type="button"
-        onClick={() => setShowLifecycle((prev) => !prev)}
-        className="text-xs font-medium text-slate-600 hover:text-slate-900"
-      >
-        {showLifecycle ? 'Hide details' : 'View details'}
-      </button>
     </div>
 
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
-      {lifecycleSteps.map((step, index) => {
-        const complete = Boolean(step.date);
+    <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2">
+      <CompactMeta label="Applied" value={formatDate(app.date_applied)} />
+      <CompactMeta label="Follow-up" value={formatDate(app.follow_up_date)} />
+      <CompactMeta label="Recruiter" value={app.recruiters?.name || 'None'} />
+      <CompactMeta label="Updated" value={formatDate(app.last_status_changed_at || app.status_updated_at || app.updated_at)} />
+    </div>
 
-        return (
-          <div key={`${step.label}-${index}`}>
-            <div className="flex items-center gap-2">
-              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${complete ? 'bg-slate-900' : 'bg-slate-300'}`} />
-              <span className={`text-xs font-medium ${complete ? 'text-slate-800' : 'text-slate-400'}`}>
+    <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+        {lifecycleSteps.map((step, index) => {
+          const complete = Boolean(step.date);
+
+          return (
+            <div key={`${step.label}-${index}`} className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${complete ? 'bg-slate-900' : 'bg-slate-300'}`} />
+              <span className={complete ? 'text-slate-700 font-medium' : 'text-slate-400'}>
                 {step.label}
               </span>
             </div>
+          );
+        })}
+      </div>
 
-            <p className="text-xs text-slate-500 mt-1 ml-4">
-              {complete ? formatDate(step.date) : '—'}
+      <button
+        type="button"
+        onClick={() => setShowMore((prev) => !prev)}
+        className="text-xs font-medium text-slate-600 hover:text-slate-900"
+      >
+        {showMore ? 'Hide details' : 'Show details'}
+      </button>
+    </div>
+
+    {showMore && (
+      <div className="mt-4 border border-slate-200 rounded-xl bg-white p-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <CompactMeta label="Response" value={formatDate(app.response_received_at)} />
+          <CompactMeta label="Assessment" value={formatDate(app.assessment_received_at)} />
+          <CompactMeta label="Interview" value={formatDate(app.interview_started_at)} />
+          <CompactMeta label="Final interview" value={formatDate(app.final_interview_started_at)} />
+          <CompactMeta label="Offer" value={formatDate(app.offer_received_at)} />
+          <CompactMeta label="Rejected" value={formatDate(app.rejected_at)} />
+          <CompactMeta label="Salary" value={app.salary_range || 'Not set'} />
+          <CompactMeta label="Outcome" value={app.outcome_reason ? formatStatus(app.outcome_reason) : 'Not set'} />
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <button
+            type="button"
+            disabled={updating}
+            onClick={() => onMarkInterviewReached(app.id)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Mark Interview Reached
+          </button>
+
+          <button
+            type="button"
+            disabled={updating}
+            onClick={() => onMarkAwaitingFinalResponse(app.id)}
+            className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+          >
+            Awaiting Final Response
+          </button>
+
+          <button
+            type="button"
+            disabled={updating}
+            onClick={() => onMarkRejectedAfterInterview(app.id)}
+            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+          >
+            Declined After Interview
+          </button>
+        </div>
+
+        {app.analysis_id && (
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+            <p className="text-xs font-semibold text-emerald-700">
+              CV Intelligence attached
             </p>
+
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mt-2">
+              <p className="text-xs text-emerald-700">
+                This application has a saved CV analysis and match score.
+              </p>
+
+              <Link
+                to={`/resume-builder/${app.analysis_id}`}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700"
+              >
+                Open tailored CV
+                <ExternalLink size={13} />
+              </Link>
+            </div>
           </div>
-        );
-      })}
-    </div>
+        )}
 
-    <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
-      <button
-        type="button"
-        disabled={updating}
-        onClick={() => onMarkInterviewReached(app.id)}
-        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-      >
-        Mark Interview Reached
-      </button>
-
-      <button
-        type="button"
-        disabled={updating}
-        onClick={() => onMarkAwaitingFinalResponse(app.id)}
-        className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
-      >
-        Awaiting Final Response
-      </button>
-
-      <button
-        type="button"
-        disabled={updating}
-        onClick={() => onMarkRejectedAfterInterview(app.id)}
-        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
-      >
-        Declined After Interview
-      </button>
-    </div>
-
-    {showLifecycle && (
-      <div className="mt-4 pt-4 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-        <CompactMeta label="Assessment" value={formatDate(app.assessment_received_at)} />
-        <CompactMeta label="Interview" value={formatDate(app.interview_started_at)} />
-        <CompactMeta label="Final Interview" value={formatDate(app.final_interview_started_at)} />
-        <CompactMeta label="Offer" value={formatDate(app.offer_received_at)} />
-        <CompactMeta label="Rejected" value={formatDate(app.rejected_at)} />
-        <CompactMeta label="Withdrawn" value={formatDate(app.withdrawn_at)} />
-        <CompactMeta label="Ghosted" value={formatDate(app.ghosted_at)} />
-        <CompactMeta label="Salary" value={app.salary_range || 'Not set'} />
-        <CompactMeta label="CV Version" value={app.cv_versions?.name || 'No CV selected'} />
-        <CompactMeta label="Reached Interview" value={app.reached_interview ? 'Yes' : 'No'} />
-        <CompactMeta label="Interview Count" value={String(app.interview_count || 0)} />
-        <CompactMeta label="Outcome" value={app.outcome_reason ? formatStatus(app.outcome_reason) : 'Not set'} />
+        {app.notes && (
+          <div className="mt-4 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-600 whitespace-pre-wrap leading-relaxed break-words">
+            {app.notes}
+          </div>
+        )}
       </div>
     )}
   </div>
-
-  {app.notes && (
-    <div className="mt-5 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-600 whitespace-pre-wrap leading-relaxed break-words">
-      {app.notes}
-    </div>
-  )}
 </div>
 
 
@@ -1745,12 +1822,12 @@ const ApplicationsSkeleton = () => (
 
 <div className="h-16 bg-white border border-slate-200 rounded-2xl animate-pulse mb-6" />
 
-<div className="space-y-4">
-  {Array.from({ length: 3 }).map((_, index) => (
-    <div key={index} className="h-64 bg-white border border-slate-200 rounded-2xl animate-pulse" />
+<div className="space-y-3">
+  {Array.from({ length: 4 }).map((_, index) => (
+    <div key={index} className="h-40 bg-white border border-slate-200 rounded-2xl animate-pulse" />
   ))}
 </div>
 
+
   </div>
 );
-
