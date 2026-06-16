@@ -13,7 +13,6 @@ Search,
 Share2,
 Trash2,
 X,
-XCircle,
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';

@@ -24,6 +24,8 @@ import { ResumeBuilderPage } from './pages/ResumeBuilderPage';
 import { ResumeBuilderStartPage } from './pages/ResumeBuilderStartPage';
 import { ResumeBuilderFlowPage } from './pages/ResumeBuilderFlowPage';
 import { TailoredDocumentsHistoryPage } from './pages/TailoredDocumentsHistoryPage';
+import { EmailSyncPage } from './pages/EmailSyncPage';
+
 
 const App: React.FC = () => {
 return ( <BrowserRouter> <AuthProvider> <Routes>
@@ -67,10 +69,7 @@ return ( <BrowserRouter> <AuthProvider> <Routes>
         <Route path="/recruiters/:id" element={<RecruiterDetailsPage />} />
         <Route path="/kanban" element={<KanbanPage />} />
 
-        <Route
-          path="/email-sync"
-          element={<Navigate to="/settings?tab=emailSync" replace />}
-        />
+        <Route path="/email-sync" element={<EmailSyncPage />} />
 
         <Route
           path="/email-events"

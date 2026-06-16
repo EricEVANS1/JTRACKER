@@ -96,7 +96,7 @@ created_at: string;
 
 interface EmailEvent {
 id: string;
-gmail_message_id: string | null;
+provider_message_id: string | null;
 received_at: string | null;
 application_id: string | null;
 }
@@ -315,7 +315,7 @@ const [
 
   supabase
     .from('email_events')
-    .select('id, gmail_message_id, received_at, application_id')
+    .select('id, provider_message_id, received_at, application_id')
     .eq('user_id', user.id),
 
   supabase
@@ -585,7 +585,7 @@ tone: 'neutral' as const,
 }, [todayStats]);
 
 const gmailStats = useMemo(() => {
-const gmailEmails = emailEvents.filter((item) => item.gmail_message_id);
+const gmailEmails = emailEvents.filter((item) => item.provider_message_id);
 const linkedEmails = emailEvents.filter((item) => item.application_id);
 
 

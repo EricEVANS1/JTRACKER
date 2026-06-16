@@ -237,7 +237,7 @@ const [message, setMessage] = useState('');
 const [attachedApplicationId, setAttachedApplicationId] = useState<string | null>(null);
 const [copied, setCopied] = useState(false);
 
-const result = analysis as AnalysisResult | null;
+const result = analysis as unknown as AnalysisResult | null;
 
 const selectedCv = useMemo(() => {
 return cvVersions.find((item) => item.id === selectedCvId) || null;

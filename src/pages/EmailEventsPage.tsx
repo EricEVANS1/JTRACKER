@@ -43,7 +43,8 @@ interface RawEmailEvent {
   snippet: string | null;
   detected_status: string | null;
   received_at: string | null;
-  gmail_message_id: string | null;
+  provider: string | null;
+  provider_message_id: string | null;
   applications?: RawApplicationSummary | RawApplicationSummary[] | null;
 }
 
@@ -54,7 +55,8 @@ interface EmailEvent {
   snippet: string | null;
   detected_status: string | null;
   received_at: string | null;
-  gmail_message_id: string | null;
+  provider: string | null;
+  provider_message_id: string | null;
   applications?: ApplicationSummary | null;
 }
 
@@ -73,7 +75,8 @@ const normalizeEmailEvent = (email: RawEmailEvent): EmailEvent => {
     snippet: email.snippet,
     detected_status: email.detected_status,
     received_at: email.received_at,
-    gmail_message_id: email.gmail_message_id,
+    provider: email.provider,
+    provider_message_id: email.provider_message_id,
     applications: application
       ? {
           id: application.id,
@@ -173,7 +176,8 @@ export const EmailEventsPage: React.FC = () => {
         snippet,
         detected_status,
         received_at,
-        gmail_message_id,
+        provider,
+        provider_message_id,
         applications (
           id,
           role_title,
@@ -276,14 +280,14 @@ export const EmailEventsPage: React.FC = () => {
           <h2 className="text-3xl font-bold mb-2">Email Intelligence Center</h2>
 
           <p className="text-slate-500 max-w-2xl">
-            Gmail recruitment events enhanced with AI-powered insights. Analyze individual emails
+            Recruitment email events enhanced with AI-powered insights. Analyze individual emails
             or get a strategic overview of your job search pipeline.
           </p>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 min-w-[280px]">
           <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold mb-3">
-            Gmail Processing Summary
+            Email Processing Summary
           </p>
 
           <div className="space-y-3">
@@ -417,7 +421,7 @@ export const EmailEventsPage: React.FC = () => {
           <h3 className="text-xl font-semibold">No Email Events Found</h3>
 
           <p className="text-slate-500 mt-2 max-w-md mx-auto">
-            Gmail-linked recruitment emails will appear here after Gmail Sync processes
+            Recruitment emails will appear here after Gmail Sync processes
             and links them to applications.
           </p>
         </div>
@@ -452,9 +456,9 @@ export const EmailEventsPage: React.FC = () => {
                             {formatStatus(statusKey)}
                           </span>
 
-                          {email.gmail_message_id && (
+                          {email.provider_message_id && (
                             <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 rounded-full text-xs font-semibold">
-                              Gmail Synced
+                              Email Synced
                             </span>
                           )}
 
@@ -652,9 +656,9 @@ export const EmailEventsPage: React.FC = () => {
                           )}
                         </div>
 
-                        {email.gmail_message_id && (
+                        {email.provider_message_id && (
                           <div className="mt-4 text-xs text-slate-400 break-all">
-                            Gmail Message ID: {email.gmail_message_id}
+                            Provider Message ID: {email.provider_message_id}
                           </div>
                         )}
                       </div>

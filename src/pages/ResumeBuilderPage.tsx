@@ -136,7 +136,7 @@ const parsePersonal = (contact: string, fallbackTitle?: string | null): Personal
   const all = lines.join(' | ');
   const email = all.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || '';
   const phone = all.match(/(\+?\d[\d\s().-]{7,}\d)/)?.[0]?.replace(/\s+/g, ' ').trim() || '';
-  const urls = all.match(/(?:https?:\/\/)?(?:www\.)?[a-z0-9.-]+\.[a-z]{2,}(?:\/[^\s|,]*)?/gi) || [];
+  const urls: string[] = all.match(/(?:https?:\/\/)?(?:www\.)?[a-z0-9.-]+\.[a-z]{2,}(?:\/[^\s|,]*)?/gi) || [];
   const linkedin = urls.find(u => u.toLowerCase().includes('linkedin')) || '';
   const github = urls.find(u => u.toLowerCase().includes('github')) || '';
   const website = urls.find(u => !u.toLowerCase().includes('linkedin') && !u.toLowerCase().includes('github') && !u.includes('@')) || '';
