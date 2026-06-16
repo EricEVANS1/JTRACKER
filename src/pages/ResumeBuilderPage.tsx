@@ -19,6 +19,7 @@ import {
   Plus,
   RefreshCcw,
   Save,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
@@ -91,6 +92,58 @@ const emptyResume: ResumeBuilderState = {
   skillsAwards: { technicalSkills: '', languages: '', trainingCertifications: '', awards: '' },
   customSections: [],
   sectionVisibility: { personal: true, summary: true, experience: true, education: true, projects: true, skillsAwards: true },
+};
+
+
+type ProfileDefaults = Partial<PersonalInfo>;
+
+const mergeProfileDefaultsIntoPersonal = (
+  personal: PersonalInfo,
+  profileDefaults: ProfileDefaults,
+  forceLinks = false,
+): PersonalInfo => ({
+  ...personal,
+  fullName: personal.fullName || profileDefaults.fullName || '',
+  email: personal.email || profileDefaults.email || '',
+  phone: personal.phone || profileDefaults.phone || '',
+  location: personal.location || profileDefaults.location || '',
+  website: forceLinks
+    ? profileDefaults.website || personal.website || ''
+    : personal.website || profileDefaults.website || '',
+  linkedin: forceLinks
+    ? profileDefaults.linkedin || personal.linkedin || ''
+    : personal.linkedin || profileDefaults.linkedin || '',
+  github: forceLinks
+    ? profileDefaults.github || personal.github || ''
+    : personal.github || profileDefaults.github || '',
+});
+
+const readBuilderState = (cvVersion?: CvVersionRecord | null): ResumeBuilderState | null => {
+  const structured = cvVersion?.structured_cv;
+  const suggestions = cvVersion?.cv_suggestions;
+
+  const state =
+    structured?.builder_state ??
+    structured?.resume_builder?.builder_state ??
+    suggestions?.builder_state ??
+    suggestions?.resume_builder?.builder_state ??
+    null;
+
+  if (!state?.personal || !Array.isArray(state?.experience)) return null;
+  return state as ResumeBuilderState;
+};
+
+const readBuilderFormatting = (cvVersion?: CvVersionRecord | null): FormattingSettings => {
+  const structured = cvVersion?.structured_cv;
+  const suggestions = cvVersion?.cv_suggestions;
+
+  return (
+    structured?.formatting ??
+    structured?.resume_builder?.formatting ??
+    suggestions?.formatting ??
+    suggestions?.resume_builder?.formatting ??
+    defaultFormatting
+  ) as FormattingSettings;
 };
 
 const templateOptions: Array<{ id: TemplateId; label: string; description: string }> = [
@@ -1062,11 +1115,12 @@ const exportAsDOCX = async (state: ResumeBuilderState, jobTitle?: string | null,
 // MAIN PAGE
 // ============================================================
 export const ResumeBuilderPage: React.FC = () => {
-  const { analysisId } = useParams();
+  const { analysisId, cvVersionId } = useParams();
   const navigate = useNavigate();
   const [analysis, setAnalysis] = useState<AnalysisRecord | null>(null);
   const [resume, setResume] = useState<ResumeBuilderState>(emptyResume);
   const [originalResume, setOriginalResume] = useState<ResumeBuilderState>(emptyResume);
+  const [profileDefaults, setProfileDefaults] = useState<ProfileDefaults>({});
   const [formatting, setFormatting] = useState<FormattingSettings>(defaultFormatting);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1089,10 +1143,70 @@ export const ResumeBuilderPage: React.FC = () => {
   useEffect(() => {
     const load = async () => {
       try {
-        setLoading(true); setError('');
-        if (!analysisId) { setResume(emptyResume); setOriginalResume(emptyResume); return; }
+        setLoading(true);
+        setError('');
+
         const { data: { user }, error: ue } = await supabase.auth.getUser();
         if (ue || !user) throw new Error('You must be logged in.');
+
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('full_name, email, linkedin_url, github_url, portfolio_url')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        const loadedProfileDefaults: ProfileDefaults = {
+          fullName: profileData?.full_name || '',
+          email: profileData?.email || user.email || '',
+          linkedin: profileData?.linkedin_url || '',
+          github: profileData?.github_url || '',
+          website: profileData?.portfolio_url || '',
+        };
+
+        setProfileDefaults(loadedProfileDefaults);
+
+        if (cvVersionId) {
+          const { data: savedCv, error: savedError } = await supabase
+            .from('cv_versions')
+            .select('id, name, target_role, cv_text, structured_cv, cv_suggestions, last_score, last_analyzed_at, source_analysis_id, parent_cv_version_id')
+            .eq('id', cvVersionId)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          if (savedError || !savedCv) throw new Error('Saved builder CV was not found.');
+
+          const cvRecord = savedCv as CvVersionRecord;
+          const savedState = readBuilderState(cvRecord);
+          const fallbackResume = cvRecord.cv_text
+            ? resumeFromGeneratedCv(cvRecord.cv_text, cvRecord.target_role)
+            : emptyResume;
+
+          const hydratedResume = {
+            ...(savedState ?? fallbackResume),
+            personal: mergeProfileDefaultsIntoPersonal(
+              (savedState ?? fallbackResume).personal,
+              loadedProfileDefaults,
+              true,
+            ),
+          };
+
+          setFormatting(readBuilderFormatting(cvRecord));
+          setAnalysis(null);
+          setResume(hydratedResume);
+          setOriginalResume(hydratedResume);
+          return;
+        }
+
+        if (!analysisId) {
+          const hydratedEmpty = {
+            ...emptyResume,
+            personal: mergeProfileDefaultsIntoPersonal(emptyResume.personal, loadedProfileDefaults, true),
+          };
+          setResume(hydratedEmpty);
+          setOriginalResume(hydratedEmpty);
+          return;
+        }
+
         const { data, error: ae } = await supabase.from('cv_analyses')
           .select(`
             id,
@@ -1100,6 +1214,7 @@ export const ResumeBuilderPage: React.FC = () => {
             cv_version_id,
             job_title,
             company_name,
+            job_description,
             generated_cv,
             score,
             matched_keywords,
@@ -1132,14 +1247,23 @@ export const ResumeBuilderPage: React.FC = () => {
           analysis: record,
         });
 
+        const hydratedResume = {
+          ...tailored.resume,
+          personal: mergeProfileDefaultsIntoPersonal(
+            tailored.resume.personal,
+            loadedProfileDefaults,
+            true,
+          ),
+        };
+
         setAnalysis(record);
-        setResume(tailored.resume);
-        setOriginalResume(tailored.resume);
+        setResume(hydratedResume);
+        setOriginalResume(hydratedResume);
       } catch (err) { setError(err instanceof Error ? err.message : 'Failed to load Resume Builder.'); }
       finally { setLoading(false); }
     };
     load();
-  }, [analysisId]);
+  }, [analysisId, cvVersionId]);
 
   const flash = (msg: string) => { setSavedMsg(msg); setTimeout(() => setSavedMsg(''), 3000); };
 
@@ -1149,6 +1273,17 @@ export const ResumeBuilderPage: React.FC = () => {
       if (!plainText.trim()) throw new Error('Resume is empty.');
       const { data: { user }, error: ue } = await supabase.auth.getUser();
       if (ue || !user) throw new Error('Not logged in.');
+      const builderPayload = {
+        source: 'resume_builder',
+        builder_state: resume,
+        formatting,
+        source_analysis_id: analysis?.id ?? null,
+        source_cv_version_id: analysis?.cv_version_id ?? null,
+        job_title: analysis?.job_title ?? resume.personal.jobTitle ?? null,
+        company_name: analysis?.company_name ?? null,
+        saved_at: new Date().toISOString(),
+      };
+
       const { error: ie } = await supabase.from('cv_versions').insert({
         user_id: user.id,
         name: `${analysis?.job_title || resume.personal.jobTitle || 'Optimized CV'} — Builder`,
@@ -1156,12 +1291,52 @@ export const ResumeBuilderPage: React.FC = () => {
         cv_text: plainText,
         last_score: analysis?.score || null,
         last_analyzed_at: new Date().toISOString(),
-        cv_suggestions: { builder_state: resume, formatting, source_analysis_id: analysis?.id ?? null },
+        source_analysis_id: analysis?.id ?? null,
+        parent_cv_version_id: analysis?.cv_version_id ?? null,
+        structured_cv: builderPayload,
+        cv_suggestions: {
+          builder_state: resume,
+          formatting,
+          source_analysis_id: analysis?.id ?? null,
+          source_cv_version_id: analysis?.cv_version_id ?? null,
+        },
       });
       if (ie) throw ie;
       flash('Saved as a new CV version in CV Manager.');
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to save.'); }
     finally { setSaving(false); }
+  };
+
+  const handleUseSettingsProfile = () => {
+    setResume((current) => ({
+      ...current,
+      personal: mergeProfileDefaultsIntoPersonal(
+        current.personal,
+        profileDefaults,
+        true,
+      ),
+    }));
+
+    flash('Personal information updated from Settings.');
+  };
+
+  const handleImproveBulletsWithJD = () => {
+    if (!analysis) {
+      flash('Open this builder from a CV analysis to use JD-aware bullet improvement.');
+      return;
+    }
+
+    const tailored = optimizeResumeForJob({ resume, analysis });
+    setResume(tailored.resume);
+
+    const bulletChanges = tailored.changes.filter((change) => change.type === 'bullet_optimized').length;
+    const mergedFragments = tailored.changes.filter((change) => change.type === 'bullet_fragments_merged').length;
+
+    if (bulletChanges || mergedFragments) {
+      flash(`Improved ${bulletChanges} JD-aware bullet(s) and cleaned ${mergedFragments} broken fragment(s).`);
+    } else {
+      flash('No safe bullet improvements were found from the current JD evidence.');
+    }
   };
 
   // State updaters
@@ -1196,7 +1371,7 @@ export const ResumeBuilderPage: React.FC = () => {
     </div>
   );
 
-  if (error && !analysis && analysisId) return (
+  if (error && !analysis && (analysisId || cvVersionId)) return (
     <div className="max-w-lg">
       <button onClick={() => navigate(-1)} className="mb-6 inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
         <ArrowLeft size={16} />Back
@@ -1235,7 +1410,7 @@ export const ResumeBuilderPage: React.FC = () => {
           </button>
           <button onClick={() => exportAsDOCX(resume, jobTitle, `${fileBase}.docx`)}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
-            <Download size={15} />DOCX
+            <Download size={15} />ATS DOCX
           </button>
           <button onClick={handleSave} disabled={saving}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-700 transition disabled:opacity-50">
@@ -1276,7 +1451,22 @@ export const ResumeBuilderPage: React.FC = () => {
             <FormattingPanel formatting={formatting} onChange={setFormatting} />
           </EditorCard>
 
-          <EditorCard title="Personal Information" collapsed={collapsed.personal} onToggle={() => setCollapsed(p => ({ ...p, personal: !p.personal }))} visible={resume.sectionVisibility.personal} onToggleVisible={() => toggleVis('personal')}>
+          <EditorCard
+            title="Personal Information"
+            collapsed={collapsed.personal}
+            onToggle={() => setCollapsed(p => ({ ...p, personal: !p.personal }))}
+            visible={resume.sectionVisibility.personal}
+            onToggleVisible={() => toggleVis('personal')}
+            action={
+              <button
+                type="button"
+                onClick={handleUseSettingsProfile}
+                className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              >
+                Use Settings Profile
+              </button>
+            }
+          >
             <PersonalEditor personal={resume.personal} onChange={upPersonal} />
           </EditorCard>
 
@@ -1285,7 +1475,18 @@ export const ResumeBuilderPage: React.FC = () => {
           </EditorCard>
 
           <EditorCard title="Experience" collapsed={collapsed.experience} onToggle={() => setCollapsed(p => ({ ...p, experience: !p.experience }))} visible={resume.sectionVisibility.experience} onToggleVisible={() => toggleVis('experience')}
-            action={<AddBtn onClick={addExp} label="Add Role" />}>
+            action={
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleImproveBulletsWithJD}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition"
+                >
+                  <Sparkles size={13} />Improve with JD
+                </button>
+                <AddBtn onClick={addExp} label="Add Role" />
+              </div>
+            }>
             <ExperienceEditor items={resume.experience} onUpdate={upExp} onRemove={delExp} onAddBullet={addExpBullet} onUpdateBullet={upExpBullet} onRemoveBullet={delExpBullet} />
           </EditorCard>
 
@@ -1515,7 +1716,7 @@ const PersonalEditor: React.FC<{ personal: PersonalInfo; onChange: (k: keyof Per
     <Field label="Phone" value={personal.phone} onChange={v => onChange('phone', v)} />
     <Field label="Location" value={personal.location} onChange={v => onChange('location', v)} placeholder="City, Country" />
     <Field label="LinkedIn" value={personal.linkedin} onChange={v => onChange('linkedin', v)} />
-    <Field label="Website" value={personal.website} onChange={v => onChange('website', v)} />
+    <Field label="Portfolio / Website" value={personal.website} onChange={v => onChange('website', v)} />
     <Field label="GitHub" value={personal.github} onChange={v => onChange('github', v)} />
   </div>
 );

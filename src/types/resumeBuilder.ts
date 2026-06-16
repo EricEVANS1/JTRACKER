@@ -123,11 +123,18 @@ export type AnalysisRecord = {
   missing_keywords?: string[] | null;
   ats_keyword_evidence?: any[] | null;
   extended_data?: any;
+  job_description?: string | null;
 };
 
 export type CvVersionRecord = {
   id: string;
+  name?: string | null;
+  target_role?: string | null;
   cv_text: string | null;
   structured_cv: any | null;
   cv_suggestions?: any | null;
+  last_score?: number | null;
+  last_analyzed_at?: string | null;
+  source_analysis_id?: string | null;
+  parent_cv_version_id?: string | null;
 };

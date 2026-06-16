@@ -79,6 +79,7 @@ return ( <BrowserRouter> <AuthProvider> <Routes>
         <Route path="/resume-builder" element={<ResumeBuilderStartPage />} />
         <Route path="/resume-builder/start" element={<ResumeBuilderFlowPage />} />
         <Route path="/resume-builder/history" element={<TailoredDocumentsHistoryPage />} />
+        <Route path="/resume-builder/saved/:cvVersionId" element={<ResumeBuilderPage />} />
         <Route path="/resume-builder/:analysisId" element={<ResumeBuilderPage />} />
       </Route>
 
