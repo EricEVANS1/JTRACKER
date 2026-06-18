@@ -25,71 +25,81 @@ import { ResumeBuilderStartPage } from './pages/ResumeBuilderStartPage';
 import { ResumeBuilderFlowPage } from './pages/ResumeBuilderFlowPage';
 import { TailoredDocumentsHistoryPage } from './pages/TailoredDocumentsHistoryPage';
 import { EmailSyncPage } from './pages/EmailSyncPage';
-
+import { JobAutomationPage } from './pages/JobAutomationPage';
 
 const App: React.FC = () => {
-return ( <BrowserRouter> <AuthProvider> <Routes>
-<Route path="/auth" element={<AuthPage />} />
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/auth" element={<AuthPage />} />
 
+          <Route path="/share/:publicShareId" element={<PublicSharePage />} />
 
-      <Route path="/share/:publicShareId" element={<PublicSharePage />} />
+          <Route
+            element={
+              <ProtectedRoute>
+                <AppLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/dashboard" element={<DashboardPage />} />
 
-      <Route
-        element={
-          <ProtectedRoute>
-            <AppLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/applications" element={<ApplicationsPage />} />
-        <Route path="/applications/:id" element={<ApplicationDetailsPage />} />
-        <Route path="/cv-manager" element={<CVManagerPage />} />
-        <Route path="/companies" element={<CompaniesPage />} />
-        <Route path="/analytics" element={<AnalyticsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/job-automation" element={<JobAutomationPage />} />
 
-        <Route
-          path="/notifications"
-          element={<Navigate to="/settings?tab=notifications" replace />}
-        />
+            <Route path="/applications" element={<ApplicationsPage />} />
+            <Route path="/applications/:id" element={<ApplicationDetailsPage />} />
 
-        <Route path="/shared" element={<SharedOpportunitiesPage />} />
-        <Route path="/shared-with-me" element={<Navigate to="/shared" replace />} />
+            <Route path="/cv-manager" element={<CVManagerPage />} />
+            <Route path="/companies" element={<CompaniesPage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
 
-        <Route path="/follow-ups" element={<FollowUpsPage />} />
-        <Route path="/archived" element={<ArchivedApplicationsPage />} />
+            <Route
+              path="/notifications"
+              element={<Navigate to="/settings?tab=notifications" replace />}
+            />
 
-        <Route
-          path="/archived-applications"
-          element={<ArchivedApplicationsPage />}
-        />
+            <Route path="/shared" element={<SharedOpportunitiesPage />} />
+            <Route path="/shared-with-me" element={<Navigate to="/shared" replace />} />
 
-        <Route path="/recruiters" element={<RecruitersPage />} />
-        <Route path="/recruiters/:id" element={<RecruiterDetailsPage />} />
-        <Route path="/kanban" element={<KanbanPage />} />
+            <Route path="/follow-ups" element={<FollowUpsPage />} />
+            <Route path="/archived" element={<ArchivedApplicationsPage />} />
 
-        <Route path="/email-sync" element={<EmailSyncPage />} />
+            <Route
+              path="/archived-applications"
+              element={<ArchivedApplicationsPage />}
+            />
 
-        <Route
-          path="/email-events"
-          element={<Navigate to="/settings?tab=emailEvents" replace />}
-        />
+            <Route path="/recruiters" element={<RecruitersPage />} />
+            <Route path="/recruiters/:id" element={<RecruiterDetailsPage />} />
+            <Route path="/kanban" element={<KanbanPage />} />
 
-        <Route path="/resume-builder" element={<ResumeBuilderStartPage />} />
-        <Route path="/resume-builder/start" element={<ResumeBuilderFlowPage />} />
-        <Route path="/resume-builder/history" element={<TailoredDocumentsHistoryPage />} />
-        <Route path="/resume-builder/saved/:cvVersionId" element={<ResumeBuilderPage />} />
-        <Route path="/resume-builder/:analysisId" element={<ResumeBuilderPage />} />
-      </Route>
+            <Route path="/email-sync" element={<EmailSyncPage />} />
 
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
-  </AuthProvider>
-</BrowserRouter>
+            <Route
+              path="/email-events"
+              element={<Navigate to="/settings?tab=emailEvents" replace />}
+            />
 
+            <Route path="/resume-builder" element={<ResumeBuilderStartPage />} />
+            <Route path="/resume-builder/start" element={<ResumeBuilderFlowPage />} />
+            <Route
+              path="/resume-builder/history"
+              element={<TailoredDocumentsHistoryPage />}
+            />
+            <Route
+              path="/resume-builder/saved/:cvVersionId"
+              element={<ResumeBuilderPage />}
+            />
+            <Route path="/resume-builder/:analysisId" element={<ResumeBuilderPage />} />
+          </Route>
 
-);
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
+  );
 };
 
 export default App;

@@ -5,6 +5,7 @@ const corsHeaders = {
 
 console.log('EXTRACT CV TEXT VERSION 2 RUNNING');
 
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
