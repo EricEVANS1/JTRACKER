@@ -1,3 +1,16 @@
+export type JobSourceSlug =
+  | 'google_jobs'
+  | 'indeed'
+  | 'linkedin'
+  | 'justjoinit'
+  | 'nofluffjobs'
+  | 'pracuj'
+  | 'pracuj_it'
+  | 'theprotocol'
+  | 'bulldogjob'
+  | 'crossweb'
+  | string;
+
 export interface UserJobPreferences {
   id?: string;
   user_id: string;
@@ -6,8 +19,8 @@ export interface UserJobPreferences {
   preferred_locations: string[];
   work_model: 'any' | 'remote' | 'hybrid' | 'onsite';
   min_match_score: number;
-  excluded_keywords: string[];
-  career_goal: string | null;
+  excluded_keywords?: string[];
+  career_goal?: string | null;
   enabled_sources: string[];
   max_job_age_days: number;
   automation_enabled: boolean;
@@ -21,7 +34,7 @@ export interface CVProfile {
 }
 
 export interface RawJob {
-  source: 'google_jobs' | 'indeed';
+  source: JobSourceSlug;
   external_id: string;
   title: string;
   company: string;

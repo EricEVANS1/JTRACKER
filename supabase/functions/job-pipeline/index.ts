@@ -171,6 +171,23 @@ async function loadCVProfile(
   };
 }
 
+function getSourceLabel(source: string) {
+  const labels: Record<string, string> = {
+    google_jobs: 'Google Jobs',
+    indeed: 'Indeed',
+    linkedin: 'LinkedIn',
+    justjoinit: 'JustJoinIT',
+    nofluffjobs: 'NoFluffJobs',
+    pracuj: 'Pracuj.pl',
+    pracuj_it: 'Pracuj.pl IT',
+    theprotocol: 'TheProtocol.it',
+    bulldogjob: 'Bulldogjob',
+    crossweb: 'Crossweb',
+  };
+
+  return labels[source] || source;
+}
+
 async function insertJobAds(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -207,7 +224,7 @@ async function insertJobAds(
     work_model: job.work_model,
     salary_range: job.salary_range,
     job_url: job.job_url,
-    source: job.source === 'google_jobs' ? 'Google Jobs' : 'Indeed',
+    source: getSourceLabel(job.source),
     source_slug: job.source,
     source_id: job.external_id,
     source_posted_at: job.source_posted_at,
