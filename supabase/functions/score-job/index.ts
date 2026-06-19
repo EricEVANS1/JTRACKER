@@ -1,5 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+// ─── types ────────────────────────────────────────────────────────────────────
+
 type Recommendation = 'recommended' | 'possible' | 'stretch' | 'not_recommended';
 
 interface ScoreRequest {
@@ -22,6 +24,14 @@ interface JobAd {
   parsed_required_skills?: string[] | null;
 }
 
+interface ScoreDimensions {
+  skills: number;
+  seniority: number;
+  domain: number;
+  logistics: number;
+  language: number;
+}
+
 interface ScoreResult {
   match_score: number;
   fit_label: string;
@@ -31,13 +41,28 @@ interface ScoreResult {
   concerns: string[];
   suggested_cv_angle: string;
   explanation: string;
-  score_breakdown: {
-    skills: number;
-    experience: number;
-    role_fit: number;
-    keywords: number;
-  };
+  score_breakdown: ScoreDimensions;
 }
+
+interface JobSignals {
+  seniority: 'junior' | 'mid' | 'senior' | 'lead' | 'any';
+  domain: string;
+  skills: string[];
+  languages: string[];
+  workModel: 'remote' | 'hybrid' | 'onsite' | 'any';
+  locationHint: string;
+}
+
+interface CvSignals {
+  seniority: 'junior' | 'mid' | 'senior' | 'lead' | 'any';
+  domain: string;
+  skills: string[];
+  languages: string[];
+  workModelPreference: 'remote' | 'hybrid' | 'onsite' | 'any';
+  locationHint: string;
+}
+
+// ─── cors ─────────────────────────────────────────────────────────────────────
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -45,25 +70,18 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const jsonResponse = (body: unknown, status = 200) => {
-  return new Response(JSON.stringify(body), {
+const jsonResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
     status,
-    headers: {
-      ...corsHeaders,
-      'Content-Type': 'application/json',
-    },
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
-};
 
-const clamp = (value: number, min = 0, max = 100) => {
-  return Math.max(min, Math.min(max, Math.round(value)));
-};
+// ─── pure utilities ───────────────────────────────────────────────────────────
 
-const normalise = (value: unknown) => {
-  return String(value || '').toLowerCase().trim();
-};
+const clamp = (value: number, min = 0, max = 100) =>
+  Math.max(min, Math.min(max, Math.round(value)));
 
-const stripHtml = (value: string | null | undefined) => {
+const stripHtml = (value: string | null | undefined): string => {
   if (!value) return '';
 
   return value
@@ -82,9 +100,7 @@ const safeArray = (value: unknown): string[] => {
   if (!value) return [];
 
   if (Array.isArray(value)) {
-    return value
-      .map((item) => String(item || '').trim())
-      .filter(Boolean);
+    return value.map((item) => String(item || '').trim()).filter(Boolean);
   }
 
   if (typeof value === 'string') {
@@ -111,7 +127,9 @@ const getFitLabel = (score: number) => {
   return 'Low fit';
 };
 
-const extractTextFromCv = (cv: Record<string, unknown>) => {
+// ─── text extraction ──────────────────────────────────────────────────────────
+
+const extractCvText = (cv: Record<string, unknown>): string => {
   const priorityFields = [
     'generated_cv',
     'cv_text',
@@ -138,12 +156,12 @@ const extractTextFromCv = (cv: Record<string, unknown>) => {
     if (!value) continue;
 
     if (typeof value === 'string') {
-      chunks.push(value);
+      chunks.push(`[${field}]\n${value}`);
     } else {
       try {
-        chunks.push(JSON.stringify(value));
+        chunks.push(`[${field}]\n${JSON.stringify(value)}`);
       } catch {
-        // Ignore values that cannot be stringified.
+        // Skip values that cannot be stringified.
       }
     }
   }
@@ -156,147 +174,600 @@ const extractTextFromCv = (cv: Record<string, unknown>) => {
     }
   }
 
-  return stripHtml(chunks.join('\n\n')).slice(0, 12000);
+  return stripHtml(chunks.join('\n\n')).slice(0, 14000);
 };
 
-const buildJobText = (job: JobAd) => {
-  return stripHtml(
+const buildJobText = (job: JobAd): string =>
+  stripHtml(
     [
       `Title: ${job.title || ''}`,
       `Company: ${job.company || ''}`,
       `Location: ${job.location || ''}`,
       `Work model: ${job.work_model || ''}`,
       `Salary: ${job.salary_range || ''}`,
-      `Source: ${job.source || job.source_slug || ''}`,
-      `Description: ${job.description || ''}`,
-      `Parsed skills: ${(job.parsed_required_skills || []).join(', ')}`,
+      `Description:\n${job.description || ''}`,
+      `Required skills: ${(job.parsed_required_skills || []).join(', ')}`,
     ].join('\n'),
-  ).slice(0, 12000);
+  ).slice(0, 14000);
+
+// ─── static signal extraction ─────────────────────────────────────────────────
+
+const SENIORITY_PATTERNS: Record<JobSignals['seniority'], RegExp> = {
+  junior: /\b(junior|jr\.?|entry[- ]level|0-2\s*years?|graduate|trainee|stażysta)\b/i,
+  mid: /\b(mid[- ]?level|regular|2-5\s*years?|mid\b|regularny)\b/i,
+  senior: /\b(senior|sr\.?|5\+?\s*years?|experienced|doświadczony|starszy)\b/i,
+  lead: /\b(lead|principal|staff|architect|head of|tech lead|lider|kierownik)\b/i,
+  any: /.*/,
 };
 
-const commonSkillKeywords = [
-  'javascript',
-  'typescript',
-  'react',
-  'node',
-  'node.js',
-  'python',
-  'java',
-  'c#',
-  '.net',
-  'sql',
-  'mysql',
-  'postgresql',
-  'supabase',
-  'firebase',
-  'aws',
-  'azure',
-  'gcp',
-  'docker',
-  'kubernetes',
-  'linux',
-  'windows',
-  'active directory',
-  'office 365',
-  'microsoft 365',
-  'jira',
-  'servicenow',
-  'zendesk',
-  'itil',
-  'tcp/ip',
-  'dns',
-  'vpn',
-  'api',
-  'rest',
-  'graphql',
-  'postman',
-  'html',
-  'css',
-  'tailwind',
-  'bootstrap',
-  'git',
-  'github',
-  'ci/cd',
-  'testing',
-  'qa',
-  'manual testing',
-  'automation testing',
-  'selenium',
-  'playwright',
-  'cypress',
-  'customer support',
-  'technical support',
-  'troubleshooting',
-  'incident management',
-  'monitoring',
-  'splunk',
-  'logs',
-  'networking',
-  'security',
-  'cybersecurity',
-  'machine learning',
-  'data analysis',
-  'excel',
-  'power bi',
+const detectSeniority = (text: string): JobSignals['seniority'] => {
+  for (const [level, regex] of Object.entries(SENIORITY_PATTERNS) as [
+    JobSignals['seniority'],
+    RegExp,
+  ][]) {
+    if (level !== 'any' && regex.test(text)) return level;
+  }
+
+  return 'any';
+};
+
+const DOMAIN_PATTERNS: Array<[string, RegExp]> = [
+  [
+    'IT Support / Helpdesk',
+    /\b(helpdesk|help desk|it support|technical support|service desk|l1|l2|l3|itil|service now|servicenow|zendesk)\b/i,
+  ],
+  [
+    'Software Engineering',
+    /\b(software engineer|software developer|developer|full[- ]stack|backend|frontend|devops|sre|platform engineer)\b/i,
+  ],
+  [
+    'Data / Analytics',
+    /\b(data engineer|data scientist|analyst|bi developer|power bi|tableau|etl|machine learning|ml engineer)\b/i,
+  ],
+  [
+    'QA / Testing',
+    /\b(qa engineer|test engineer|quality assurance|automation tester|selenium|cypress|playwright)\b/i,
+  ],
+  [
+    'Cybersecurity',
+    /\b(security engineer|soc analyst|penetration|siem|threat|vulnerability|cybersecurity|infosec)\b/i,
+  ],
+  [
+    'Cloud / Infrastructure',
+    /\b(cloud engineer|aws|azure|gcp|terraform|kubernetes|sysadmin|system administrator|infrastructure)\b/i,
+  ],
+  [
+    'Product / Project Mgmt',
+    /\b(product manager|project manager|scrum master|agile coach|program manager|pm\b|pmo)\b/i,
+  ],
+  [
+    'Sales / Customer Success',
+    /\b(account manager|customer success|sales engineer|pre-sales|business development|bdm)\b/i,
+  ],
+  [
+    'Finance / Accounting',
+    /\b(accountant|finance|controller|bookkeeper|tax|treasury|księgowy|finansowy)\b/i,
+  ],
+  [
+    'HR / Recruitment',
+    /\b(recruiter|talent acquisition|hr business partner|hrbp|people ops|human resources)\b/i,
+  ],
+  ['Marketing', /\b(marketing|seo|sem|ppc|content|social media|growth hacker|demand gen)\b/i],
 ];
 
-const fallbackScore = (jobText: string, cvText: string): ScoreResult => {
-  const jobLower = normalise(jobText);
-  const cvLower = normalise(cvText);
+const detectDomain = (text: string): string => {
+  for (const [domain, regex] of DOMAIN_PATTERNS) {
+    if (regex.test(text)) return domain;
+  }
 
-  const jobSkills = commonSkillKeywords.filter((skill) => jobLower.includes(skill));
-  const matchedSkills = jobSkills.filter((skill) => cvLower.includes(skill));
-  const missingSkills = jobSkills.filter((skill) => !cvLower.includes(skill));
+  return 'General';
+};
 
-  const matchRatio = jobSkills.length > 0 ? matchedSkills.length / jobSkills.length : 0.35;
+const detectWorkModel = (
+  text: string,
+  explicit?: string | null,
+): 'remote' | 'hybrid' | 'onsite' | 'any' => {
+  const haystack = `${explicit || ''} ${text}`.toLowerCase();
 
-  const roleBonusKeywords = [
-    'support',
-    'technical',
-    'engineer',
-    'software',
-    'customer',
-    'jira',
-    'troubleshooting',
-    'linux',
-    'sql',
-    'react',
-    'typescript',
+  if (/fully remote|100%\s*remote|remote[- ]only|praca zdalna|zdalnie/.test(haystack)) {
+    return 'remote';
+  }
+
+  if (/hybrid|hybrydowy|partially remote|częściowo zdalnie/.test(haystack)) {
+    return 'hybrid';
+  }
+
+  if (/on-?site|in[- ]office|on[- ]premise|stacjonarnie|w biurze/.test(haystack)) {
+    return 'onsite';
+  }
+
+  return 'any';
+};
+
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const extractSkillTokens = (text: string): string[] => {
+  const lower = text.toLowerCase();
+
+  const multiWordTerms = [
+    'machine learning',
+    'deep learning',
+    'natural language processing',
+    'computer vision',
+    'active directory',
+    'office 365',
+    'microsoft 365',
+    'google workspace',
+    'power bi',
+    'power automate',
+    'power apps',
+    'node.js',
+    'next.js',
+    'vue.js',
+    'nuxt.js',
+    'express.js',
+    'react native',
+    'flutter',
+    'xamarin',
+    'ci/cd',
+    'rest api',
+    'graphql',
+    'web services',
+    'test driven',
+    'behavior driven',
+    'customer support',
+    'technical support',
+    'customer success',
+    'project management',
+    'product management',
+    'incident management',
+    'change management',
+    'problem management',
+    'manual testing',
+    'automation testing',
+    'performance testing',
+    'sql server',
+    'ms sql',
+    'oracle db',
+    'spring boot',
+    'asp.net',
+    '.net core',
+    'google cloud',
+    'amazon web services',
   ];
 
-  const roleHits = roleBonusKeywords.filter(
-    (keyword) => jobLower.includes(keyword) && cvLower.includes(keyword),
-  ).length;
+  const singleWordTerms = [
+    'javascript',
+    'typescript',
+    'python',
+    'java',
+    'kotlin',
+    'swift',
+    'go',
+    'golang',
+    'rust',
+    'ruby',
+    'php',
+    'scala',
+    'c#',
+    'c++',
+    'bash',
+    'powershell',
+    'react',
+    'angular',
+    'vue',
+    'svelte',
+    'tailwind',
+    'bootstrap',
+    'webpack',
+    'node',
+    'django',
+    'flask',
+    'fastapi',
+    'rails',
+    'laravel',
+    'symfony',
+    'postgresql',
+    'mysql',
+    'mongodb',
+    'redis',
+    'elasticsearch',
+    'cassandra',
+    'supabase',
+    'firebase',
+    'dynamodb',
+    'aws',
+    'azure',
+    'gcp',
+    'terraform',
+    'ansible',
+    'pulumi',
+    'docker',
+    'kubernetes',
+    'helm',
+    'nginx',
+    'linux',
+    'ubuntu',
+    'debian',
+    'git',
+    'github',
+    'gitlab',
+    'bitbucket',
+    'jenkins',
+    'jira',
+    'confluence',
+    'notion',
+    'servicenow',
+    'zendesk',
+    'freshdesk',
+    'prometheus',
+    'grafana',
+    'datadog',
+    'splunk',
+    'kibana',
+    'elk',
+    'selenium',
+    'playwright',
+    'cypress',
+    'jest',
+    'pytest',
+    'junit',
+    'figma',
+    'sketch',
+    'zeplin',
+    'invision',
+    'scrum',
+    'kanban',
+    'agile',
+    'waterfall',
+    'itil',
+    'prince2',
+    'excel',
+    'powerpoint',
+    'word',
+    'sharepoint',
+    'tableau',
+    'looker',
+    'networking',
+    'tcp/ip',
+    'dns',
+    'dhcp',
+    'vpn',
+    'firewall',
+    'wireshark',
+    'security',
+    'cybersecurity',
+    'owasp',
+    'siem',
+    'soc',
+    'compliance',
+    'api',
+    'microservices',
+    'kafka',
+    'rabbitmq',
+    'grpc',
+    'salesforce',
+    'sap',
+    'dynamics',
+    'hubspot',
+    'communication',
+    'leadership',
+    'mentoring',
+    'coaching',
+    'english',
+    'polish',
+    'german',
+    'french',
+    'spanish',
+  ];
 
-  const baseScore = 45 + matchRatio * 40 + Math.min(roleHits * 2, 15);
-  const finalScore = clamp(baseScore);
+  const frequency = new Map<string, number>();
+
+  const countTerm = (term: string) => {
+    let count = 0;
+    let position = 0;
+
+    while ((position = lower.indexOf(term, position)) !== -1) {
+      count += 1;
+      position += term.length;
+    }
+
+    if (count > 0) {
+      frequency.set(term, (frequency.get(term) ?? 0) + count);
+    }
+  };
+
+  for (const term of multiWordTerms) {
+    countTerm(term);
+  }
+
+  for (const term of singleWordTerms) {
+    const escaped = escapeRegex(term);
+
+    // Edge-safe replacement for negative lookbehind.
+    // Captures term boundaries without using (?<!...), which can be risky in some runtimes.
+    const regex = new RegExp(`(^|[^a-z0-9+#.])${escaped}([^a-z0-9+#.]|$)`, 'gi');
+
+    const hits = Array.from(lower.matchAll(regex)).length;
+
+    if (hits > 0) {
+      frequency.set(term, (frequency.get(term) ?? 0) + hits);
+    }
+  }
+
+  return Array.from(frequency.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([term]) => term);
+};
+
+const extractLanguages = (text: string): string[] => {
+  const languages: string[] = [];
+
+  const patterns: [string, RegExp][] = [
+    ['English', /\b(english|angielski|język angielski)\b/i],
+    ['Polish', /\b(polish|polski|język polski)\b/i],
+    ['German', /\b(german|deutsch|język niemiecki|niemiec)\b/i],
+    ['French', /\b(french|français|język francuski)\b/i],
+    ['Spanish', /\b(spanish|español|język hiszpański)\b/i],
+    ['Czech', /\b(czech|čeština|język czeski)\b/i],
+  ];
+
+  for (const [language, regex] of patterns) {
+    if (regex.test(text)) {
+      languages.push(language);
+    }
+  }
+
+  return languages;
+};
+
+const extractJobSignals = (job: JobAd): JobSignals => {
+  const fullText = `${job.title || ''} ${job.description || ''} ${job.work_model || ''}`;
 
   return {
-    match_score: finalScore,
-    fit_label: getFitLabel(finalScore),
-    recommendation: getRecommendation(finalScore),
-    matched_skills: matchedSkills.slice(0, 12),
-    missing_skills: missingSkills.slice(0, 12),
-    concerns:
-      missingSkills.length > 0
-        ? [`Missing or unclear evidence for: ${missingSkills.slice(0, 5).join(', ')}`]
-        : [],
-    suggested_cv_angle:
-      matchedSkills.length > 0
-        ? `Emphasise your experience with ${matchedSkills.slice(0, 5).join(', ')} and connect it directly to the job requirements.`
-        : 'Emphasise transferable support, troubleshooting, communication, and technical problem-solving experience.',
-    explanation:
-      'Fallback scoring was used because AI scoring was unavailable. The score is based on keyword and skill overlap between the CV and job description.',
-    score_breakdown: {
-      skills: clamp(matchRatio * 100),
-      experience: clamp(50 + roleHits * 5),
-      role_fit: finalScore,
-      keywords: clamp(matchRatio * 100),
-    },
+    seniority: detectSeniority(fullText),
+    domain: detectDomain(fullText),
+    skills: extractSkillTokens(fullText),
+    languages: extractLanguages(fullText),
+    workModel: detectWorkModel(fullText, job.work_model),
+    locationHint: job.location || '',
   };
 };
 
-const extractJsonObject = (text: string) => {
+const extractCvSignals = (cvText: string): CvSignals => ({
+  seniority: detectSeniority(cvText),
+  domain: detectDomain(cvText),
+  skills: extractSkillTokens(cvText),
+  languages: extractLanguages(cvText),
+  workModelPreference: detectWorkModel(cvText),
+  locationHint: '',
+});
+
+// ─── dimension weights ────────────────────────────────────────────────────────
+
+const getDimensionWeights = (domain: string): ScoreDimensions => {
+  const base = {
+    skills: 0.4,
+    seniority: 0.2,
+    domain: 0.2,
+    logistics: 0.1,
+    language: 0.1,
+  };
+
+  if (/IT Support|Helpdesk|Service Desk/i.test(domain)) {
+    return {
+      ...base,
+      skills: 0.35,
+      domain: 0.25,
+    };
+  }
+
+  if (/Software Engineering/i.test(domain)) {
+    return {
+      ...base,
+      skills: 0.45,
+      seniority: 0.25,
+      domain: 0.15,
+      logistics: 0.1,
+      language: 0.05,
+    };
+  }
+
+  if (/Data|Analytics/i.test(domain)) {
+    return {
+      ...base,
+      skills: 0.45,
+      domain: 0.25,
+      seniority: 0.15,
+      logistics: 0.1,
+      language: 0.05,
+    };
+  }
+
+  if (/Cybersecurity/i.test(domain)) {
+    return {
+      ...base,
+      skills: 0.4,
+      domain: 0.3,
+      seniority: 0.15,
+      logistics: 0.1,
+      language: 0.05,
+    };
+  }
+
+  if (/Sales|Customer Success/i.test(domain)) {
+    return {
+      ...base,
+      skills: 0.25,
+      domain: 0.25,
+      language: 0.25,
+      logistics: 0.15,
+      seniority: 0.1,
+    };
+  }
+
+  if (/HR|Recruitment/i.test(domain)) {
+    return {
+      ...base,
+      skills: 0.25,
+      domain: 0.25,
+      language: 0.25,
+      logistics: 0.15,
+      seniority: 0.1,
+    };
+  }
+
+  return base;
+};
+
+// ─── fallback scorer ──────────────────────────────────────────────────────────
+
+const fallbackScoreDimensions = (
+  jobSignals: JobSignals,
+  cvSignals: CvSignals,
+): ScoreDimensions => {
+  const cvSkillSet = new Set(cvSignals.skills);
+
+  const matched = jobSignals.skills.filter((skill) => cvSkillSet.has(skill));
+
+  const weightedTotal = jobSignals.skills.reduce((acc, _skill, index) => acc + 1 / (index + 1), 0);
+
+  const weightedMatched = matched.reduce((acc, skill) => {
+    const rank = jobSignals.skills.indexOf(skill);
+    return acc + 1 / (rank + 1);
+  }, 0);
+
+  const skillsScore =
+    jobSignals.skills.length > 0 ? clamp((weightedMatched / weightedTotal) * 100) : 50;
+
+  const seniorityOrder: Record<JobSignals['seniority'], number> = {
+    junior: 1,
+    mid: 2,
+    senior: 3,
+    lead: 4,
+    any: 2,
+  };
+
+  const jobLevel = seniorityOrder[jobSignals.seniority];
+  const cvLevel = seniorityOrder[cvSignals.seniority];
+  const difference = cvLevel - jobLevel;
+
+  let seniorityScore: number;
+
+  if (difference === 0) seniorityScore = 100;
+  else if (difference === 1) seniorityScore = 80;
+  else if (difference === -1) seniorityScore = 60;
+  else if (difference >= 2) seniorityScore = 70;
+  else seniorityScore = 35;
+
+  if (jobSignals.seniority === 'any' || cvSignals.seniority === 'any') {
+    seniorityScore = 75;
+  }
+
+  const domainScore =
+    jobSignals.domain === cvSignals.domain
+      ? 100
+      : jobSignals.domain === 'General' || cvSignals.domain === 'General'
+        ? 60
+        : 35;
+
+  let logisticsScore = 80;
+
+  const jobModel = jobSignals.workModel;
+  const cvModel = cvSignals.workModelPreference;
+
+  if (jobModel !== 'any' && cvModel !== 'any') {
+    logisticsScore = jobModel === cvModel ? 100 : jobModel === 'hybrid' ? 70 : 45;
+  }
+
+  if (jobModel === 'remote') {
+    logisticsScore = Math.max(logisticsScore, 85);
+  }
+
+  let languageScore = 80;
+
+  if (jobSignals.languages.length > 0) {
+    const cvLanguages = new Set(cvSignals.languages.map((language) => language.toLowerCase()));
+    const matchedLanguages = jobSignals.languages.filter((language) =>
+      cvLanguages.has(language.toLowerCase()),
+    );
+
+    languageScore = clamp((matchedLanguages.length / jobSignals.languages.length) * 100);
+
+    if (jobSignals.languages.includes('English') && !cvLanguages.has('english')) {
+      languageScore = Math.max(languageScore, 50);
+    }
+  }
+
+  return {
+    skills: clamp(skillsScore),
+    seniority: clamp(seniorityScore),
+    domain: clamp(domainScore),
+    logistics: clamp(logisticsScore),
+    language: clamp(languageScore),
+  };
+};
+
+const aggregateDimensions = (dimensions: ScoreDimensions, weights: ScoreDimensions): number =>
+  clamp(
+    dimensions.skills * weights.skills +
+      dimensions.seniority * weights.seniority +
+      dimensions.domain * weights.domain +
+      dimensions.logistics * weights.logistics +
+      dimensions.language * weights.language,
+  );
+
+const fallbackScore = (jobSignals: JobSignals, cvSignals: CvSignals): ScoreResult => {
+  const dimensions = fallbackScoreDimensions(jobSignals, cvSignals);
+  const weights = getDimensionWeights(jobSignals.domain);
+  const score = aggregateDimensions(dimensions, weights);
+
+  const matched = jobSignals.skills.filter((skill) => cvSignals.skills.includes(skill));
+  const missing = jobSignals.skills.filter((skill) => !cvSignals.skills.includes(skill));
+
+  const concerns: string[] = [];
+
+  if (dimensions.seniority < 50) {
+    concerns.push(
+      `Seniority gap: job wants ${jobSignals.seniority}, CV shows ${cvSignals.seniority}.`,
+    );
+  }
+
+  if (dimensions.domain < 50) {
+    concerns.push(
+      `Domain mismatch: job is ${jobSignals.domain}, CV is oriented toward ${cvSignals.domain}.`,
+    );
+  }
+
+  if (dimensions.language < 60) {
+    concerns.push(`Language gap: job requires ${jobSignals.languages.join(', ')}.`);
+  }
+
+  if (dimensions.logistics < 50) {
+    concerns.push(`Work-model mismatch: job is ${jobSignals.workModel}.`);
+  }
+
+  const cvAngle =
+    matched.length > 0
+      ? `Emphasise ${matched.slice(0, 4).join(', ')} — these are your strongest overlaps with the role.`
+      : `Focus on transferable skills from ${cvSignals.domain} that map onto ${jobSignals.domain}.`;
+
+  return {
+    match_score: score,
+    fit_label: getFitLabel(score),
+    recommendation: getRecommendation(score),
+    matched_skills: matched.slice(0, 12),
+    missing_skills: missing.slice(0, 12),
+    concerns,
+    suggested_cv_angle: cvAngle,
+    explanation: `Fallback scoring was used. Skills: ${dimensions.skills}/100 · Seniority: ${dimensions.seniority}/100 · Domain: ${dimensions.domain}/100 · Logistics: ${dimensions.logistics}/100 · Language: ${dimensions.language}/100.`,
+    score_breakdown: dimensions,
+  };
+};
+
+// ─── AI scoring ───────────────────────────────────────────────────────────────
+
+const extractJsonObject = (text: string): unknown => {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
 
@@ -307,80 +778,126 @@ const extractJsonObject = (text: string) => {
   return JSON.parse(text.slice(start, end + 1));
 };
 
-const validateAiScore = (value: unknown): ScoreResult => {
-  const raw = value as Partial<ScoreResult>;
+const validateAiScore = (
+  value: unknown,
+  jobSignals: JobSignals,
+  cvSignals: CvSignals,
+): ScoreResult => {
+  const raw = value as Record<string, unknown>;
 
-  const score = clamp(Number(raw.match_score ?? 0));
+  const rawScore = Number(raw.match_score ?? 0);
+  const score = clamp(rawScore);
+
+  const rawBreakdown = (raw.score_breakdown ?? {}) as Record<string, unknown>;
+
+  const aiDimensions: ScoreDimensions = {
+    skills: clamp(Number(rawBreakdown.skills ?? rawBreakdown.skill_match ?? score)),
+    seniority: clamp(Number(rawBreakdown.seniority ?? rawBreakdown.experience ?? score)),
+    domain: clamp(Number(rawBreakdown.domain ?? rawBreakdown.role_fit ?? score)),
+    logistics: clamp(Number(rawBreakdown.logistics ?? score)),
+    language: clamp(Number(rawBreakdown.language ?? rawBreakdown.keywords ?? score)),
+  };
+
+  const allSame = Object.values(aiDimensions).every((value) => value === aiDimensions.skills);
+
+  const dimensions = allSame ? fallbackScoreDimensions(jobSignals, cvSignals) : aiDimensions;
+
+  const weights = getDimensionWeights(jobSignals.domain);
+  const finalScore = allSame ? aggregateDimensions(dimensions, weights) : score;
+
   const recommendation = (
-    ['recommended', 'possible', 'stretch', 'not_recommended'].includes(
-      String(raw.recommendation),
-    )
+    ['recommended', 'possible', 'stretch', 'not_recommended'].includes(String(raw.recommendation))
       ? raw.recommendation
-      : getRecommendation(score)
+      : getRecommendation(finalScore)
   ) as Recommendation;
 
   return {
-    match_score: score,
-    fit_label: String(raw.fit_label || getFitLabel(score)),
+    match_score: finalScore,
+    fit_label: String(raw.fit_label || getFitLabel(finalScore)),
     recommendation,
     matched_skills: safeArray(raw.matched_skills).slice(0, 12),
     missing_skills: safeArray(raw.missing_skills).slice(0, 12),
     concerns: safeArray(raw.concerns).slice(0, 8),
     suggested_cv_angle: String(raw.suggested_cv_angle || ''),
     explanation: String(raw.explanation || ''),
-    score_breakdown: {
-      skills: clamp(Number(raw.score_breakdown?.skills ?? score)),
-      experience: clamp(Number(raw.score_breakdown?.experience ?? score)),
-      role_fit: clamp(Number(raw.score_breakdown?.role_fit ?? score)),
-      keywords: clamp(Number(raw.score_breakdown?.keywords ?? score)),
-    },
+    score_breakdown: dimensions,
   };
 };
 
-const scoreWithGroq = async (jobText: string, cvText: string): Promise<ScoreResult | null> => {
-  const apiKey = Deno.env.get('GROQ_API_KEY');
+const buildScoringPrompt = (jobText: string, cvText: string, jobSignals: JobSignals): string => {
+  const weights = getDimensionWeights(jobSignals.domain);
 
-  if (!apiKey) return null;
+  const weightLines = [
+    `  - skills (${Math.round(weights.skills * 100)}% weight): hard-skill overlap, tech stack match`,
+    `  - seniority (${Math.round(weights.seniority * 100)}% weight): years of experience and responsibility level`,
+    `  - domain (${Math.round(weights.domain * 100)}% weight): is this the same type of work?`,
+    `  - logistics (${Math.round(weights.logistics * 100)}% weight): work model and location fit`,
+    `  - language (${Math.round(weights.language * 100)}% weight): natural language requirements`,
+  ].join('\n');
 
-  const model = Deno.env.get('GROQ_MODEL') || 'llama-3.1-8b-instant';
+  return `You are a senior recruiter and ATS expert scoring a CV against a job description.
 
-  const prompt = `
-You are an ATS and recruiter-style job matching assistant.
+CONTEXT
+- Job domain: ${jobSignals.domain}
+- Job seniority: ${jobSignals.seniority}
+- Work model: ${jobSignals.workModel}
+- Key skills in JD: ${jobSignals.skills.slice(0, 15).join(', ')}
+- Languages required: ${jobSignals.languages.join(', ') || 'not specified'}
 
-Compare the CV against the job description.
+SCORING DIMENSIONS AND WEIGHTS
+${weightLines}
 
-Return ONLY valid JSON with this exact structure:
+Compute a weighted average to get match_score (0–100).
+Be strict: only give credit for skills and experience that are clearly evidenced in the CV.
+Do NOT give benefit of the doubt for vague or missing details.
+
+Scoring thresholds:
+  85–100 → recommended
+  70–84  → possible
+  55–69  → stretch
+  0–54   → not_recommended
+
+Return ONLY valid JSON — no markdown, no explanation outside the JSON:
+
 {
-  "match_score": 0,
-  "fit_label": "Strong fit | Good fit | Stretch fit | Low fit",
-  "recommendation": "recommended | possible | stretch | not_recommended",
-  "matched_skills": [],
-  "missing_skills": [],
-  "concerns": [],
-  "suggested_cv_angle": "",
-  "explanation": "",
+  "match_score": <weighted average 0–100>,
+  "fit_label": "<Strong fit | Good fit | Stretch fit | Low fit>",
+  "recommendation": "<recommended | possible | stretch | not_recommended>",
+  "matched_skills": ["<skill>", ...],
+  "missing_skills": ["<skill>", ...],
+  "concerns": ["<specific concern>", ...],
+  "suggested_cv_angle": "<1–2 sentences on how to tailor the CV for this role>",
+  "explanation": "<2–3 sentences explaining the score rationale>",
   "score_breakdown": {
-    "skills": 0,
-    "experience": 0,
-    "role_fit": 0,
-    "keywords": 0
+    "skills": <0–100>,
+    "seniority": <0–100>,
+    "domain": <0–100>,
+    "logistics": <0–100>,
+    "language": <0–100>
   }
 }
-
-Scoring guide:
-85-100 = recommended
-70-84 = possible
-55-69 = stretch
-0-54 = not_recommended
-
-Be strict but fair. Focus on evidence in the CV.
 
 JOB DESCRIPTION:
 ${jobText}
 
+---
+
 CV:
-${cvText}
-`;
+${cvText}`;
+};
+
+const scoreWithGroq = async (
+  jobText: string,
+  cvText: string,
+  jobSignals: JobSignals,
+  cvSignals: CvSignals,
+): Promise<ScoreResult | null> => {
+  const apiKey = Deno.env.get('GROQ_API_KEY');
+
+  if (!apiKey) return null;
+
+  const model = Deno.env.get('GROQ_MODEL') || 'llama-3.3-70b-versatile';
+  const prompt = buildScoringPrompt(jobText, cvText, jobSignals);
 
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -390,12 +907,12 @@ ${cvText}
     },
     body: JSON.stringify({
       model,
-      temperature: 0.2,
+      temperature: 0.15,
+      max_tokens: 800,
       messages: [
         {
           role: 'system',
-          content:
-            'You score job matches. You only return valid JSON. Do not include markdown.',
+          content: 'You are a job-matching evaluator. Return only valid JSON. No markdown. No commentary.',
         },
         {
           role: 'user',
@@ -406,7 +923,7 @@ ${cvText}
   });
 
   if (!response.ok) {
-    console.error('Groq scoring failed:', await response.text());
+    console.error('Groq scoring failed:', response.status, await response.text());
     return null;
   }
 
@@ -415,12 +932,14 @@ ${cvText}
 
   if (!content) return null;
 
-  return validateAiScore(extractJsonObject(content));
+  return validateAiScore(extractJsonObject(content), jobSignals, cvSignals);
 };
 
 const scoreWithLlamaEndpoint = async (
   jobText: string,
   cvText: string,
+  jobSignals: JobSignals,
+  cvSignals: CvSignals,
 ): Promise<ScoreResult | null> => {
   const apiKey = Deno.env.get('LLAMA_API_KEY');
   const apiUrl = Deno.env.get('LLAMA_API_URL');
@@ -428,33 +947,7 @@ const scoreWithLlamaEndpoint = async (
 
   if (!apiKey || !apiUrl) return null;
 
-  const prompt = `
-Compare this CV with this job description and return ONLY valid JSON.
-
-JSON format:
-{
-  "match_score": 0,
-  "fit_label": "Strong fit | Good fit | Stretch fit | Low fit",
-  "recommendation": "recommended | possible | stretch | not_recommended",
-  "matched_skills": [],
-  "missing_skills": [],
-  "concerns": [],
-  "suggested_cv_angle": "",
-  "explanation": "",
-  "score_breakdown": {
-    "skills": 0,
-    "experience": 0,
-    "role_fit": 0,
-    "keywords": 0
-  }
-}
-
-JOB:
-${jobText}
-
-CV:
-${cvText}
-`;
+  const prompt = buildScoringPrompt(jobText, cvText, jobSignals);
 
   const response = await fetch(apiUrl, {
     method: 'POST',
@@ -464,22 +957,24 @@ ${cvText}
     },
     body: JSON.stringify({
       model,
+      temperature: 0.15,
+      max_tokens: 800,
       messages: [
         {
           role: 'user',
           content: prompt,
         },
       ],
-      temperature: 0.2,
     }),
   });
 
   if (!response.ok) {
-    console.error('Llama scoring failed:', await response.text());
+    console.error('Llama scoring failed:', response.status, await response.text());
     return null;
   }
 
   const data = await response.json();
+
   const content =
     data?.choices?.[0]?.message?.content ||
     data?.completion ||
@@ -488,32 +983,35 @@ ${cvText}
 
   if (!content) return null;
 
-  return validateAiScore(extractJsonObject(String(content)));
+  return validateAiScore(extractJsonObject(String(content)), jobSignals, cvSignals);
 };
 
-const scoreJob = async (jobText: string, cvText: string): Promise<ScoreResult> => {
+const scoreJob = async (
+  jobText: string,
+  cvText: string,
+  jobSignals: JobSignals,
+  cvSignals: CvSignals,
+): Promise<ScoreResult> => {
   try {
-    const groqResult = await scoreWithGroq(jobText, cvText);
+    const groqResult = await scoreWithGroq(jobText, cvText, jobSignals, cvSignals);
 
-    if (groqResult) {
-      return groqResult;
-    }
+    if (groqResult) return groqResult;
   } catch (error) {
-    console.error('Groq score parse failed:', error);
+    console.error('Groq cascade error:', error);
   }
 
   try {
-    const llamaResult = await scoreWithLlamaEndpoint(jobText, cvText);
+    const llamaResult = await scoreWithLlamaEndpoint(jobText, cvText, jobSignals, cvSignals);
 
-    if (llamaResult) {
-      return llamaResult;
-    }
+    if (llamaResult) return llamaResult;
   } catch (error) {
-    console.error('Llama score parse failed:', error);
+    console.error('Llama cascade error:', error);
   }
 
-  return fallbackScore(jobText, cvText);
+  return fallbackScore(jobSignals, cvSignals);
 };
+
+// ─── edge function handler ────────────────────────────────────────────────────
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
@@ -651,7 +1149,7 @@ Deno.serve(async (request) => {
 
     const typedJob = job as JobAd;
     const jobText = buildJobText(typedJob);
-    const cvText = extractTextFromCv(cv as Record<string, unknown>);
+    const cvText = extractCvText(cv as Record<string, unknown>);
 
     if (!jobText) {
       return jsonResponse(
@@ -673,17 +1171,13 @@ Deno.serve(async (request) => {
       );
     }
 
-    const score = await scoreJob(jobText, cvText);
+    const jobSignals = extractJobSignals(typedJob);
+    const cvSignals = extractCvSignals(cvText);
 
-    const { data: existingMatch } = await supabase
-      .from('job_match_results')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('job_ad_id', jobAdId)
-      .eq('cv_version_id', cvVersionId)
-      .maybeSingle();
+    console.log('Job signals:', JSON.stringify(jobSignals));
+    console.log('CV signals:', JSON.stringify(cvSignals));
 
-    let savedMatch;
+    const score = await scoreJob(jobText, cvText, jobSignals, cvSignals);
 
     const matchPayload = {
       user_id: user.id,
@@ -698,52 +1192,44 @@ Deno.serve(async (request) => {
       suggested_cv_angle: score.suggested_cv_angle,
       explanation: score.explanation,
       score_breakdown: score.score_breakdown,
-      raw_result: score,
+      raw_result: {
+        ...score,
+        job_signals: jobSignals,
+        cv_signals: cvSignals,
+      },
       ai_used: Boolean(Deno.env.get('GROQ_API_KEY') || Deno.env.get('LLAMA_API_KEY')),
     };
 
-    if (existingMatch?.id) {
-      const { data, error } = await supabase
-        .from('job_match_results')
-        .update(matchPayload)
-        .eq('id', existingMatch.id)
-        .eq('user_id', user.id)
-        .select(
-          'id, job_ad_id, cv_version_id, match_score, fit_label, recommendation, matched_skills, missing_skills, concerns, suggested_cv_angle, explanation, created_at',
-        )
-        .single();
+    const { data: existingMatch } = await supabase
+      .from('job_match_results')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('job_ad_id', jobAdId)
+      .eq('cv_version_id', cvVersionId)
+      .maybeSingle();
 
-      if (error) {
-        return jsonResponse(
-          {
-            success: false,
-            error: error.message,
-          },
-          500,
-        );
-      }
+    const upsertQuery = existingMatch?.id
+      ? supabase
+          .from('job_match_results')
+          .update(matchPayload)
+          .eq('id', existingMatch.id)
+          .eq('user_id', user.id)
+      : supabase.from('job_match_results').insert(matchPayload);
 
-      savedMatch = data;
-    } else {
-      const { data, error } = await supabase
-        .from('job_match_results')
-        .insert(matchPayload)
-        .select(
-          'id, job_ad_id, cv_version_id, match_score, fit_label, recommendation, matched_skills, missing_skills, concerns, suggested_cv_angle, explanation, created_at',
-        )
-        .single();
+    const { data: savedMatch, error: saveError } = await upsertQuery
+      .select(
+        'id, job_ad_id, cv_version_id, match_score, fit_label, recommendation, matched_skills, missing_skills, concerns, suggested_cv_angle, explanation, created_at',
+      )
+      .single();
 
-      if (error) {
-        return jsonResponse(
-          {
-            success: false,
-            error: error.message,
-          },
-          500,
-        );
-      }
-
-      savedMatch = data;
+    if (saveError) {
+      return jsonResponse(
+        {
+          success: false,
+          error: saveError.message,
+        },
+        500,
+      );
     }
 
     const { error: updateJobError } = await supabase
@@ -758,13 +1244,7 @@ Deno.serve(async (request) => {
       .eq('user_id', user.id);
 
     if (updateJobError) {
-      return jsonResponse(
-        {
-          success: false,
-          error: updateJobError.message,
-        },
-        500,
-      );
+      console.error('Failed to update job_ads cache:', updateJobError.message);
     }
 
     return jsonResponse(savedMatch);
@@ -774,7 +1254,7 @@ Deno.serve(async (request) => {
     return jsonResponse(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown score-job error.',
+        error: error instanceof Error ? error.message : 'Unknown error.',
       },
       500,
     );
