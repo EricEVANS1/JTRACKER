@@ -1081,6 +1081,11 @@ export async function fetchJobsForPreferences(
   queriesRun: Array<{ source: string; query: string; location: string }>;
   sourcesUsed: string[];
 }> {
+
+  const startedAt = Date.now();
+  const maxRuntimeMs = 120_000;
+
+  const hasTimeBudget = () => Date.now() - startedAt < maxRuntimeMs;
   const titles =
     preferences.target_titles?.length > 0 ? preferences.target_titles : DEFAULT_TARGET_TITLES;
 
@@ -1106,59 +1111,69 @@ export async function fetchJobsForPreferences(
   const jobs: RawJob[] = [];
   const queriesRun: Array<{ source: string; query: string; location: string }> = [];
 
-  for (const query of queries) {
-    for (const source of sources) {
+for (const query of queries) {
+  if (!hasTimeBudget()) {
+    console.warn('[fetcher] stopping before next query because time budget is nearly exhausted');
+    break;
+  }
+
+  for (const source of sources) {
+    if (!hasTimeBudget()) {
+      console.warn('[fetcher] stopping before next source because time budget is nearly exhausted');
+      break;
+    }
+
+    queriesRun.push({
+      source,
+      query: query.title,
+      location: query.location,
+    });
+
+    try {
+      if (source === 'google_jobs') {
+        const found = await fetchGoogleJobs(
+          query.title,
+          query.location,
+          serpApiKey,
+          perQueryLimit,
+        );
+
+        jobs.push(...found);
+      } else if (source === 'indeed') {
+        const found = await fetchIndeedJobs(
+          query.title,
+          query.location,
+          serpApiKey,
+          perQueryLimit,
+        );
+
+        jobs.push(...found);
+      } else {
+        const found = await fetchOrganicBoardJobs(
+          source,
+          query.title,
+          query.location,
+          serpApiKey,
+          perQueryLimit,
+        );
+
+        jobs.push(...found);
+      }
+    } catch (error) {
+      console.error(`[fetcher] ${source} failed:`, error);
+
       queriesRun.push({
-        source,
-        query: query.title,
+        source: `${source}_error`,
+        query: error instanceof Error ? error.message : String(error),
         location: query.location,
       });
 
-      try {
-        if (source === 'google_jobs') {
-          const found = await fetchGoogleJobs(
-            query.title,
-            query.location,
-            serpApiKey,
-            perQueryLimit,
-          );
-
-          jobs.push(...found);
-        } else if (source === 'indeed') {
-          const found = await fetchIndeedJobs(
-            query.title,
-            query.location,
-            serpApiKey,
-            perQueryLimit,
-          );
-
-          jobs.push(...found);
-        } else {
-          const found = await fetchOrganicBoardJobs(
-            source,
-            query.title,
-            query.location,
-            serpApiKey,
-            perQueryLimit,
-          );
-
-          jobs.push(...found);
-        }
-      } catch (error) {
-        console.error(`[fetcher] ${source} failed:`, error);
-
-        queriesRun.push({
-          source: `${source}_error`,
-          query: error instanceof Error ? error.message : String(error),
-          location: query.location,
-        });
-
-        continue;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      continue;
     }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
+}
 
   const uniqueJobs = removeDuplicates(jobs);
 
