@@ -20,10 +20,12 @@ import { KanbanPage } from './pages/KanbanPage';
 import { RecruiterDetailsPage } from './pages/RecruiterDetailsPage';
 import { SharedOpportunitiesPage } from './pages/SharedWithMePage';
 import { PublicSharePage } from './pages/PublicSharePage';
+
 import { ResumeBuilderPage } from './pages/ResumeBuilderPage';
 import { ResumeBuilderStartPage } from './pages/ResumeBuilderStartPage';
 import { ResumeBuilderFlowPage } from './pages/ResumeBuilderFlowPage';
 import { TailoredDocumentsHistoryPage } from './pages/TailoredDocumentsHistoryPage';
+
 import { EmailSyncPage } from './pages/EmailSyncPage';
 import { JobAutomationPage } from './pages/JobAutomationPage';
 
@@ -48,7 +50,10 @@ const App: React.FC = () => {
             <Route path="/job-automation" element={<JobAutomationPage />} />
 
             <Route path="/applications" element={<ApplicationsPage />} />
-            <Route path="/applications/:id" element={<ApplicationDetailsPage />} />
+            <Route
+              path="/applications/:id"
+              element={<ApplicationDetailsPage />}
+            />
 
             <Route path="/cv-manager" element={<CVManagerPage />} />
             <Route path="/companies" element={<CompaniesPage />} />
@@ -61,7 +66,11 @@ const App: React.FC = () => {
             />
 
             <Route path="/shared" element={<SharedOpportunitiesPage />} />
-            <Route path="/shared-with-me" element={<Navigate to="/shared" replace />} />
+
+            <Route
+              path="/shared-with-me"
+              element={<Navigate to="/shared" replace />}
+            />
 
             <Route path="/follow-ups" element={<FollowUpsPage />} />
             <Route path="/archived" element={<ArchivedApplicationsPage />} />
@@ -82,20 +91,49 @@ const App: React.FC = () => {
               element={<Navigate to="/settings?tab=emailEvents" replace />}
             />
 
-            <Route path="/resume-builder" element={<ResumeBuilderStartPage />} />
-            <Route path="/resume-builder/start" element={<ResumeBuilderFlowPage />} />
+            {/* Resume Builder landing page */}
+            <Route
+              path="/resume-builder"
+              element={<ResumeBuilderStartPage />}
+            />
+
+            {/* Real Resume Builder editor page */}
+            <Route
+              path="/resume-builder/editor"
+              element={<ResumeBuilderPage />}
+            />
+
+            {/* Guided tailoring flow */}
+            <Route
+              path="/resume-builder/flow"
+              element={<ResumeBuilderFlowPage />}
+            />
+
+            {/* Old start route redirects to flow */}
+            <Route
+              path="/resume-builder/start"
+              element={<Navigate to="/resume-builder/flow" replace />}
+            />
+
             <Route
               path="/resume-builder/history"
               element={<TailoredDocumentsHistoryPage />}
             />
+
             <Route
               path="/resume-builder/saved/:cvVersionId"
               element={<ResumeBuilderPage />}
             />
-            <Route path="/resume-builder/:analysisId" element={<ResumeBuilderPage />} />
+
+            {/* Dynamic analysis route must stay last */}
+            <Route
+              path="/resume-builder/:analysisId"
+              element={<ResumeBuilderPage />}
+            />
           </Route>
 
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

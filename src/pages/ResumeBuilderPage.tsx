@@ -97,6 +97,25 @@ const emptyResume: ResumeBuilderState = {
 
 type ProfileDefaults = Partial<PersonalInfo>;
 
+type ResumeBuilderImportPayload = {
+  source?: string;
+  analysisId?: string | null;
+  cvVersionId?: string | null;
+  jobTitle?: string;
+  companyName?: string;
+  roleCategory?: string;
+  score?: number | null;
+  generatedCv?: string;
+  matchedKeywords?: string[];
+  missingKeywords?: string[];
+  recommendations?: string[];
+  cvName?: string;
+  selectedCvName?: string;
+  selectedApplicationId?: string | null;
+  jobDescription?: string;
+  importedAt?: string;
+};
+
 const mergeProfileDefaultsIntoPersonal = (
   personal: PersonalInfo,
   profileDefaults: ProfileDefaults,
@@ -576,6 +595,118 @@ const resumeFromStructuredData = (
       skillsFromMasterCv(cvVersion),
       skillsFromAnalysis(analysis),
     ),
+  };
+};
+
+
+const resumeFromImportedGeneratedCv = (
+  payload: ResumeBuilderImportPayload,
+  profileDefaults: ProfileDefaults,
+): ResumeBuilderState => {
+  const generatedCv = payload.generatedCv?.trim() || '';
+
+  const fallbackTitle =
+    payload.jobTitle ||
+    payload.roleCategory ||
+    'Tailored CV';
+
+  const recommendations = Array.isArray(payload.recommendations)
+    ? payload.recommendations.filter(Boolean)
+    : [];
+
+  const missingKeywords = Array.isArray(payload.missingKeywords)
+    ? payload.missingKeywords.filter(Boolean)
+    : [];
+
+  const matchedKeywords = Array.isArray(payload.matchedKeywords)
+    ? payload.matchedKeywords.filter(Boolean)
+    : [];
+
+  const customSections: CustomSection[] = [
+    {
+      id: uid(),
+      title: 'Imported Tailored CV Draft',
+      type: 'text',
+      content: generatedCv,
+      items: [],
+      visible: true,
+      collapsed: false,
+    },
+  ];
+
+  if (recommendations.length) {
+    customSections.push({
+      id: uid(),
+      title: 'CV Improvement Actions',
+      type: 'items',
+      content: '',
+      items: recommendations.slice(0, 12),
+      visible: true,
+      collapsed: false,
+    });
+  }
+
+  if (missingKeywords.length) {
+    customSections.push({
+      id: uid(),
+      title: 'Missing Keywords To Review',
+      type: 'items',
+      content: '',
+      items: missingKeywords.slice(0, 20),
+      visible: true,
+      collapsed: false,
+    });
+  }
+
+  if (matchedKeywords.length) {
+    customSections.push({
+      id: uid(),
+      title: 'Matched Keywords',
+      type: 'items',
+      content: '',
+      items: matchedKeywords.slice(0, 20),
+      visible: false,
+      collapsed: true,
+    });
+  }
+
+  return {
+    ...emptyResume,
+
+    personal: mergeProfileDefaultsIntoPersonal(
+      {
+        ...emptyResume.personal,
+        jobTitle: fallbackTitle,
+      },
+      profileDefaults,
+      true,
+    ),
+
+    summary: generatedCv,
+
+    experience: [],
+
+    education: [],
+
+    projects: [],
+
+    skillsAwards: {
+      technicalSkills: matchedKeywords.join('\n'),
+      languages: '',
+      trainingCertifications: '',
+      awards: '',
+    },
+
+    customSections,
+
+    sectionVisibility: {
+      personal: true,
+      summary: true,
+      experience: true,
+      education: true,
+      projects: true,
+      skillsAwards: true,
+    },
   };
 };
 
@@ -1115,7 +1246,16 @@ const exportAsDOCX = async (state: ResumeBuilderState, jobTitle?: string | null,
 // MAIN PAGE
 // ============================================================
 export const ResumeBuilderPage: React.FC = () => {
-  const { analysisId, cvVersionId } = useParams();
+  const params = useParams();
+
+  const rawAnalysisId = params.analysisId;
+  const cvVersionId = params.cvVersionId;
+
+  const analysisId =
+    rawAnalysisId &&
+    !['editor', 'flow', 'start', 'history', 'saved'].includes(rawAnalysisId)
+      ? rawAnalysisId
+      : undefined;
   const navigate = useNavigate();
   const [analysis, setAnalysis] = useState<AnalysisRecord | null>(null);
   const [resume, setResume] = useState<ResumeBuilderState>(emptyResume);
@@ -1128,8 +1268,15 @@ export const ResumeBuilderPage: React.FC = () => {
   const [error, setError] = useState('');
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor');
-  const [collapsed, setCollapsed] = useState({ formatting: true, personal: false, summary: false, experience: false, education: false, projects: true, skillsAwards: false });
-
+ const [collapsed, setCollapsed] = useState({
+  formatting: true,
+  personal: false,
+  summary: false,
+  experience: false,
+  education: false,
+  projects: true,
+  skillsAwards: false,
+});
   // Resolved job title — kept separately so it's available for skills formatting
   // even before the analysis record is stored in state.
   const jobTitle = analysis?.job_title ?? resume.personal.jobTitle ?? null;
@@ -1164,6 +1311,68 @@ export const ResumeBuilderPage: React.FC = () => {
         };
 
         setProfileDefaults(loadedProfileDefaults);
+
+        const rawImportedDraft = localStorage.getItem(
+          'jtracker_resume_builder_import',
+        );
+
+        if (!analysisId && !cvVersionId && rawImportedDraft) {
+          try {
+            const importedPayload = JSON.parse(
+              rawImportedDraft,
+            ) as ResumeBuilderImportPayload;
+
+            if (importedPayload?.generatedCv?.trim()) {
+              const importedResume = resumeFromImportedGeneratedCv(
+                importedPayload,
+                loadedProfileDefaults,
+              );
+
+              const importedAnalysis: AnalysisRecord | null =
+                importedPayload.analysisId
+                  ? ({
+                      id: importedPayload.analysisId,
+                      cv_version_id: importedPayload.cvVersionId ?? null,
+                      job_title:
+                        importedPayload.jobTitle ||
+                        importedPayload.roleCategory ||
+                        null,
+                      company_name: importedPayload.companyName || null,
+                      job_description: importedPayload.jobDescription || null,
+                      generated_cv: importedPayload.generatedCv,
+                      score: importedPayload.score ?? null,
+                      matched_keywords: importedPayload.matchedKeywords ?? [],
+                      partial_keywords: [],
+                      missing_keywords: importedPayload.missingKeywords ?? [],
+                      ats_keyword_evidence: [],
+                      extended_data: {
+                        imported_from: importedPayload.source ?? 'localStorage',
+                        role_category: importedPayload.roleCategory ?? null,
+                        recommendations: importedPayload.recommendations ?? [],
+                        imported_at: importedPayload.importedAt ?? null,
+                      },
+                    } as unknown as AnalysisRecord)
+                  : null;
+
+              setAnalysis(importedAnalysis);
+              setResume(importedResume);
+              setOriginalResume(importedResume);
+              setFormatting(defaultFormatting);
+
+              localStorage.removeItem('jtracker_resume_builder_import');
+
+              setSavedMsg(
+                'Imported tailored CV draft into Resume Builder. Review the Imported Tailored CV Draft section below.',
+              );
+              setTimeout(() => setSavedMsg(''), 3000);
+
+              return;
+            }
+          } catch (importError) {
+            console.error('Failed to import Resume Builder draft:', importError);
+            localStorage.removeItem('jtracker_resume_builder_import');
+          }
+        }
 
         if (cvVersionId) {
           const { data: savedCv, error: savedError } = await supabase
