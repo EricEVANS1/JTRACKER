@@ -120,22 +120,27 @@ const mergeProfileDefaultsIntoPersonal = (
   personal: PersonalInfo,
   profileDefaults: ProfileDefaults,
   forceLinks = false,
-): PersonalInfo => ({
-  ...personal,
-  fullName: personal.fullName || profileDefaults.fullName || '',
-  email: personal.email || profileDefaults.email || '',
-  phone: personal.phone || profileDefaults.phone || '',
-  location: personal.location || profileDefaults.location || '',
-  website: forceLinks
-    ? profileDefaults.website || personal.website || ''
-    : personal.website || profileDefaults.website || '',
-  linkedin: forceLinks
-    ? profileDefaults.linkedin || personal.linkedin || ''
-    : personal.linkedin || profileDefaults.linkedin || '',
-  github: forceLinks
-    ? profileDefaults.github || personal.github || ''
-    : personal.github || profileDefaults.github || '',
-});
+): PersonalInfo => {
+  const website = forceLinks
+    ? cleanWebsiteValue(profileDefaults.website || personal.website || '')
+    : cleanWebsiteValue(personal.website || profileDefaults.website || '');
+
+  return {
+    ...personal,
+    fullName: personal.fullName || profileDefaults.fullName || '',
+    jobTitle: cleanJobTitleValue(personal.jobTitle || profileDefaults.jobTitle || ''),
+    email: personal.email || profileDefaults.email || '',
+    phone: personal.phone || profileDefaults.phone || '',
+    location: personal.location || profileDefaults.location || '',
+    website,
+    linkedin: forceLinks
+      ? profileDefaults.linkedin || personal.linkedin || ''
+      : personal.linkedin || profileDefaults.linkedin || '',
+    github: forceLinks
+      ? profileDefaults.github || personal.github || ''
+      : personal.github || profileDefaults.github || '',
+  };
+};
 
 const readBuilderState = (cvVersion?: CvVersionRecord | null): ResumeBuilderState | null => {
   const structured = cvVersion?.structured_cv;
@@ -180,6 +185,121 @@ const makeSafeFileName = (name?: string | null) =>
   (name?.trim() || 'optimized-cv').replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase();
 
 
+
+const cleanJobTitleValue = (value?: string | null): string => {
+  const raw = String(value || '').trim();
+
+  if (!raw) return '';
+
+  const asRoleMatch = raw.match(
+    /\bAs\s+(?:a|an)\s+([^,.]+?)(?:,|\syou\s+will|\syou'll|\sresponsible|\syour\s)/i,
+  );
+
+  if (asRoleMatch?.[1]) {
+    return asRoleMatch[1].trim();
+  }
+
+  const beforeComma = raw.split(',')[0]?.trim() || raw;
+
+  const badSignals = [
+    'you will',
+    'you are responsible',
+    'responsible for',
+    'we are looking',
+    'join our',
+    'this role',
+    'the role',
+    'deliver',
+    'delivering',
+    'ensuring',
+    'providing',
+    'building',
+    'helping',
+  ];
+
+  const lower = beforeComma.toLowerCase();
+
+  if (
+    beforeComma.length > 70 ||
+    badSignals.some((signal) => lower.includes(signal))
+  ) {
+    return '';
+  }
+
+  return beforeComma;
+};
+
+const isBadWebsiteValue = (value?: string | null): boolean => {
+  const raw = String(value || '').trim().toLowerCase();
+
+  if (!raw) return false;
+
+  const emailProviders = [
+    'gmail.com',
+    'outlook.com',
+    'hotmail.com',
+    'yahoo.com',
+    'icloud.com',
+    'proton.me',
+    'protonmail.com',
+    'live.com',
+  ];
+
+  return emailProviders.some((provider) => {
+    return (
+      raw === provider ||
+      raw === `https://${provider}` ||
+      raw === `http://${provider}` ||
+      raw === `www.${provider}` ||
+      raw.includes(`@${provider}`)
+    );
+  });
+};
+
+const cleanWebsiteValue = (value?: string | null): string => {
+  const raw = String(value || '').trim();
+
+  if (!raw || isBadWebsiteValue(raw)) return '';
+
+  return raw;
+};
+
+const isWeakSummaryValue = (value?: string | null): boolean => {
+  const raw = String(value || '').trim().toLowerCase();
+
+  if (!raw) return true;
+
+  const weakSignals = [
+    'i focus on my goals',
+    'i willingly take up challenges',
+    'i always lend a helping hand',
+    'treat people the way i would like',
+    'friendly atmosphere',
+    'hard worker, team player',
+    'c<>team',
+  ];
+
+  return weakSignals.some((signal) => raw.includes(signal));
+};
+
+const buildFallbackProfessionalSummary = (
+  jobTitle?: string | null,
+  matchedKeywords?: string[] | null,
+): string => {
+  const cleanTitle = cleanJobTitleValue(jobTitle) || 'Technical Support Engineer';
+
+  const keywords = Array.isArray(matchedKeywords)
+    ? matchedKeywords.filter(Boolean).slice(0, 8)
+    : [];
+
+  const keywordText = keywords.length
+    ? ` Skilled in ${keywords.join(', ')}.`
+    : '';
+
+  return `${cleanTitle} with experience in technical troubleshooting, incident investigation, ticket handling, customer communication, and escalation support. Able to analyse reported issues, document findings clearly, collaborate with technical teams, and support users through structured problem resolution.${keywordText}`;
+};
+
+
 const joinContact = (p: PersonalInfo) => [p.email, p.phone, p.location, p.website, p.linkedin, p.github].filter(Boolean).join(' | ');
 const headingKey = (line: string) => line.trim().toLowerCase().replace(/[:\-]/g, '').replace(/\s+/g, ' ');
 
@@ -214,7 +334,16 @@ const parsePersonal = (contact: string, fallbackTitle?: string | null): Personal
   const website = urls.find(u => !u.toLowerCase().includes('linkedin') && !u.toLowerCase().includes('github') && !u.includes('@')) || '';
   const firstLine = lines[0] || '';
   const fullName = firstLine && !firstLine.includes('@') && !/\d/.test(firstLine) ? firstLine.replace(/[|,].*$/, '').trim() : '';
-  return { fullName, jobTitle: fallbackTitle || '', email, phone, location: '', website, linkedin, github };
+  return {
+    fullName,
+    jobTitle: cleanJobTitleValue(fallbackTitle),
+    email,
+    phone,
+    location: '',
+    website: cleanWebsiteValue(website),
+    linkedin,
+    github,
+  };
 };
 
 const DATE_RANGE_REGEX =
@@ -563,11 +692,11 @@ const mergePersonalFromMaster = (
 
   return {
     fullName: contact?.full_name || contact?.fullName || contact?.name || fallback.fullName,
-    jobTitle: fallbackTitle || fallback.jobTitle,
+    jobTitle: cleanJobTitleValue(fallbackTitle || fallback.jobTitle),
     email: contact?.email || fallback.email,
     phone: contact?.phone || fallback.phone,
     location: contact?.location || fallback.location,
-    website: contact?.website || contact?.portfolio || fallback.website,
+    website: cleanWebsiteValue(contact?.website || contact?.portfolio || fallback.website),
     linkedin: contact?.linkedin || fallback.linkedin,
     github: contact?.github || fallback.github,
   };
@@ -584,10 +713,24 @@ const resumeFromStructuredData = (
   const masterExperience = experienceFromMasterCv(cvVersion);
   const masterEducation = educationFromMasterCv(cvVersion);
 
+  const cleanTitle = cleanJobTitleValue(fallbackTitle || fallback.personal.jobTitle);
+
+  const safeSummary = isWeakSummaryValue(fallback.summary)
+    ? buildFallbackProfessionalSummary(cleanTitle, analysis?.matched_keywords ?? [])
+    : fallback.summary.trim();
+
   return {
     ...fallback,
-    personal: mergePersonalFromMaster(fallback.personal, cvVersion, fallbackTitle),
-    summary: fallback.summary,
+    personal: mergePersonalFromMaster(
+      {
+        ...fallback.personal,
+        jobTitle: cleanTitle,
+        website: cleanWebsiteValue(fallback.personal.website),
+      },
+      cvVersion,
+      cleanTitle,
+    ),
+    summary: safeSummary,
     experience: masterExperience.length ? masterExperience : fallback.experience,
     education: masterEducation.length ? masterEducation : fallback.education,
     skillsAwards: mergeSkills(
@@ -606,8 +749,7 @@ const resumeFromImportedGeneratedCv = (
   const generatedCv = payload.generatedCv?.trim() || '';
 
   const fallbackTitle =
-    payload.jobTitle ||
-    payload.roleCategory ||
+    cleanJobTitleValue(payload.jobTitle || payload.roleCategory) ||
     'Tailored CV';
 
   const recommendations = Array.isArray(payload.recommendations)
