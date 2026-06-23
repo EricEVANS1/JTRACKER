@@ -24,7 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { optimizeResumeForJob } from '../lib/resumeTailoring';
+import { optimizeResumeForJob, type TailoringChange } from '../lib/resumeTailoring';
 import type {
   AnalysisRecord,
   CvVersionRecord,
@@ -116,6 +116,31 @@ type ResumeBuilderImportPayload = {
   importedAt?: string;
 };
 
+type BulletReviewItem = {
+  id: string;
+  accepted: boolean;
+  roleId?: string;
+  roleTitle?: string;
+  company?: string;
+  bulletIndex?: number;
+  before: string;
+  after: string;
+  reason: string;
+  changeType: TailoringChange['type'];
+};
+
+const isReviewableBulletChange = (
+  change: TailoringChange,
+): change is TailoringChange & { before: string; after: string } => {
+  return (
+    change.section === 'experience' &&
+    Boolean(change.before?.trim()) &&
+    Boolean(change.after?.trim()) &&
+    change.before?.trim() !== change.after?.trim()
+  );
+};
+
+
 const mergeProfileDefaultsIntoPersonal = (
   personal: PersonalInfo,
   profileDefaults: ProfileDefaults,
@@ -184,20 +209,16 @@ const templateOptions: Array<{ id: TemplateId; label: string; description: strin
 const makeSafeFileName = (name?: string | null) =>
   (name?.trim() || 'optimized-cv').replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase();
 
-
-
 const cleanJobTitleValue = (value?: string | null): string => {
   const raw = String(value || '').trim();
 
   if (!raw) return '';
 
-  const asRoleMatch = raw.match(
+  const roleMatch = raw.match(
     /\bAs\s+(?:a|an)\s+([^,.]+?)(?:,|\syou\s+will|\syou'll|\sresponsible|\syour\s)/i,
   );
 
-  if (asRoleMatch?.[1]) {
-    return asRoleMatch[1].trim();
-  }
+  if (roleMatch?.[1]) return roleMatch[1].trim();
 
   const beforeComma = raw.split(',')[0]?.trim() || raw;
 
@@ -213,16 +234,14 @@ const cleanJobTitleValue = (value?: string | null): string => {
     'delivering',
     'ensuring',
     'providing',
-    'building',
-    'helping',
+    'end-customers',
+    'authorized partners',
+    'value added resellers',
   ];
 
   const lower = beforeComma.toLowerCase();
 
-  if (
-    beforeComma.length > 70 ||
-    badSignals.some((signal) => lower.includes(signal))
-  ) {
+  if (beforeComma.length > 70 || badSignals.some((signal) => lower.includes(signal))) {
     return '';
   }
 
@@ -250,7 +269,6 @@ const isBadWebsiteValue = (value?: string | null): boolean => {
       raw === provider ||
       raw === `https://${provider}` ||
       raw === `http://${provider}` ||
-      raw === `www.${provider}` ||
       raw.includes(`@${provider}`)
     );
   });
@@ -277,6 +295,7 @@ const isWeakSummaryValue = (value?: string | null): boolean => {
     'friendly atmosphere',
     'hard worker, team player',
     'c<>team',
+    'a<t/u> work',
   ];
 
   return weakSignals.some((signal) => raw.includes(signal));
@@ -749,7 +768,8 @@ const resumeFromImportedGeneratedCv = (
   const generatedCv = payload.generatedCv?.trim() || '';
 
   const fallbackTitle =
-    cleanJobTitleValue(payload.jobTitle || payload.roleCategory) ||
+    payload.jobTitle ||
+    payload.roleCategory ||
     'Tailored CV';
 
   const recommendations = Array.isArray(payload.recommendations)
@@ -1410,6 +1430,10 @@ export const ResumeBuilderPage: React.FC = () => {
   const [error, setError] = useState('');
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor');
+  const [bulletReviewOpen, setBulletReviewOpen] = useState(false);
+  const [bulletReviewItems, setBulletReviewItems] = useState<BulletReviewItem[]>([]);
+  const [bulletReviewResume, setBulletReviewResume] =
+    useState<ResumeBuilderState | null>(null);
  const [collapsed, setCollapsed] = useState({
   formatting: true,
   personal: false,
@@ -1598,13 +1622,21 @@ export const ResumeBuilderPage: React.FC = () => {
           analysis: record,
         });
 
+        const hydratedPersonal = mergeProfileDefaultsIntoPersonal(
+          tailored.resume.personal,
+          loadedProfileDefaults,
+          true,
+        );
+
         const hydratedResume = {
           ...tailored.resume,
-          personal: mergeProfileDefaultsIntoPersonal(
-            tailored.resume.personal,
-            loadedProfileDefaults,
-            true,
-          ),
+          personal: hydratedPersonal,
+          summary: isWeakSummaryValue(tailored.resume.summary)
+            ? buildFallbackProfessionalSummary(
+                hydratedPersonal.jobTitle || record.job_title,
+                record.matched_keywords ?? [],
+              )
+            : tailored.resume.summary,
         };
 
         setAnalysis(record);
@@ -1678,16 +1710,114 @@ export const ResumeBuilderPage: React.FC = () => {
     }
 
     const tailored = optimizeResumeForJob({ resume, analysis });
-    setResume(tailored.resume);
 
-    const bulletChanges = tailored.changes.filter((change) => change.type === 'bullet_optimized').length;
-    const mergedFragments = tailored.changes.filter((change) => change.type === 'bullet_fragments_merged').length;
+    const reviewItems: BulletReviewItem[] = tailored.changes
+      .filter(isReviewableBulletChange)
+      .map((change, index) => ({
+        id: `${change.roleId ?? 'role'}-${change.bulletIndex ?? index}-${index}`,
+        accepted: true,
+        roleId: change.roleId,
+        roleTitle: change.roleTitle,
+        company: change.company,
+        bulletIndex: change.bulletIndex,
+        before: change.before,
+        after: change.after,
+        reason: change.reason,
+        changeType: change.type,
+      }));
 
-    if (bulletChanges || mergedFragments) {
-      flash(`Improved ${bulletChanges} JD-aware bullet(s) and cleaned ${mergedFragments} broken fragment(s).`);
-    } else {
-      flash('No safe bullet improvements were found from the current JD evidence.');
+    const skillChanges = tailored.changes.filter(
+      (change) => change.section === 'skillsAwards',
+    ).length;
+
+    if (!reviewItems.length && !skillChanges) {
+      flash('No safe JD improvements were found from the current Master CV evidence.');
+      return;
     }
+
+    if (!reviewItems.length && skillChanges) {
+      setResume(tailored.resume);
+      setOriginalResume(tailored.resume);
+      flash(`Updated ${skillChanges} matched skill item(s). No experience bullets needed changes.`);
+      return;
+    }
+
+    setBulletReviewResume(tailored.resume);
+    setBulletReviewItems(reviewItems);
+    setBulletReviewOpen(true);
+
+    flash(`${reviewItems.length} JD improvement(s) ready for review. No JD-only experience was added.`);
+  };
+
+  const toggleBulletReviewItem = (id: string) => {
+    setBulletReviewItems((items) =>
+      items.map((item) =>
+        item.id === id ? { ...item, accepted: !item.accepted } : item,
+      ),
+    );
+  };
+
+  const setAllBulletReviewItems = (accepted: boolean) => {
+    setBulletReviewItems((items) => items.map((item) => ({ ...item, accepted })));
+  };
+
+  const applySelectedBulletImprovements = () => {
+    if (!bulletReviewResume) {
+      setBulletReviewOpen(false);
+      return;
+    }
+
+    const acceptedCount = bulletReviewItems.filter((item) => item.accepted).length;
+
+    if (!acceptedCount) {
+      setBulletReviewOpen(false);
+      flash('No JD improvements were applied.');
+      return;
+    }
+
+    const rejectedItems = bulletReviewItems.filter((item) => !item.accepted);
+
+    const nextResume: ResumeBuilderState = {
+      ...bulletReviewResume,
+      experience: bulletReviewResume.experience.map((role) => {
+        const rejectedForRole = rejectedItems.filter(
+          (item) => item.roleId === role.id,
+        );
+
+        if (!rejectedForRole.length) return role;
+
+        const currentRole = resume.experience.find((item) => item.id === role.id);
+
+        return {
+          ...role,
+          bullets: role.bullets.map((bullet, index) => {
+            const rejected = rejectedForRole.find(
+              (item) => item.bulletIndex === index,
+            );
+
+            if (!rejected) return bullet;
+
+            const originalAtIndex = currentRole?.bullets?.[index];
+
+            return originalAtIndex || rejected.before || bullet;
+          }),
+        };
+      }),
+    };
+
+    setResume(nextResume);
+    setOriginalResume(nextResume);
+    setBulletReviewOpen(false);
+    setBulletReviewResume(null);
+    setBulletReviewItems([]);
+
+    flash(`Applied ${acceptedCount} reviewed JD improvement(s).`);
+  };
+
+  const closeBulletReview = () => {
+    setBulletReviewOpen(false);
+    setBulletReviewResume(null);
+    setBulletReviewItems([]);
   };
 
   // State updaters
@@ -1893,6 +2023,17 @@ export const ResumeBuilderPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {bulletReviewOpen && (
+        <BulletImprovementReviewModal
+          items={bulletReviewItems}
+          onToggle={toggleBulletReviewItem}
+          onAcceptAll={() => setAllBulletReviewItems(true)}
+          onRejectAll={() => setAllBulletReviewItems(false)}
+          onApply={applySelectedBulletImprovements}
+          onClose={closeBulletReview}
+        />
+      )}
 
       {showCustomModal && (
         <CustomSectionModal onClose={() => setShowCustomModal(false)} onAdd={s => { addCustom(s); setShowCustomModal(false); }} />
@@ -2308,6 +2449,161 @@ const PrevHead: React.FC<{ title: string; headerPx: number; classic?: boolean; f
     {title}
   </h2>
 );
+
+// ============================================================
+// BULLET IMPROVEMENT REVIEW MODAL
+// Shows each JD improvement before it is applied.
+// ============================================================
+const BulletImprovementReviewModal: React.FC<{
+  items: BulletReviewItem[];
+  onToggle: (id: string) => void;
+  onAcceptAll: () => void;
+  onRejectAll: () => void;
+  onApply: () => void;
+  onClose: () => void;
+}> = ({ items, onToggle, onAcceptAll, onRejectAll, onApply, onClose }) => {
+  const acceptedCount = items.filter((item) => item.accepted).length;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+      <div className="w-full max-w-5xl max-h-[90vh] rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden flex flex-col">
+        <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-100">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Review JD Improvements
+            </h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Review each bullet before applying it. These changes rewrite Master CV facts to better match the JD; they do not add unsupported JD-only claims.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="text-sm text-slate-600">
+            <span className="font-semibold text-slate-900">{acceptedCount}</span> of{' '}
+            <span className="font-semibold text-slate-900">{items.length}</span>{' '}
+            improvement(s) selected.
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onAcceptAll}
+              className="px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-sm font-medium text-emerald-700 hover:bg-emerald-100 transition"
+            >
+              Accept all
+            </button>
+            <button
+              type="button"
+              onClick={onRejectAll}
+              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+            >
+              Reject all
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-y-auto p-5 space-y-4">
+          {items.map((item, index) => (
+            <div
+              key={item.id}
+              className={`rounded-2xl border p-4 transition ${
+                item.accepted
+                  ? 'border-emerald-200 bg-emerald-50/40'
+                  : 'border-slate-200 bg-slate-50'
+              }`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                <div>
+                  <p className="text-xs uppercase tracking-wide font-semibold text-slate-400">
+                    Improvement {index + 1}
+                  </p>
+                  <h3 className="text-sm font-semibold text-slate-900 mt-1">
+                    {item.roleTitle || 'Experience role'}
+                    {item.company ? (
+                      <span className="font-normal text-slate-500">
+                        {' '}· {item.company}
+                      </span>
+                    ) : null}
+                  </h3>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onToggle(item.id)}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium border transition ${
+                    item.accepted
+                      ? 'border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50'
+                      : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {item.accepted ? 'Accepted' : 'Rejected'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">
+                    Original Master CV bullet
+                  </p>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-700">
+                    {item.before}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">
+                    JD-aligned rewrite
+                  </p>
+                  <div className="rounded-xl border border-emerald-200 bg-white p-3 text-sm leading-6 text-slate-800">
+                    {item.after}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+                <span className="font-semibold">Why:</span> {item.reason}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-5 border-t border-slate-100 bg-white">
+          <p className="text-xs text-slate-500">
+            Master-CV-first mode: unsupported missing keywords are not added as experience.
+          </p>
+
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onApply}
+              disabled={acceptedCount === 0}
+              className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-700 disabled:opacity-50 transition"
+            >
+              Apply selected
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ============================================================
 // CUSTOM SECTION MODAL — matches JTracker modal style

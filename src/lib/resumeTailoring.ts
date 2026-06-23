@@ -1,12 +1,7 @@
 // src/lib/resumeTailoring.ts
-// Safe deterministic tailoring for Resume Builder.
-// This file only optimizes:
-// - Experience bullet points
-// - Skills & competencies
-//
-// It does not touch layout, personal information, education, projects, save, or export.
-// It does not add missing_keywords automatically.
-
+// Master-CV-first, JD-aware tailoring for Resume Builder.
+// It rewrites existing Master CV bullets for role alignment and returns
+// per-bullet changes so the UI can show Original -> Improved -> Reason.
 
 import type {
   ExperienceItem,
@@ -29,19 +24,21 @@ export type TailoringChange = {
   before?: string;
   after?: string;
   reason: string;
+  roleId?: string;
+  roleTitle?: string;
+  company?: string;
+  bulletIndex?: number;
 };
 
-
 type AnalysisRecordLike = {
+  job_title?: string | null;
+  jobTitle?: string | null;
   matched_keywords?: string[] | null;
   partial_keywords?: string[] | null;
   missing_keywords?: string[] | null;
   ats_keyword_evidence?: Array<{
     keyword?: string | null;
     status?: 'matched' | 'partial' | 'missing' | string | null;
-    kind?: string | null;
-    source?: string | null;
-    confidence?: string | null;
   }> | null;
   extended_data?: any;
   job_description?: string | null;
@@ -70,10 +67,10 @@ const AWARD_REGEX =
   /\b(award|honou?r|winner|achievement|recognition|scholarship|employee of the month|hackathon)\b/i;
 
 const TECH_HINT_REGEX =
-  /\b(sql|python|javascript|typescript|react|node|java|c#|c\+\+|php|html|css|jira|servicenow|zendesk|salesforce|active directory|microsoft 365|office 365|windows|linux|azure|aws|gcp|docker|kubernetes|git|github|power bi|tableau|excel|api|postman|vpn|citrix|vmware|hyper-v|sap|crm|service desk|incident|troubleshooting|monitoring)\b/i;
+  /\b(sql|python|javascript|typescript|react|node|java|c#|c\+\+|php|html|css|jira|servicenow|zendesk|salesforce|active directory|microsoft 365|office 365|windows|linux|red hat|rhel|ubuntu|azure|aws|gcp|docker|kubernetes|git|github|power bi|tableau|excel|api|postman|vpn|citrix|vmware|hyper-v|sap|crm|service desk|incident|troubleshooting|monitoring)\b/i;
 
 const SUPPORT_CONTEXT_REGEX =
-  /\b(support|assist|resolve|resolved|troubleshoot|troubleshooting|incident|ticket|tickets|customer|client|service|escalation|technical|software|hardware|connectivity|system|systems|application|applications)\b/i;
+  /\b(support|assist|resolve|resolved|troubleshoot|troubleshooting|incident|ticket|tickets|customer|client|service|escalation|technical|software|hardware|connectivity|system|systems|application|applications|case|cases|issue|issues|diagnos|investigat)\b/i;
 
 const clean = (value: unknown): string =>
   String(value ?? '')
@@ -85,6 +82,7 @@ const canonical = (value: unknown): string =>
   clean(value)
     .toLowerCase()
     .replace(/\+/g, ' plus ')
+    .replace(/&/g, ' and ')
     .replace(/[^a-z0-9.#\-/]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -99,41 +97,13 @@ const splitLines = (value: unknown): string[] => {
     .filter(Boolean);
 };
 
-
-const JD_SIGNAL_PATTERNS: Array<[RegExp, string]> = [
-  [/\b(jira|ticketing|tickets?)\b/i, 'ticketing'],
-  [/\b(service\s*now|servicenow)\b/i, 'ServiceNow'],
-  [/\b(sla|service level agreement)\b/i, 'SLA'],
-  [/\b(incident management|incident response|incidents?)\b/i, 'incident management'],
-  [/\b(troubleshoot|troubleshooting|diagnos(?:e|is|tic))\b/i, 'troubleshooting'],
-  [/\b(log analysis|logs?|splunk|monitoring|observability)\b/i, 'monitoring and log analysis'],
-  [/\b(escalat(?:e|ion)|engineering team|bug report|defect)\b/i, 'escalation'],
-  [/\b(document(?:ation)?|knowledge base|case notes|runbook)\b/i, 'documentation'],
-  [/\b(api|postman|rest)\b/i, 'API testing'],
-  [/\b(sql|database|query)\b/i, 'SQL'],
-  [/\b(linux|windows|operating systems?)\b/i, 'operating systems'],
-  [/\b(customer|client|stakeholder|b2b)\b/i, 'customer communication'],
-  [/\b(quality assurance|qa|testing|test cases?|regression|uat)\b/i, 'testing'],
-  [/\b(process improvement|automation|workflow|efficien(?:cy|t))\b/i, 'process improvement'],
-];
-
-const extractJdSignalsFromText = (value: unknown): string[] => {
-  const text = String(value ?? '');
-  if (!text.trim()) return [];
-
-  return unique(
-    JD_SIGNAL_PATTERNS
-      .filter(([pattern]) => pattern.test(text))
-      .map(([, signal]) => signal),
-  );
-};
-
 const unique = (values: string[]): string[] => {
   const seen = new Set<string>();
   const output: string[] = [];
 
   values.map(clean).filter(Boolean).forEach((value) => {
     const key = canonical(value);
+
     if (!seen.has(key)) {
       seen.add(key);
       output.push(value);
@@ -148,8 +118,53 @@ const toLines = (values: string[]): string => unique(values).join('\n');
 const hasPhrase = (text: string, phrase: string): boolean => {
   const source = canonical(text);
   const key = canonical(phrase);
-  if (!key) return false;
-  return source.includes(key);
+  return Boolean(key && source.includes(key));
+};
+
+const includesAny = (value: string, patterns: RegExp[]): boolean =>
+  patterns.some((pattern) => pattern.test(value));
+
+const getJobDescription = (analysis?: AnalysisRecordLike | null): string =>
+  String(
+    analysis?.job_description ??
+      analysis?.jobDescription ??
+      analysis?.extended_data?.job_description ??
+      analysis?.extended_data?.jobDescription ??
+      '',
+  );
+
+const JD_SIGNAL_PATTERNS: Array<[RegExp, string]> = [
+  [/\b(jira|ticketing|tickets?)\b/i, 'ticketing'],
+  [/\b(service\s*now|servicenow)\b/i, 'ServiceNow'],
+  [/\b(zendesk)\b/i, 'Zendesk'],
+  [/\b(sla|service level agreement)\b/i, 'SLA'],
+  [/\b(incident management|incident response|incidents?)\b/i, 'incident management'],
+  [/\b(problem management|root cause|rca|root-cause)\b/i, 'root cause analysis'],
+  [/\b(troubleshoot|troubleshooting|diagnos(?:e|is|tic))\b/i, 'troubleshooting'],
+  [/\b(log analysis|logs?|splunk|monitoring|observability)\b/i, 'monitoring and log analysis'],
+  [/\b(escalat(?:e|ion)|engineering team|bug report|defect)\b/i, 'escalation'],
+  [/\b(document(?:ation)?|knowledge base|case notes|runbook)\b/i, 'documentation'],
+  [/\b(api|postman|rest)\b/i, 'API testing'],
+  [/\b(sql|database|query)\b/i, 'SQL'],
+  [/\b(linux|red hat|rhel|ubuntu|windows|operating systems?)\b/i, 'operating systems'],
+  [/\b(customer|client|stakeholder|b2b|partner|reseller|end customer)\b/i, 'customer communication'],
+  [/\b(quality assurance|qa|testing|test cases?|regression|uat)\b/i, 'testing'],
+  [/\b(process improvement|automation|workflow|efficien(?:cy|t))\b/i, 'process improvement'],
+  [/\b(application support|business applications?|production applications?)\b/i, 'application support'],
+  [/\b(access|video|cctv|security product|surveillance)\b/i, 'technical product support'],
+  [/\b(stability|performance|availability|reliability)\b/i, 'stability and performance'],
+  [/\b(collaborat(?:e|ion)|cross-functional|developers?|engineering)\b/i, 'cross-functional collaboration'],
+];
+
+const extractJdSignalsFromText = (value: unknown): string[] => {
+  const text = String(value ?? '');
+  if (!text.trim()) return [];
+
+  return unique(
+    JD_SIGNAL_PATTERNS
+      .filter(([pattern]) => pattern.test(text))
+      .map(([, signal]) => signal),
+  );
 };
 
 const getSafeJdKeywords = (analysis?: AnalysisRecordLike | null): string[] => {
@@ -174,11 +189,14 @@ const getSafeJdKeywords = (analysis?: AnalysisRecordLike | null): string[] => {
         .filter(Boolean)
     : [];
 
-  const jdTextSignals = extractJdSignalsFromText(
-    analysis.job_description ?? analysis.jobDescription ?? analysis.extended_data?.job_description,
-  );
+  const jdTextSignals = extractJdSignalsFromText(getJobDescription(analysis));
 
-  return unique([...directKeywords, ...evidenceKeywords, ...extendedEvidence, ...jdTextSignals]);
+  return unique([
+    ...directKeywords,
+    ...evidenceKeywords,
+    ...extendedEvidence,
+    ...jdTextSignals,
+  ]);
 };
 
 const getSkippedMissingKeywords = (analysis?: AnalysisRecordLike | null): string[] =>
@@ -226,14 +244,26 @@ const splitSkillsAwards = (skillsAwards: SkillsAwards) => {
   return { technical, languages, certifications, awards };
 };
 
+const JD_ONLY_SKILL_DENYLIST = [
+  'access and video products',
+  'technical product support',
+];
+
 const buildSkillsAwards = (
   current: SkillsAwards,
   safeKeywords: string[],
   changes: TailoringChange[],
 ): SkillsAwards => {
   const existing = splitSkillsAwards(current);
+  const safeSkillKeywords = safeKeywords.filter(
+    (keyword) =>
+      !JD_ONLY_SKILL_DENYLIST.some(
+        (blocked) => canonical(blocked) === canonical(keyword),
+      ),
+  );
+
   const jdBuckets = splitSkillsAwards({
-    technicalSkills: safeKeywords.join('\n'),
+    technicalSkills: safeSkillKeywords.join('\n'),
     languages: '',
     trainingCertifications: '',
     awards: '',
@@ -264,15 +294,14 @@ const buildSkillsAwards = (
 };
 
 const startsLikeContinuation = (value: string): boolean =>
-  /^(and|or|but|system|systems|software|hardware|connectivity|application|applications|resulting|reducing|offering|using|while|with|for|to|in|of|by|through)\b/i.test(value);
+  /^(and|or|but|system|systems|software|hardware|connectivity|network|application|applications|resulting|reducing|offering|using|while|with|for|to|in|of|by|through|ensuring|sharing|phone)\b/i.test(value);
 
 const endsLikeIncomplete = (value: string): boolean =>
-  /(,\s*|\band\b|\bor\b|\bfor\b|\bwith\b|\bof\b|\bto\b|\bin\b|\busing\b|\bcomplex software\b|\bsoftware\b|\bhardware\b|\bsystem\b|\bsystems\b)$/i.test(value.replace(/[.\s]+$/, ''));
+  /(,\s*|\band\b|\bor\b|\bfor\b|\bwith\b|\bof\b|\bto\b|\bin\b|\busing\b|\bcomplex software\b|\bsoftware\b|\bhardware\b|\bos\b|\bsystem\b|\bsystems\b)$/i.test(value.replace(/[.\s]+$/, ''));
 
 const isVeryShortFragment = (value: string): boolean => {
   const cleaned = clean(value);
   const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
-
   return cleaned.length < 45 || wordCount <= 5;
 };
 
@@ -281,15 +310,8 @@ const shouldMergeBulletFragment = (previous: string | undefined, current: string
   const value = clean(current);
 
   if (!prev || !value) return false;
-
-  // Clear continuation fragments:
-  // "system", "and connectivity issues...", "resulting in zero..."
   if (startsLikeContinuation(value)) return true;
-
-  // Short fragments usually come from wrapped/generated text being split into bullets.
   if (isVeryShortFragment(value) && !/[.!?]$/.test(prev)) return true;
-
-  // Previous bullet is clearly incomplete, so attach the current line.
   if (endsLikeIncomplete(prev)) return true;
 
   return false;
@@ -301,25 +323,20 @@ const mergeBulletText = (previous: string, current: string): string => {
 
   if (!prev) return cur;
   if (!cur) return prev;
-
-  if (/^(and|or|but)\b/i.test(cur)) {
-    return `${prev} ${cur}.`;
-  }
-
-  if (/^(resulting|reducing|offering|using|while|with|through|by)\b/i.test(cur)) {
+  if (/^(and|or|but)\b/i.test(cur)) return `${prev} ${cur}.`;
+  if (/^(resulting|reducing|offering|using|while|with|through|by|ensuring)\b/i.test(cur)) {
     return `${prev}, ${cur}.`;
   }
-
   return `${prev}, ${cur}.`;
 };
 
 const normalizeBullets = (
-  bullets: string[],
+  role: ExperienceItem,
   changes: TailoringChange[],
 ): string[] => {
   const normalized: string[] = [];
 
-  bullets.map(clean).filter(Boolean).forEach((bullet) => {
+  (role.bullets ?? []).map(clean).filter(Boolean).forEach((bullet, idx) => {
     const previous = normalized[normalized.length - 1];
 
     if (shouldMergeBulletFragment(previous, bullet)) {
@@ -329,11 +346,14 @@ const normalizeBullets = (
       changes.push({
         type: 'bullet_fragments_merged',
         section: 'experience',
+        roleId: role.id,
+        roleTitle: role.jobTitle,
+        company: role.company,
+        bulletIndex: Math.max(0, normalized.length - 1),
         before: `${previous}\n${bullet}`,
         after: merged,
-        reason: 'Merged a broken bullet fragment into the previous bullet.',
+        reason: `Merged broken bullet fragment from original bullet ${idx + 1}.`,
       });
-
       return;
     }
 
@@ -346,34 +366,31 @@ const normalizeBullets = (
 const isFragmentBullet = (bullet: string): boolean => {
   const value = clean(bullet);
   if (!value) return true;
-
-  // After normalizeBullets(), only skip obvious leftovers.
-  if (isVeryShortFragment(value) && startsLikeContinuation(value)) return true;
-
-  return false;
+  return isVeryShortFragment(value) && startsLikeContinuation(value);
 };
 
-const keywordBucket = (safeKeywords: string[]) => {
-  const has = (patterns: RegExp[]) =>
-    safeKeywords.some((keyword) => patterns.some((pattern) => pattern.test(keyword)));
+const keywordBucket = (safeKeywords: string[], jobDescription = '') => {
+  const source = `${safeKeywords.join(' ')} ${jobDescription}`;
+  const has = (patterns: RegExp[]) => patterns.some((pattern) => pattern.test(source));
 
   return {
     hasTicketing: has([/\bjira\b/i, /\bzendesk\b/i, /\bservicenow\b/i, /\bticket/i]),
     hasIncident: has([/\bincident\b/i, /\bincident management\b/i]),
     hasSla: has([/\bsla\b/i, /\bservice level/i]),
-    hasTroubleshooting: has([/\btroubleshooting\b/i, /\btechnical support\b/i]),
-    hasRootCause: has([/\broot cause/i, /\banalysis\b/i]),
-    hasDocumentation: has([/\bdocument/i, /\bknowledge base/i, /\bcase notes/i]),
-    hasEscalation: has([/\bescalat/i, /\bbug/i, /\bengineering team/i]),
-    hasMonitoring: has([/\bmonitoring\b/i, /\blog analysis\b/i, /\blogs?\b/i, /\bsplunk\b/i]),
-    hasCustomer: has([/\bcustomer\b/i, /\bclient\b/i, /\bstakeholder\b/i, /\bb2b\b/i]),
-    hasTesting: has([/\btesting\b/i, /\bqa\b/i, /\btest cases?\b/i, /\bregression\b/i]),
+    hasTroubleshooting: has([/\btroubleshooting\b/i, /\btechnical support\b/i, /\bdiagnos/i]),
+    hasRootCause: has([/\broot cause/i, /\banalysis\b/i, /\brca\b/i]),
+    hasDocumentation: has([/\bdocument/i, /\bknowledge base/i, /\bcase notes/i, /\brunbook/i]),
+    hasEscalation: has([/\bescalat/i, /\bbug/i, /\bengineering team/i, /\bdefect/i]),
+    hasMonitoring: has([/\bmonitoring\b/i, /\blog analysis\b/i, /\blogs?\b/i, /\bsplunk\b/i, /\bobservability\b/i]),
+    hasCustomer: has([/\bcustomer\b/i, /\bclient\b/i, /\bstakeholder\b/i, /\bb2b\b/i, /\bpartner\b/i, /\breseller\b/i]),
+    hasTesting: has([/\btesting\b/i, /\bqa\b/i, /\btest cases?\b/i, /\bregression\b/i, /\buat\b/i]),
+    hasApplicationSupport: has([/\bapplication support\b/i, /\bbusiness applications?\b/i, /\bproduction applications?\b/i]),
+    hasPerformance: has([/\bperformance\b/i, /\bstability\b/i, /\bavailability\b/i, /\breliability\b/i]),
   };
 };
 
 const actionVerbUpgrade = (value: string): string => {
   const trimmed = clean(value);
-
   const replacements: Array<[RegExp, string]> = [
     [/^handled\b/i, 'Managed'],
     [/^helped\b/i, 'Supported'],
@@ -381,41 +398,86 @@ const actionVerbUpgrade = (value: string): string => {
     [/^did\b/i, 'Completed'],
     [/^was responsible for\b/i, 'Owned'],
     [/^dealt with\b/i, 'Resolved'],
+    [/^talked to\b/i, 'Communicated with'],
+    [/^answered\b/i, 'Responded to'],
+    [/^fixed\b/i, 'Resolved'],
+    [/^checked\b/i, 'Investigated'],
   ];
 
   for (const [pattern, replacement] of replacements) {
     if (pattern.test(trimmed)) return trimmed.replace(pattern, replacement);
   }
-
   return trimmed;
+};
+
+const removeRepeatedTailoringNoise = (value: string): string => {
+  let output = clean(value);
+  const noisyPhrases = [
+    /,\s*using structured troubleshooting to diagnose user(?: and system)? issues/gi,
+    /,\s*maintaining clear documentation(?:, case notes, and handover details| and case notes)?/gi,
+    /,\s*escalating complex cases with clear context, impact, and troubleshooting history/gi,
+    /,\s*documenting and tracking cases through structured ticketing workflows/gi,
+    /,\s*supporting SLA-focused service delivery and timely follow-up/gi,
+  ];
+
+  noisyPhrases.forEach((pattern) => {
+    output = output.replace(pattern, '');
+  });
+
+  return clean(output).replace(/[,\s]+$/, '');
 };
 
 const appendPhrase = (value: string, phrase: string): string =>
   `${value.replace(/[.\s]+$/, '')}, ${phrase}.`;
 
-const improveBulletLightly = (
+const roleText = (role: ExperienceItem): string =>
+  [role.jobTitle, role.company, role.location, role.years, ...(role.bullets ?? [])].join(' ');
+
+const roleLooksTechnical = (role: ExperienceItem): boolean =>
+  includesAny(roleText(role), [
+    /\btechnical support\b/i,
+    /\bit support\b/i,
+    /\bhelp desk\b/i,
+    /\bservice desk\b/i,
+    /\bsupport engineer\b/i,
+    /\bsupport specialist\b/i,
+    /\bdesktop\b/i,
+    /\binfrastructure\b/i,
+    /\bincident\b/i,
+    /\bticket/i,
+    /\btroubleshoot/i,
+    /\bapplication/i,
+    /\bconnectivity/i,
+    /\bos\b/i,
+  ]);
+
+const improveBullet = (
   bullet: string,
+  role: ExperienceItem,
   safeKeywords: string[],
   roleUsage: Record<string, number>,
+  analysis?: AnalysisRecordLike | null,
 ): { bullet: string; reason?: string } => {
-  const value = actionVerbUpgrade(bullet);
-  if (!value || isFragmentBullet(value)) return { bullet };
+  const original = clean(bullet);
+  const value = actionVerbUpgrade(removeRepeatedTailoringNoise(original));
 
-  const bucket = keywordBucket(safeKeywords);
+  if (!value || isFragmentBullet(value)) return { bullet: value };
+
+  const bucket = keywordBucket(safeKeywords, getJobDescription(analysis));
   const supportContext = SUPPORT_CONTEXT_REGEX.test(value);
+  const technicalRole = roleLooksTechnical(role);
 
-  // Highest-value, JD-aware improvements first. Each role receives a specific
-  // enhancement once, preventing keyword stuffing and keeping the CV truthful.
   if (
+    technicalRole &&
     supportContext &&
-    bucket.hasTicketing &&
-    !hasPhrase(value, 'ticket') &&
-    (roleUsage.ticketing ?? 0) < 1
+    bucket.hasApplicationSupport &&
+    !hasPhrase(value, 'application') &&
+    (roleUsage.applicationSupport ?? 0) < 1
   ) {
-    roleUsage.ticketing = (roleUsage.ticketing ?? 0) + 1;
+    roleUsage.applicationSupport = (roleUsage.applicationSupport ?? 0) + 1;
     return {
-      bullet: appendPhrase(value, 'documenting and tracking support cases through ticketing workflows'),
-      reason: 'Aligned this bullet with JD signals for ticketing/case management.',
+      bullet: appendPhrase(value, 'supporting application issue investigation and resolution'),
+      reason: 'Reworded the Master CV bullet with JD language for application support.',
     };
   }
 
@@ -423,12 +485,27 @@ const improveBulletLightly = (
     supportContext &&
     bucket.hasTroubleshooting &&
     !hasPhrase(value, 'troubleshooting') &&
+    !hasPhrase(value, 'diagnos') &&
     (roleUsage.troubleshooting ?? 0) < 1
   ) {
     roleUsage.troubleshooting = (roleUsage.troubleshooting ?? 0) + 1;
     return {
-      bullet: appendPhrase(value, 'using structured troubleshooting to diagnose user issues'),
-      reason: 'Aligned this bullet with JD signals for troubleshooting and diagnostics.',
+      bullet: appendPhrase(value, 'using structured troubleshooting to diagnose user and system issues'),
+      reason: 'Aligned the Master CV bullet with JD signals for troubleshooting and diagnostics.',
+    };
+  }
+
+  if (
+    supportContext &&
+    bucket.hasTicketing &&
+    !hasPhrase(value, 'ticket') &&
+    !hasPhrase(value, 'case') &&
+    (roleUsage.ticketing ?? 0) < 1
+  ) {
+    roleUsage.ticketing = (roleUsage.ticketing ?? 0) + 1;
+    return {
+      bullet: appendPhrase(value, 'documenting and tracking support cases through ticketing workflows'),
+      reason: 'Aligned the Master CV bullet with JD signals for ticketing and case management.',
     };
   }
 
@@ -440,8 +517,8 @@ const improveBulletLightly = (
   ) {
     roleUsage.escalation = (roleUsage.escalation ?? 0) + 1;
     return {
-      bullet: appendPhrase(value, 'escalating complex cases to specialist teams with clear context'),
-      reason: 'Aligned this bullet with JD signals for escalation and cross-functional support.',
+      bullet: appendPhrase(value, 'escalating complex cases with clear impact, evidence, and troubleshooting context'),
+      reason: 'Aligned the Master CV bullet with JD signals for escalation and cross-functional support.',
     };
   }
 
@@ -449,12 +526,13 @@ const improveBulletLightly = (
     supportContext &&
     bucket.hasDocumentation &&
     !hasPhrase(value, 'document') &&
+    !hasPhrase(value, 'case note') &&
     (roleUsage.documentation ?? 0) < 1
   ) {
     roleUsage.documentation = (roleUsage.documentation ?? 0) + 1;
     return {
-      bullet: appendPhrase(value, 'maintaining clear documentation and case notes'),
-      reason: 'Aligned this bullet with JD signals for documentation.',
+      bullet: appendPhrase(value, 'maintaining clear documentation, case notes, and handover details'),
+      reason: 'Aligned the Master CV bullet with JD signals for documentation.',
     };
   }
 
@@ -466,90 +544,154 @@ const improveBulletLightly = (
   ) {
     roleUsage.sla = (roleUsage.sla ?? 0) + 1;
     return {
-      bullet: appendPhrase(value, 'supporting SLA-focused service delivery'),
-      reason: 'Aligned this bullet with JD signals for SLA/service delivery.',
+      bullet: appendPhrase(value, 'supporting SLA-focused service delivery and timely follow-up'),
+      reason: 'Aligned the Master CV bullet with JD signals for SLA/service delivery.',
     };
   }
 
   if (
-    /monitor|metric|dashboard|alert|production|issue|problem|incident/i.test(value) &&
+    /monitor|metric|dashboard|alert|production|issue|problem|incident|investigat/i.test(value) &&
     bucket.hasMonitoring &&
     !hasPhrase(value, 'monitoring') &&
+    !hasPhrase(value, 'log') &&
     (roleUsage.monitoring ?? 0) < 1
   ) {
     roleUsage.monitoring = (roleUsage.monitoring ?? 0) + 1;
     return {
-      bullet: appendPhrase(value, 'supporting monitoring and issue investigation'),
-      reason: 'Aligned this bullet with JD signals for monitoring/log analysis.',
+      bullet: appendPhrase(value, 'supporting monitoring, log review, and issue investigation'),
+      reason: 'Aligned the Master CV bullet with JD signals for monitoring/log analysis.',
     };
   }
 
   if (
-    /recurring|repeat|improve|improvement|process|analy[sz]e|monitoring|metrics/i.test(value) &&
+    /recurring|repeat|improve|improvement|process|analy[sz]e|investigat|monitoring|metrics/i.test(value) &&
     bucket.hasRootCause &&
     !hasPhrase(value, 'root cause') &&
     (roleUsage.rootCause ?? 0) < 1
   ) {
     roleUsage.rootCause = (roleUsage.rootCause ?? 0) + 1;
     return {
-      bullet: appendPhrase(value, 'supporting root cause analysis'),
-      reason: 'Aligned this bullet with JD signals for analysis/root-cause thinking.',
+      bullet: appendPhrase(value, 'supporting root cause analysis and repeat-issue prevention'),
+      reason: 'Aligned the Master CV bullet with JD signals for analysis/root-cause thinking.',
     };
   }
 
-  if (
-    /test|verify|validate|quality|bug|defect|release/i.test(value) &&
-    bucket.hasTesting &&
-    !hasPhrase(value, 'testing') &&
-    (roleUsage.testing ?? 0) < 1
-  ) {
-    roleUsage.testing = (roleUsage.testing ?? 0) + 1;
-    return {
-      bullet: appendPhrase(value, 'supporting validation and testing activities'),
-      reason: 'Aligned this bullet with JD signals for testing/quality assurance.',
-    };
-  }
-
-  if (value !== clean(bullet)) {
+  if (value !== original) {
     return {
       bullet: value,
-      reason: 'Strengthened the bullet with a clearer action verb while preserving the original meaning.',
+      reason: 'Cleaned repeated tailoring phrases while preserving the original Master CV fact.',
     };
   }
 
-  return { bullet };
+  return { bullet: value };
+};
+
+const dedupeBullets = (
+  role: ExperienceItem,
+  bullets: string[],
+  changes: TailoringChange[],
+): string[] => {
+  const seen = new Set<string>();
+  const output: string[] = [];
+
+  bullets.map(clean).filter(Boolean).forEach((bullet, idx) => {
+    const key = canonical(bullet);
+
+    if (seen.has(key)) {
+      changes.push({
+        type: 'duplicate_removed',
+        section: 'experience',
+        roleId: role.id,
+        roleTitle: role.jobTitle,
+        company: role.company,
+        bulletIndex: idx,
+        before: bullet,
+        reason: 'Removed a duplicate experience bullet.',
+      });
+      return;
+    }
+
+    seen.add(key);
+    output.push(bullet);
+  });
+
+  return output;
+};
+
+const maxBulletsForRole = (role: ExperienceItem): number => {
+  const current = role.bullets?.length ?? 0;
+  if (current <= 3) return 5;
+  if (current <= 5) return 5;
+  return Math.min(current, 6);
+};
+
+const optimizeRoleBullets = (
+  role: ExperienceItem,
+  safeKeywords: string[],
+  changes: TailoringChange[],
+  analysis?: AnalysisRecordLike | null,
+): string[] => {
+  const roleUsage: Record<string, number> = {};
+  const cleanedBullets = normalizeBullets(role, changes);
+
+  const improvedBullets = cleanedBullets.map((bullet, index) => {
+    const optimized = improveBullet(bullet, role, safeKeywords, roleUsage, analysis);
+
+    if (
+      optimized.reason &&
+      optimized.bullet !== bullet &&
+      optimized.bullet.length <= 240
+    ) {
+      changes.push({
+        type: 'bullet_optimized',
+        section: 'experience',
+        roleId: role.id,
+        roleTitle: role.jobTitle,
+        company: role.company,
+        bulletIndex: index,
+        before: bullet,
+        after: optimized.bullet,
+        reason: optimized.reason,
+      });
+      return optimized.bullet;
+    }
+
+    return bullet;
+  });
+
+  return dedupeBullets(role, improvedBullets, changes).slice(0, maxBulletsForRole(role));
 };
 
 const optimizeExperience = (
   experience: ExperienceItem[],
   safeKeywords: string[],
   changes: TailoringChange[],
+  analysis?: AnalysisRecordLike | null,
 ): ExperienceItem[] =>
-  experience.map((role) => {
-    const roleUsage: Record<string, number> = {};
-    const cleanedBullets = normalizeBullets(role.bullets, changes);
+  experience.map((role) => ({
+    ...role,
+    bullets: optimizeRoleBullets(role, safeKeywords, changes, analysis),
+  }));
 
-    return {
-      ...role,
-      bullets: cleanedBullets.map((bullet) => {
-        const optimized = improveBulletLightly(bullet, safeKeywords, roleUsage);
+const removeUnsafeMissingFromSkills = (
+  skillsAwards: SkillsAwards,
+  skippedMissingKeywords: string[],
+): SkillsAwards => {
+  if (!skippedMissingKeywords.length) return skillsAwards;
 
-        if (optimized.reason && optimized.bullet !== bullet && optimized.bullet.length <= 220) {
-          changes.push({
-            type: 'bullet_optimized',
-            section: 'experience',
-            before: bullet,
-            after: optimized.bullet,
-            reason: optimized.reason,
-          });
+  const missingKeys = new Set(skippedMissingKeywords.map(canonical));
+  const safe = (value: string) =>
+    splitLines(value)
+      .filter((item) => !missingKeys.has(canonical(item)))
+      .join('\n');
 
-          return optimized.bullet;
-        }
-
-        return bullet;
-      }),
-    };
-  });
+  return {
+    technicalSkills: safe(skillsAwards.technicalSkills),
+    languages: safe(skillsAwards.languages),
+    trainingCertifications: safe(skillsAwards.trainingCertifications),
+    awards: safe(skillsAwards.awards),
+  };
+};
 
 export const optimizeResumeForJob = ({
   resume,
@@ -559,11 +701,17 @@ export const optimizeResumeForJob = ({
   const safeKeywords = getSafeJdKeywords(analysis);
   const skippedMissingKeywords = getSkippedMissingKeywords(analysis);
 
+  const optimizedSkills = buildSkillsAwards(
+    removeUnsafeMissingFromSkills(resume.skillsAwards, skippedMissingKeywords),
+    safeKeywords,
+    changes,
+  );
+
   return {
     resume: {
       ...resume,
-      experience: optimizeExperience(resume.experience, safeKeywords, changes),
-      skillsAwards: buildSkillsAwards(resume.skillsAwards, safeKeywords, changes),
+      experience: optimizeExperience(resume.experience, safeKeywords, changes, analysis),
+      skillsAwards: optimizedSkills,
     },
     changes,
     usedKeywords: safeKeywords,
