@@ -1,15 +1,3 @@
-// ============================================================
-// useCVAnalysis — consumes the smart-worker SSE stream
-//
-// The Edge Function returns text/event-stream, NOT JSON.
-// supabase.functions.invoke cannot handle SSE — we use fetch directly.
-//
-// SSE events emitted by smart-worker:
-//   event: progress  → { step, message, percent }
-//   event: complete  → { analysis, learning_context_used, patterns_updated }
-//   event: error     → { message }
-// ============================================================
-
 import { useCallback, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import type { CVAnalysis } from '../types/cvIntelligence';
@@ -45,6 +33,7 @@ export const useCVAnalysis = () => {
       setState(prev => ({ ...prev, step: 'error', error: 'CV version is required.' }));
       return null;
     }
+
     if (!jobDescription.trim()) {
       setState(prev => ({ ...prev, step: 'error', error: 'Job description is required.' }));
       return null;
@@ -59,8 +48,10 @@ export const useCVAnalysis = () => {
       progressPercent: 5,
     });
 
+    const abortController = new AbortController();
+    const timeoutId = window.setTimeout(() => abortController.abort(), 55_000);
+
     try {
-      // ---- Get session JWT ----
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session) {
@@ -72,8 +63,6 @@ export const useCVAnalysis = () => {
         return null;
       }
 
-      // ---- Get Edge Function URL ----
-      // supabase.functions.invoke cannot handle SSE — use fetch directly
       const supabaseUrl = (supabase as any).supabaseUrl as string;
       const functionUrl = `${supabaseUrl}/functions/v1/smart-worker`;
 
@@ -81,23 +70,31 @@ export const useCVAnalysis = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          // Pass the anon key so Supabase edge runtime accepts the request
-          'apikey': (supabase as any).supabaseKey as string,
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: (supabase as any).supabaseKey as string,
         },
         body: JSON.stringify({
           cv_version_id: cvVersionId,
           job_description: jobDescription.trim(),
         }),
+        signal: abortController.signal,
       });
 
       if (!response.ok) {
-        // Non-2xx before stream starts — parse error body
         let message = `Server error: ${response.status}`;
+
         try {
           const json = await response.json();
-          if (json?.error) message = json.error;
-        } catch { /* ignore */ }
+          message = json?.message || json?.error || message;
+        } catch {
+          try {
+            const text = await response.text();
+            if (text) message = text;
+          } catch {
+            // ignore
+          }
+        }
+
         setState(prev => ({ ...prev, step: 'error', error: message }));
         return null;
       }
@@ -107,93 +104,130 @@ export const useCVAnalysis = () => {
         return null;
       }
 
-      // ---- Consume SSE stream ----
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+
       let buffer = '';
       let finalAnalysis: CVAnalysis | null = null;
+      let receivedComplete = false;
+      let receivedError = false;
+      let lastServerError: string | null = null;
+
+      const handleSseMessage = (message: string) => {
+        if (!message.trim()) return;
+
+        const eventMatch = message.match(/^event:\s*(.+)$/m);
+        const dataMatch = message.match(/^data:\s*([\s\S]*)$/m);
+
+        if (!eventMatch || !dataMatch) return;
+
+        const event = eventMatch[1].trim();
+        let payload: any = {};
+
+        try {
+          payload = JSON.parse(dataMatch[1].trim());
+        } catch {
+          console.warn('[SSE] Failed to parse payload:', dataMatch[1]);
+          return;
+        }
+
+        if (event === 'progress') {
+          setState(prev => ({
+            ...prev,
+            progressMessage: payload.message || prev.progressMessage,
+            progressPercent: payload.percent ?? prev.progressPercent,
+          }));
+          return;
+        }
+
+        if (event === 'complete') {
+          receivedComplete = true;
+          finalAnalysis = payload.analysis as CVAnalysis;
+
+          setState({
+            step: 'done',
+            error: null,
+            analysis: finalAnalysis,
+            learningContextUsed: payload.learning_context_used ?? false,
+            progressMessage: 'Analysis complete.',
+            progressPercent: 100,
+          });
+          return;
+        }
+
+        if (event === 'error') {
+          receivedError = true;
+          lastServerError =
+            payload.details
+              ? `${payload.message || 'Analysis failed.'}: ${payload.details}`
+              : payload.message || 'Analysis failed. Please try again.';
+
+          setState(prev => ({
+            ...prev,
+            step: 'error',
+            error: lastServerError,
+            progressMessage: '',
+            progressPercent: 0,
+          }));
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
 
-        // SSE messages are separated by double newlines
-        const messages = buffer.split('\n\n');
-        // Keep the last potentially incomplete message in the buffer
-        buffer = messages.pop() ?? '';
+          const messages = buffer.split(/\n\n+/);
+          buffer = messages.pop() ?? '';
 
-        for (const message of messages) {
-          if (!message.trim()) continue;
-
-          // Parse SSE format: lines starting with "event:" and "data:"
-          const eventMatch = message.match(/^event:\s*(.+)$/m);
-          const dataMatch = message.match(/^data:\s*(.+)$/ms);
-
-          if (!eventMatch || !dataMatch) continue;
-
-          const event = eventMatch[1].trim();
-          let payload: any;
-
-          try {
-            payload = JSON.parse(dataMatch[1].trim());
-          } catch {
-            console.warn('[SSE] Failed to parse payload:', dataMatch[1]);
-            continue;
-          }
-
-          if (event === 'progress') {
-            setState(prev => ({
-              ...prev,
-              progressMessage: payload.message || prev.progressMessage,
-              progressPercent: payload.percent ?? prev.progressPercent,
-            }));
-          } else if (event === 'complete') {
-            finalAnalysis = payload.analysis as CVAnalysis;
-            setState({
-              step: 'done',
-              error: null,
-              analysis: finalAnalysis,
-              learningContextUsed: payload.learning_context_used ?? false,
-              progressMessage: 'Analysis complete.',
-              progressPercent: 100,
-            });
-          } else if (event === 'error') {
-            setState(prev => ({
-              ...prev,
-              step: 'error',
-              error: payload.message || 'Analysis failed. Please try again.',
-              progressMessage: '',
-              progressPercent: 0,
-            }));
-            return null;
+          for (const message of messages) {
+            handleSseMessage(message);
           }
         }
+
+        if (done) break;
       }
 
-      // Handle case where stream ended without a complete event
-      if (!finalAnalysis) {
-        setState(prev => ({
-          ...prev,
-          step: 'error',
-          error: 'Analysis stream ended unexpectedly. Please try again.',
-        }));
+      if (buffer.trim()) {
+        handleSseMessage(buffer);
+      }
+
+      if (receivedComplete && finalAnalysis) {
+        return finalAnalysis;
+      }
+
+      if (receivedError) {
         return null;
       }
 
-      return finalAnalysis;
-
-    } catch (err: any) {
-      console.error('[useCVAnalysis] Error:', err);
       setState(prev => ({
         ...prev,
         step: 'error',
-        error: err?.message || 'Unexpected error. Please try again.',
+        error:
+          lastServerError ||
+          'Analysis stream ended before completion. Check smart-worker logs or ensure cv_text exists for this CV.',
+      }));
+
+      return null;
+    } catch (err: any) {
+      const isTimeout = err?.name === 'AbortError';
+
+      console.error('[useCVAnalysis] Error:', err);
+
+      setState(prev => ({
+        ...prev,
+        step: 'error',
+        error: isTimeout
+          ? 'Analysis timed out. Please make sure the selected CV has extracted text and try again.'
+          : err?.message || 'Unexpected error. Please try again.',
         progressMessage: '',
         progressPercent: 0,
       }));
+
       return null;
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   }, []);
 

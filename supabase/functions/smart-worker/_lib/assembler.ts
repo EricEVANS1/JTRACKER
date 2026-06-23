@@ -1,144 +1,190 @@
 // ============================================================
-// assembler.ts — builds final CV from locked facts + suggestions
-//
-// This is pure deterministic code. Not AI.
-// Locked facts (employer, title, dates) CANNOT be changed here.
-// AI suggestions fill only the editable slots.
-//
-// Keyword suggestions with accepted=false are NEVER injected.
-// User must explicitly accept them in the Resume Builder.
+// _lib/assembler.ts
+// Safe CV assembly helpers
 // ============================================================
 
-import { makeRoleKey, deduplicateKeywords } from './helpers.ts';
-import type { StructuredCV, CVSuggestions } from './types.ts';
+export function assembleCvFromFactsOnly(structuredCV: any): string {
+  const sections: string[] = [];
 
-export function assembleCv(cv: StructuredCV, suggestions: CVSuggestions): string {
-  const l = cv.locked;
-  const lines: string[] = [];
+  const personal = structuredCV?.personal_info ?? {};
 
-  // ---- CONTACT (locked — assembler writes from structured facts) ----
-  if (l.contact.name) {
-    lines.push(l.contact.name.toUpperCase());
+  const name =
+    personal?.name ||
+    structuredCV?.name ||
+    '';
+
+  const email =
+    personal?.email ||
+    structuredCV?.email ||
+    '';
+
+  const phone =
+    personal?.phone ||
+    structuredCV?.phone ||
+    '';
+
+  const location =
+    personal?.location ||
+    structuredCV?.location ||
+    '';
+
+  const header = [name, email, phone, location]
+    .filter(Boolean)
+    .join(' | ');
+
+  if (header) {
+    sections.push(header);
   }
 
-  const contactParts = [
-    l.contact.email,
-    l.contact.phone,
-    l.contact.location,
-    l.contact.linkedin,
-    l.contact.portfolio,
-  ].filter(Boolean);
-
-  if (contactParts.length > 0) {
-    lines.push(contactParts.join(' | '));
+  if (structuredCV?.summary) {
+    sections.push(`SUMMARY\n${structuredCV.summary}`);
   }
 
-  lines.push('');
+  const skills = arrayToStrings(structuredCV?.skills);
 
-  // ---- PROFESSIONAL SUMMARY (AI suggestion — editable) ----
-  if (suggestions.summary?.trim()) {
-    lines.push('PROFESSIONAL SUMMARY');
-    lines.push(suggestions.summary.trim());
-    lines.push('');
+  if (skills.length) {
+    sections.push(`SKILLS\n${skills.join(', ')}`);
   }
 
-  // ---- SKILLS ----
-  // Base: locked skills (what the candidate actually has)
-  // Reordering: from suggestions.skills_emphasis if provided
-  // Keywords: ONLY those with accepted=true (user explicitly accepted)
-  const acceptedKeywords = (suggestions.keyword_suggestions ?? [])
-    .filter(k => k.accepted === true && k.section === 'skills')
-    .map(k => k.keyword);
+  const experience = arrayToStrings(structuredCV?.experience);
 
-  const baseSkills = suggestions.skills_emphasis?.length > 0
-    ? suggestions.skills_emphasis
-    : [...cv.locked_skills.technical, ...cv.locked_skills.tools];
-
-  const allSkills = deduplicateKeywords([...baseSkills, ...acceptedKeywords]);
-
-  if (allSkills.length > 0 || cv.locked_skills.soft.length > 0 || cv.locked_skills.languages.length > 0) {
-    lines.push('SKILLS');
-
-    if (allSkills.length > 0) {
-      lines.push(allSkills.join(' | '));
-    }
-
-    if (cv.locked_skills.soft.length > 0) {
-      lines.push(`Soft skills: ${cv.locked_skills.soft.join(', ')}`);
-    }
-
-    if (cv.locked_skills.languages.length > 0) {
-      lines.push(`Languages: ${cv.locked_skills.languages.join(', ')}`);
-    }
-
-    lines.push('');
+  if (experience.length) {
+    sections.push(`EXPERIENCE\n${experience.join('\n\n')}`);
   }
 
-  // ---- EXPERIENCE ----
-  // Employer name, title, and dates are LOCKED — written from structured facts
-  // Bullets: AI-improved if available, else original verbatim
-  if (l.experience.length > 0) {
-    lines.push('EXPERIENCE');
+  const projects = arrayToStrings(structuredCV?.projects);
 
-    for (const exp of l.experience) {
-      // LOCKED — these three lines cannot be changed by AI
-      lines.push(`${exp.title} | ${exp.company}`);
-      lines.push(`${exp.start_date} – ${exp.end_date}`);
-
-      // Bullets: use AI suggestions if they exist and are non-empty
-      const roleKey = makeRoleKey(exp.company, exp.title);
-      const aiBullets = suggestions.experience_bullets?.[roleKey];
-      const bullets = (aiBullets && aiBullets.length > 0)
-        ? aiBullets
-        : exp.raw_bullets;
-
-      if (bullets.length > 0) {
-        bullets.forEach(b => {
-          // Normalise bullet prefix
-          lines.push(`• ${b.replace(/^[•\-*]\s*/, '').trim()}`);
-        });
-      }
-
-      lines.push('');
-    }
+  if (projects.length) {
+    sections.push(`PROJECTS\n${projects.join('\n\n')}`);
   }
 
-  // ---- EDUCATION (locked) ----
-  if (l.education.length > 0) {
-    lines.push('EDUCATION');
+  const education = arrayToStrings(structuredCV?.education);
 
-    for (const edu of l.education) {
-      const parts = [edu.degree, edu.institution, edu.year].filter(Boolean);
-      lines.push(parts.join(' | '));
-    }
-
-    lines.push('');
+  if (education.length) {
+    sections.push(`EDUCATION\n${education.join('\n\n')}`);
   }
 
-  // ---- CERTIFICATIONS (locked) ----
-  if (l.certifications.length > 0) {
-    lines.push('CERTIFICATIONS');
+  const certifications = arrayToStrings(structuredCV?.certifications);
 
-    for (const cert of l.certifications) {
-      const parts = [cert.name, cert.issuer, cert.year].filter(Boolean);
-      lines.push(parts.join(' | '));
-    }
-
-    lines.push('');
+  if (certifications.length) {
+    sections.push(`CERTIFICATIONS\n${certifications.join(', ')}`);
   }
 
-  return lines.join('\n').trim();
+  const languages = arrayToStrings(structuredCV?.languages);
+
+  if (languages.length) {
+    sections.push(`LANGUAGES\n${languages.join(', ')}`);
+  }
+
+  if (!sections.length) {
+    return String(
+      structuredCV?.raw_text ||
+        structuredCV?.text ||
+        'No CV content available.',
+    );
+  }
+
+  return sections.join('\n\n');
 }
 
-// Fallback: assemble from facts only when suggestions are unavailable
-export function assembleCvFromFactsOnly(cv: StructuredCV): string {
-  return assembleCv(cv, {
-    summary: '',
-    experience_bullets: {},
-    skills_emphasis: [],
-    keyword_suggestions: [],
-    generated_for_job_title: null,
-    generated_for_jd_hash: null,
-    generated_at: new Date().toISOString(),
-  });
+export function assembleCv(
+  structuredCV: any,
+  suggestions: any,
+): string {
+  const baseCv = assembleCvFromFactsOnly(structuredCV);
+
+  const improvedSummary =
+    suggestions?.summary ||
+    suggestions?.professional_summary ||
+    '';
+
+  const improvedBullets = Array.isArray(suggestions?.experience_bullets)
+    ? suggestions.experience_bullets
+    : Array.isArray(suggestions?.bullets)
+      ? suggestions.bullets
+      : [];
+
+  const suggestedSkills = Array.isArray(suggestions?.skills)
+    ? suggestions.skills
+    : Array.isArray(suggestions?.keywords_to_add)
+      ? suggestions.keywords_to_add
+      : [];
+
+  const sections: string[] = [];
+
+  if (improvedSummary) {
+    sections.push(`TAILORED SUMMARY\n${improvedSummary}`);
+  }
+
+  if (improvedBullets.length) {
+    sections.push(`SUGGESTED EXPERIENCE BULLETS\n${improvedBullets.join('\n')}`);
+  }
+
+  if (suggestedSkills.length) {
+    sections.push(`SUGGESTED SKILLS\n${suggestedSkills.join(', ')}`);
+  }
+
+  if (!sections.length) {
+    return baseCv;
+  }
+
+  return `${baseCv}\n\n${sections.join('\n\n')}`;
+}
+
+function arrayToStrings(value: any): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item) return '';
+
+      if (typeof item === 'string') {
+        return item.trim();
+      }
+
+      if (typeof item === 'object') {
+        const title =
+          item.title ||
+          item.role ||
+          item.position ||
+          item.degree ||
+          item.name ||
+          '';
+
+        const company =
+          item.company ||
+          item.organisation ||
+          item.organization ||
+          item.school ||
+          item.institution ||
+          '';
+
+        const period =
+          item.period ||
+          item.dates ||
+          item.date ||
+          '';
+
+        const description =
+          item.description ||
+          item.summary ||
+          '';
+
+        const bullets = Array.isArray(item.bullets)
+          ? item.bullets.join('\n')
+          : Array.isArray(item.responsibilities)
+            ? item.responsibilities.join('\n')
+            : '';
+
+        return [title, company, period, description, bullets]
+          .filter(Boolean)
+          .join(' — ')
+          .trim();
+      }
+
+      return String(item).trim();
+    })
+    .filter(Boolean);
 }
