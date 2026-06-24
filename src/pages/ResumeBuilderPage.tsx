@@ -24,7 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { optimizeResumeForJob, type TailoringChange } from '../lib/resumeTailoring';
+import { optimizeResumeForJob, type TailoringChange, type CVQualityReport, type ClaimableGap } from '../lib/resumeTailoring';
 import type {
   AnalysisRecord,
   CvVersionRecord,
@@ -129,14 +129,187 @@ type BulletReviewItem = {
   changeType: TailoringChange['type'];
 };
 
+type SkillReviewItem = {
+  id: string;
+  type: TailoringChange['type'];
+  label: string;
+  before?: string;
+  after?: string;
+  reason: string;
+  riskLevel?: TailoringChange['riskLevel'];
+  requiresReview?: boolean;
+};
+
 const isReviewableBulletChange = (
   change: TailoringChange,
 ): change is TailoringChange & { before: string; after: string } => {
   return (
+    (change.type === 'bullet_optimized' ||
+      change.type === 'bullet_rewritten') &&
+    change.riskLevel !== 'not_recommended' &&
     change.section === 'experience' &&
     Boolean(change.before?.trim()) &&
     Boolean(change.after?.trim()) &&
     change.before?.trim() !== change.after?.trim()
+  );
+};
+
+
+const QualityReportPanel: React.FC<{
+  report: CVQualityReport;
+  onDismiss: () => void;
+}> = ({ report, onDismiss }) => {
+  const severityStyles: Record<CVQualityReport['issues'][number]['severity'], string> = {
+    error: 'border-red-400 bg-red-50 text-red-700',
+    warning: 'border-yellow-400 bg-yellow-50 text-yellow-700',
+    info: 'border-blue-400 bg-blue-50 text-blue-700',
+  };
+
+  return (
+    <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">CV Quality Report</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Generated after JD improvement to detect broken bullets, repeated phrases, tense issues, and unsupported claims.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          aria-label="Dismiss CV Quality Report"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+          Score: <span className={report.passed ? 'text-emerald-600' : 'text-amber-600'}>{report.score}/100</span>
+        </span>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+            report.passed
+              ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+              : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+          }`}
+        >
+          {report.passed ? 'Passed' : 'Needs Review'}
+        </span>
+        <span className="text-xs text-slate-500">
+          {report.issues.length} issue{report.issues.length === 1 ? '' : 's'} found
+        </span>
+      </div>
+
+      {report.issues.length > 0 ? (
+        <ul className="mt-3 space-y-2">
+          {report.issues.map((issue, idx) => (
+            <li
+              key={`${issue.category}-${idx}`}
+              className={`rounded-lg border-l-4 px-3 py-2 text-sm ${severityStyles[issue.severity]}`}
+            >
+              <span className="font-semibold capitalize">{issue.category.replace(/_/g, ' ')}</span>
+              <span>: {issue.message}</span>
+              {issue.location && (
+                <span className="mt-1 block text-xs opacity-80">Location: {issue.location}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          No issues detected. The tailored CV looks clean.
+        </p>
+      )}
+    </div>
+  );
+};
+
+const SkillReviewPanel: React.FC<{
+  items: SkillReviewItem[];
+  onDismiss: () => void;
+}> = ({ items, onDismiss }) => {
+  if (!items.length) return null;
+
+  return (
+    <div className="mb-4 rounded-xl border border-indigo-100 bg-indigo-50/60 p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">Skill Review Needed</h3>
+          <p className="mt-1 text-xs text-slate-600">
+            These skills were added, kept, or flagged during JD tailoring. Review them before exporting.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-700"
+          aria-label="Dismiss skill review"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <ul className="mt-3 space-y-2">
+        {items.map((item) => (
+          <li key={item.id} className="rounded-lg border border-indigo-100 bg-white px-3 py-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-slate-800">{item.label}</span>
+              {item.requiresReview && (
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                  Review
+                </span>
+              )}
+              {item.riskLevel && (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                  {item.riskLevel}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-slate-600">{item.reason}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+const ClaimableGapsPanel: React.FC<{
+  gaps: ClaimableGap[];
+  onDismiss: () => void;
+}> = ({ gaps, onDismiss }) => {
+  if (!gaps.length) return null;
+
+  return (
+    <div className="mb-4 rounded-xl border border-amber-100 bg-amber-50/60 p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">Claimable Gaps</h3>
+          <p className="mt-1 text-xs text-slate-600">
+            These JD keywords may be claimable from your Master CV evidence, but need your confirmation.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-700"
+          aria-label="Dismiss claimable gaps"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <ul className="mt-3 space-y-2">
+        {gaps.map((gap, idx) => (
+          <li key={`${gap.keyword}-${idx}`} className="rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm">
+            <div className="font-semibold text-slate-800">{gap.keyword}</div>
+            <div className="mt-1 text-xs text-slate-600">Evidence: {gap.evidence}</div>
+            <div className="mt-1 text-xs text-amber-700">{gap.suggestion}</div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 };
 
@@ -1434,6 +1607,18 @@ export const ResumeBuilderPage: React.FC = () => {
   const [bulletReviewItems, setBulletReviewItems] = useState<BulletReviewItem[]>([]);
   const [bulletReviewResume, setBulletReviewResume] =
     useState<ResumeBuilderState | null>(null);
+  const [qualityReport, setQualityReport] = useState<CVQualityReport | null>(null);
+  const [skillReviewItems, setSkillReviewItems] = useState<SkillReviewItem[]>([]);
+  const [claimableGaps, setClaimableGaps] = useState<ClaimableGap[]>([]);
+
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackSaving, setFeedbackSaving] = useState(false);
+  const [lastImprovementStats, setLastImprovementStats] = useState({
+    acceptedCount: 0,
+    rejectedCount: 0,
+    totalCount: 0,
+  });
  const [collapsed, setCollapsed] = useState({
   formatting: true,
   personal: false,
@@ -1458,6 +1643,9 @@ export const ResumeBuilderPage: React.FC = () => {
       try {
         setLoading(true);
         setError('');
+        setQualityReport(null);
+        setSkillReviewItems([]);
+        setClaimableGaps([]);
 
         const { data: { user }, error: ue } = await supabase.auth.getUser();
         if (ue || !user) throw new Error('You must be logged in.');
@@ -1617,27 +1805,22 @@ export const ResumeBuilderPage: React.FC = () => {
           cvVersion as CvVersionRecord | null,
         );
 
-        const tailored = optimizeResumeForJob({
-          resume: parsed,
-          analysis: record,
-        });
-
         const hydratedPersonal = mergeProfileDefaultsIntoPersonal(
-          tailored.resume.personal,
-          loadedProfileDefaults,
-          true,
-        );
+        parsed.personal,
+        loadedProfileDefaults,
+         true,
+);
 
         const hydratedResume = {
-          ...tailored.resume,
-          personal: hydratedPersonal,
-          summary: isWeakSummaryValue(tailored.resume.summary)
-            ? buildFallbackProfessionalSummary(
-                hydratedPersonal.jobTitle || record.job_title,
-                record.matched_keywords ?? [],
-              )
-            : tailored.resume.summary,
-        };
+        ...parsed,
+        personal: hydratedPersonal,
+        summary: isWeakSummaryValue(parsed.summary)
+    ? buildFallbackProfessionalSummary(
+        hydratedPersonal.jobTitle || record.job_title,
+        record.matched_keywords ?? [],
+      )
+    : parsed.summary,
+};
 
         setAnalysis(record);
         setResume(hydratedResume);
@@ -1711,6 +1894,9 @@ export const ResumeBuilderPage: React.FC = () => {
 
     const tailored = optimizeResumeForJob({ resume, analysis });
 
+    setQualityReport(tailored.qualityReport);
+    setClaimableGaps(tailored.claimableGaps ?? []);
+
     const reviewItems: BulletReviewItem[] = tailored.changes
       .filter(isReviewableBulletChange)
       .map((change, index) => ({
@@ -1726,19 +1912,45 @@ export const ResumeBuilderPage: React.FC = () => {
         changeType: change.type,
       }));
 
-    const skillChanges = tailored.changes.filter(
-      (change) => change.section === 'skillsAwards',
+    const nextSkillReviewItems: SkillReviewItem[] = tailored.changes
+      .filter((change) => change.section === 'skillsAwards')
+      .map((change, index) => ({
+        id: `skill-${change.type}-${index}`,
+        type: change.type,
+        label: change.after || change.before || 'Skill change',
+        before: change.before,
+        after: change.after,
+        reason: change.reason,
+        riskLevel: change.riskLevel,
+        requiresReview: change.requiresReview,
+      }));
+
+    setSkillReviewItems(nextSkillReviewItems);
+
+    const safeSkillUpdates = tailored.changes.filter(
+      (change) =>
+        change.section === 'skillsAwards' &&
+        change.type === 'technical_skill_added' &&
+        !change.requiresReview,
     ).length;
 
-    if (!reviewItems.length && !skillChanges) {
-      flash('No safe JD improvements were found from the current Master CV evidence.');
+    const reviewNeededCount = nextSkillReviewItems.filter((item) => item.requiresReview).length;
+
+    if (!reviewItems.length && !safeSkillUpdates && !reviewNeededCount && !(tailored.claimableGaps ?? []).length) {
+      flash('No safe JD improvements were found from the current Master CV evidence. CV Quality Report updated.');
       return;
     }
 
-    if (!reviewItems.length && skillChanges) {
+    if (!reviewItems.length && (safeSkillUpdates || reviewNeededCount)) {
       setResume(tailored.resume);
       setOriginalResume(tailored.resume);
-      flash(`Updated ${skillChanges} matched skill item(s). No experience bullets needed changes.`);
+
+      const parts = [
+        safeSkillUpdates ? `${safeSkillUpdates} matched skill item(s)` : '',
+        reviewNeededCount ? `${reviewNeededCount} skill item(s) flagged for review` : '',
+      ].filter(Boolean);
+
+      flash(`${parts.join(' and ')} updated. CV Quality Report is ready.`);
       return;
     }
 
@@ -1746,7 +1958,7 @@ export const ResumeBuilderPage: React.FC = () => {
     setBulletReviewItems(reviewItems);
     setBulletReviewOpen(true);
 
-    flash(`${reviewItems.length} JD improvement(s) ready for review. No JD-only experience was added.`);
+    flash(`${reviewItems.length} JD improvement(s) ready for review. CV Quality Report is ready.`);
   };
 
   const toggleBulletReviewItem = (id: string) => {
@@ -1805,11 +2017,20 @@ export const ResumeBuilderPage: React.FC = () => {
       }),
     };
 
+    const rejectedCount = bulletReviewItems.length - acceptedCount;
+
     setResume(nextResume);
     setOriginalResume(nextResume);
     setBulletReviewOpen(false);
     setBulletReviewResume(null);
     setBulletReviewItems([]);
+
+    setLastImprovementStats({
+      acceptedCount,
+      rejectedCount,
+      totalCount: bulletReviewItems.length,
+    });
+    setFeedbackOpen(true);
 
     flash(`Applied ${acceptedCount} reviewed JD improvement(s).`);
   };
@@ -1818,6 +2039,64 @@ export const ResumeBuilderPage: React.FC = () => {
     setBulletReviewOpen(false);
     setBulletReviewResume(null);
     setBulletReviewItems([]);
+  };
+
+  const submitImprovementFeedback = async (
+    rating: 'accurate' | 'partly' | 'inaccurate',
+  ) => {
+    try {
+      setFeedbackSaving(true);
+      setError('');
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('You must be logged in to submit feedback.');
+      }
+
+      const { error: insertError } = await supabase
+        .from('resume_improvement_feedback')
+        .insert({
+          user_id: user.id,
+          analysis_id: analysis?.id ?? null,
+          cv_version_id: analysis?.cv_version_id ?? null,
+          improvement_type: 'experience_bullets',
+          rating,
+          feedback_text: feedbackText.trim() || null,
+          accepted_count: lastImprovementStats.acceptedCount,
+          rejected_count: lastImprovementStats.rejectedCount,
+          total_count: lastImprovementStats.totalCount,
+          metadata: {
+            job_title: analysis?.job_title ?? resume.personal.jobTitle ?? null,
+            company_name: analysis?.company_name ?? null,
+            score: analysis?.score ?? null,
+            accepted_count: lastImprovementStats.acceptedCount,
+            rejected_count: lastImprovementStats.rejectedCount,
+            total_count: lastImprovementStats.totalCount,
+            quality_score: qualityReport?.score ?? null,
+            quality_passed: qualityReport?.passed ?? null,
+            quality_issue_categories: qualityReport?.issues.map((issue) => issue.category) ?? [],
+          },
+        });
+
+      if (insertError) throw insertError;
+
+      setFeedbackOpen(false);
+      setFeedbackText('');
+
+      flash('Thanks. Your feedback was saved.');
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to save improvement feedback.',
+      );
+    } finally {
+      setFeedbackSaving(false);
+    }
   };
 
   // State updaters
@@ -1881,7 +2160,7 @@ export const ResumeBuilderPage: React.FC = () => {
           )}
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => { setResume(originalResume); setFormatting(defaultFormatting); flash('Reset to original.'); }}
+          <button onClick={() => { setResume(originalResume); setFormatting(defaultFormatting); setQualityReport(null); setSkillReviewItems([]); setClaimableGaps([]); flash('Reset to original.'); }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
             <RefreshCcw size={15} />Reset
           </button>
@@ -1912,6 +2191,27 @@ export const ResumeBuilderPage: React.FC = () => {
         </div>
       )}
 
+      {qualityReport && (
+        <QualityReportPanel
+          report={qualityReport}
+          onDismiss={() => setQualityReport(null)}
+        />
+      )}
+
+      {skillReviewItems.length > 0 && (
+        <SkillReviewPanel
+          items={skillReviewItems}
+          onDismiss={() => setSkillReviewItems([])}
+        />
+      )}
+
+      {claimableGaps.length > 0 && (
+        <ClaimableGapsPanel
+          gaps={claimableGaps}
+          onDismiss={() => setClaimableGaps([])}
+        />
+      )}
+
       {/* Mobile tab switcher */}
       <div className="flex xl:hidden mb-4 rounded-xl border border-slate-200 bg-white overflow-hidden">
         <button onClick={() => setActiveTab('editor')} className={`flex-1 py-2.5 text-sm font-medium transition ${activeTab === 'editor' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
@@ -1923,6 +2223,71 @@ export const ResumeBuilderPage: React.FC = () => {
       </div>
 
       {/* Main grid */}
+      {feedbackOpen && (
+        <div className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div className="flex-1">
+              <h3 className="font-semibold text-indigo-900">
+                Were these JD improvements accurate?
+              </h3>
+
+              <p className="text-sm text-indigo-700 mt-1">
+                You applied {lastImprovementStats.acceptedCount} of{' '}
+                {lastImprovementStats.totalCount} suggested improvement(s).
+                Your feedback helps JTracker improve future bullet rewrites.
+              </p>
+
+              <textarea
+                value={feedbackText}
+                onChange={(e) => setFeedbackText(e.target.value)}
+                rows={2}
+                placeholder="Optional: what should be improved?"
+                className="mt-3 w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2 lg:justify-end">
+              <button
+                type="button"
+                disabled={feedbackSaving}
+                onClick={() => submitImprovementFeedback('accurate')}
+                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                Yes, accurate
+              </button>
+
+              <button
+                type="button"
+                disabled={feedbackSaving}
+                onClick={() => submitImprovementFeedback('partly')}
+                className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+              >
+                Partly
+              </button>
+
+              <button
+                type="button"
+                disabled={feedbackSaving}
+                onClick={() => submitImprovementFeedback('inaccurate')}
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                No, inaccurate
+              </button>
+
+              <button
+                type="button"
+                disabled={feedbackSaving}
+                onClick={() => setFeedbackOpen(false)}
+                className="rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+              >
+                Later
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_560px] gap-6 items-start">
 
         {/* EDITOR PANEL */}
