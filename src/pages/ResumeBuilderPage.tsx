@@ -25,6 +25,15 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { optimizeResumeForJob, type TailoringChange, type CVQualityReport, type ClaimableGap } from '../lib/resumeTailoring';
+import {
+  clearDraft,
+  draftDiffersFrom,
+  getDraftKey,
+  readDraft,
+  serializeEditorState,
+  writeDraft,
+  type ResumeDraft,
+} from '../lib/resumeDraft';
 import type {
   AnalysisRecord,
   CvVersionRecord,
@@ -388,6 +397,14 @@ type SavedBuilderVersion = {
   sourceCvVersionId: string | null;
   companyName: string | null;
 };
+
+type BuilderDraft = ResumeDraft<ResumeBuilderState, FormattingSettings, SavedBuilderVersion>;
+
+const LEAVE_MESSAGE =
+  'You have unsaved changes to this CV. They are kept as a draft in this browser tab, but are not saved to CV Manager. Leave anyway?';
+
+const formatDraftTime = (iso: string) =>
+  new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 const readBuilderState = (cvVersion?: CvVersionRecord | null): ResumeBuilderState | null => {
   const structured = cvVersion?.structured_cv;
@@ -1880,6 +1897,12 @@ export const ResumeBuilderPage: React.FC = () => {
   // The Resume Builder CV version that Save updates. Set when a saved builder
   // CV is opened, or after the first save; null means Save creates a new one.
   const [savedVersion, setSavedVersion] = useState<SavedBuilderVersion | null>(null);
+  // Snapshot of the content last loaded or saved; edits are anything that
+  // differs from it. null while loading.
+  const [baseline, setBaseline] = useState<string | null>(null);
+  const [draftKey, setDraftKey] = useState<string | null>(null);
+  // An autosaved draft found on load, waiting for Restore or Discard.
+  const [pendingDraft, setPendingDraft] = useState<BuilderDraft | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
   const [error, setError] = useState('');
   const [showCustomModal, setShowCustomModal] = useState(false);
@@ -1930,12 +1953,32 @@ export const ResumeBuilderPage: React.FC = () => {
         setLoading(true);
         setError('');
         setSavedVersion(null);
+        setBaseline(null);
+        setPendingDraft(null);
         setQualityReport(null);
         setSkillReviewItems([]);
         setClaimableGaps([]);
 
         const { data: { user }, error: ue } = await supabase.auth.getUser();
         if (ue || !user) throw new Error('You must be logged in.');
+
+        const key = getDraftKey({ userId: user.id, cvVersionId, analysisId });
+        setDraftKey(key);
+
+        // Records what was loaded, and offers an autosaved draft that differs
+        // from it. Content that exists nowhere else (an imported draft) starts
+        // out as unsaved.
+        const finishLoad = (
+          loadedResume: ResumeBuilderState,
+          loadedFormatting: FormattingSettings,
+          unsaved = false,
+        ) => {
+          const snapshot = serializeEditorState(loadedResume, loadedFormatting);
+          const draft = readDraft<ResumeBuilderState, FormattingSettings, SavedBuilderVersion>(key);
+
+          setBaseline(unsaved ? '' : snapshot);
+          if (draftDiffersFrom(draft, snapshot)) setPendingDraft(draft);
+        };
 
         const { data: profileData } = await supabase
           .from('profiles')
@@ -2002,6 +2045,7 @@ export const ResumeBuilderPage: React.FC = () => {
               setResume(finalImportedResume);
               setOriginalResume(finalImportedResume);
               setFormatting(defaultFormatting);
+              finishLoad(finalImportedResume, defaultFormatting, true);
 
               localStorage.removeItem('jtracker_resume_builder_import');
 
@@ -2046,7 +2090,8 @@ export const ResumeBuilderPage: React.FC = () => {
           const resolvedTitle = resolveBuilderJobTitle(null, hydratedResume, cvRecord);
           const finalResume = applyResolvedJobTitle(hydratedResume, resolvedTitle);
 
-          setFormatting(readBuilderFormatting(cvRecord));
+          const loadedFormatting = readBuilderFormatting(cvRecord);
+          setFormatting(loadedFormatting);
           setAnalysis(null);
           // Only versions the builder saved are updated in place; an uploaded
           // CV opened here is kept as is and the first save makes a copy.
@@ -2063,6 +2108,7 @@ export const ResumeBuilderPage: React.FC = () => {
           );
           setResume(finalResume);
           setOriginalResume(finalResume);
+          finishLoad(finalResume, loadedFormatting);
           return;
         }
 
@@ -2073,6 +2119,8 @@ export const ResumeBuilderPage: React.FC = () => {
           };
           setResume(hydratedEmpty);
           setOriginalResume(hydratedEmpty);
+          setFormatting(defaultFormatting);
+          finishLoad(hydratedEmpty, defaultFormatting);
           return;
         }
 
@@ -2142,11 +2190,85 @@ export const ResumeBuilderPage: React.FC = () => {
         setAnalysis(record);
         setResume(finalResume);
         setOriginalResume(finalResume);
+        setFormatting(defaultFormatting);
+        finishLoad(finalResume, defaultFormatting);
       } catch (err) { setError(err instanceof Error ? err.message : 'Failed to load Resume Builder.'); }
       finally { setLoading(false); }
     };
     load();
   }, [analysisId, cvVersionId]);
+
+  const isDirty = useMemo(
+    () => baseline !== null && serializeEditorState(resume, formatting) !== baseline,
+    [baseline, resume, formatting],
+  );
+
+  // Autosave edits to this tab's draft; drop the draft once nothing is unsaved.
+  // Paused while an older draft is waiting for Restore or Discard.
+  useEffect(() => {
+    if (!draftKey || baseline === null || pendingDraft) return;
+
+    if (!isDirty) {
+      clearDraft(draftKey);
+      return;
+    }
+
+    writeDraft(draftKey, { resume, formatting, savedVersion, savedAt: new Date().toISOString() });
+  }, [draftKey, baseline, pendingDraft, isDirty, resume, formatting, savedVersion]);
+
+  // Warn before leaving with unsaved changes: reloads and closing the tab, and
+  // in-app links (the sidebar). The draft above covers the browser Back button.
+  useEffect(() => {
+    if (!isDirty) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    const handleLinkClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+      const link = (event.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+
+      const url = new URL(link.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+
+      if (!window.confirm(LEAVE_MESSAGE)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('click', handleLinkClick, true);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('click', handleLinkClick, true);
+    };
+  }, [isDirty]);
+
+  const leaveTo = (path: string) => {
+    if (isDirty && !window.confirm(LEAVE_MESSAGE)) return;
+    navigate(path);
+  };
+
+  const handleRestoreDraft = () => {
+    if (!pendingDraft) return;
+
+    setResume(pendingDraft.resume);
+    setFormatting(pendingDraft.formatting);
+    if (pendingDraft.savedVersion) setSavedVersion(pendingDraft.savedVersion);
+    setPendingDraft(null);
+  };
+
+  const handleDiscardDraft = () => {
+    if (draftKey) clearDraft(draftKey);
+    setPendingDraft(null);
+  };
 
   const flash = (msg: string) => { setSavedMsg(msg); setTimeout(() => setSavedMsg(''), 3000); };
 
@@ -2156,6 +2278,9 @@ export const ResumeBuilderPage: React.FC = () => {
       if (!plainText.trim()) throw new Error('Resume is empty.');
       const { data: { user }, error: ue } = await supabase.auth.getUser();
       if (ue || !user) throw new Error('Not logged in.');
+
+      // What is being saved; edits made while the save is in flight stay unsaved.
+      const savingSnapshot = serializeEditorState(resume, formatting);
 
       // A saved version opened on its own has no analysis loaded, so keep the
       // links it already has.
@@ -2201,6 +2326,7 @@ export const ResumeBuilderPage: React.FC = () => {
         if (!updated?.length) {
           throw new Error('This CV version no longer exists in CV Manager. Use "Save as new" to keep your changes.');
         }
+        setBaseline(savingSnapshot);
         flash(`Saved changes to "${savedVersion.name}".`);
         return;
       }
@@ -2228,6 +2354,7 @@ export const ResumeBuilderPage: React.FC = () => {
         sourceCvVersionId,
         companyName,
       });
+      setBaseline(savingSnapshot);
       flash('Saved as a new CV version in CV Manager.');
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to save.'); }
     finally { setSaving(false); }
@@ -2536,7 +2663,7 @@ export const ResumeBuilderPage: React.FC = () => {
       {/* Page header — matches JTracker page pattern */}
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <button onClick={() => navigate('/cv-manager')} className="mb-2 inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition">
+          <button onClick={() => leaveTo('/cv-manager')} className="mb-2 inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition">
             <ArrowLeft size={15} />Back to CV Manager
           </button>
           <h1 className="text-2xl font-bold text-slate-900">Resume Builder</h1>
@@ -2566,6 +2693,9 @@ export const ResumeBuilderPage: React.FC = () => {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
             <Download size={15} />ATS DOCX
           </button>
+          {isDirty && (
+            <span className="self-center text-xs font-medium text-amber-600">Unsaved changes</span>
+          )}
           {savedVersion && (
             <button onClick={() => handleSave(true)} disabled={saving}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition disabled:opacity-50">
@@ -2579,6 +2709,24 @@ export const ResumeBuilderPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {pendingDraft && (
+        <div className="mb-4 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between">
+          <p>
+            You have unsaved changes to this CV from {formatDraftTime(pendingDraft.savedAt)} that were not saved to CV Manager.
+          </p>
+          <div className="flex shrink-0 gap-2">
+            <button onClick={handleDiscardDraft}
+              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100 transition">
+              Discard
+            </button>
+            <button onClick={handleRestoreDraft}
+              className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 transition">
+              Restore changes
+            </button>
+          </div>
+        </div>
+      )}
 
       {savedMsg && (
         <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">

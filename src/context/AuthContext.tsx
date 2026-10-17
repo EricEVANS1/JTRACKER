@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 
 import { supabase } from '../lib/supabase';
+import { clearAllDrafts } from '../lib/resumeDraft';
 
 interface AuthContextType {
   user: User | null;
@@ -84,6 +85,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+    // Don't leave unsaved CV drafts behind for the next person on this device.
+    clearAllDrafts();
   };
 
   return (
