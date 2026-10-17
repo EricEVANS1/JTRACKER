@@ -206,6 +206,36 @@ new Date(date.getFullYear(), date.getMonth(), date.getDate());
 const isActiveApplication = (app: DashboardApplication) =>
 !app.archived && !closedStatuses.includes(app.status);
 
+// Waiting-time actions for applications without a scheduled follow-up.
+// Interview stages are covered by the awaiting-final-response action instead.
+const getWaitingReason = (app: DashboardApplication, now: Date) => {
+if (app.follow_up_date) return null;
+
+if (app.status === 'assessment') {
+  const days = getDaysBetween(
+    app.assessment_received_at ||
+      app.last_status_changed_at ||
+      app.status_updated_at ||
+      app.updated_at ||
+      app.created_at,
+    now.toISOString()
+  );
+
+  return days !== null && days >= 5 ? `Assessment outstanding for ${days} days` : null;
+}
+
+if (
+  (app.status === 'applied' && !app.response_received_at) ||
+  app.status === 'confirmation_received'
+) {
+  const days = getDaysBetween(getAppliedDate(app), now.toISOString());
+
+  return days !== null && days >= 7 ? `No response ${days} days after applying` : null;
+}
+
+return null;
+};
+
 const hasReachedInterview = (app: DashboardApplication) =>
 Boolean(
 app.reached_interview ||
@@ -488,36 +518,7 @@ const awaitingFinalResponse = activeApplications.filter((app) =>
   ['interview', 'final_interview'].includes(app.status)
 );
 
-const suggestedFollowUps = activeApplications.filter((app) => {
-  if (app.follow_up_date) return false;
-
-  const appliedDate = new Date(getAppliedDate(app));
-  if (Number.isNaN(appliedDate.getTime())) return false;
-
-  const daysSinceApplied = getDaysBetween(appliedDate.toISOString(), now.toISOString()) || 0;
-
-  if (app.status === 'applied' && !app.response_received_at && daysSinceApplied >= 7) {
-    return true;
-  }
-
-  const assessmentDays = getDaysBetween(app.assessment_received_at, now.toISOString()) || 0;
-
-  if (app.status === 'assessment' && assessmentDays >= 5) {
-    return true;
-  }
-
-  const interviewDays =
-    getDaysBetween(
-      app.final_interview_started_at || app.interview_started_at,
-      now.toISOString()
-    ) || 0;
-
-  if (['interview', 'final_interview'].includes(app.status) && interviewDays >= 5) {
-    return true;
-  }
-
-  return false;
-});
+const suggestedFollowUps = activeApplications.filter((app) => getWaitingReason(app, now) !== null);
 
 return {
   overdueFollowUps,
@@ -552,35 +553,46 @@ return app.archived || app.status === 'archived';
 }, [applications]);
 
 const actionItems = useMemo(() => {
+const now = new Date();
+const listed = new Set<string>();
+
+// Each application is listed once, under its most urgent action.
+const toItems = (
+  apps: DashboardApplication[],
+  prefix: string,
+  tone: 'danger' | 'warning' | 'info' | 'neutral',
+  getReason: (app: DashboardApplication) => string
+) =>
+  apps
+    .filter((app) => !listed.has(app.id))
+    .slice(0, 3)
+    .map((app) => {
+      listed.add(app.id);
+
+      return {
+        id: `${prefix}-${app.id}`,
+        title: app.role_title || 'Untitled role',
+        reason: getReason(app),
+        href: `/applications/${app.id}`,
+        tone,
+      };
+    });
+
+const overdueByDate = [...todayStats.overdueFollowUps].sort(
+  (a, b) => new Date(a.follow_up_date || 0).getTime() - new Date(b.follow_up_date || 0).getTime()
+);
+
 return [
-...todayStats.overdueFollowUps.slice(0, 3).map((app) => ({
-id: `overdue-${app.id}`,
-title: app.role_title || 'Untitled role',
-reason: `Follow-up overdue since ${formatShortDate(app.follow_up_date)}`,
-href: '/applications',
-tone: 'danger' as const,
-})),
-...todayStats.dueTodayFollowUps.slice(0, 3).map((app) => ({
-id: `today-${app.id}`,
-title: app.role_title || 'Untitled role',
-reason: 'Follow-up due today',
-href: '/applications',
-tone: 'warning' as const,
-})),
-...todayStats.awaitingFinalResponse.slice(0, 3).map((app) => ({
-id: `final-${app.id}`,
-title: app.role_title || 'Untitled role',
-reason: 'Awaiting final response after interview',
-href: '/applications',
-tone: 'info' as const,
-})),
-...todayStats.suggestedFollowUps.slice(0, 3).map((app) => ({
-id: `suggested-${app.id}`,
-title: app.role_title || 'Untitled role',
-reason: 'Suggested follow-up based on waiting time',
-href: '/applications',
-tone: 'neutral' as const,
-})),
+  ...toItems(overdueByDate, 'overdue', 'danger', (app) =>
+    `Follow-up overdue since ${formatShortDate(app.follow_up_date)}`
+  ),
+  ...toItems(todayStats.dueTodayFollowUps, 'today', 'warning', () => 'Follow-up due today'),
+  ...toItems(todayStats.awaitingFinalResponse, 'final', 'info', () =>
+    'Awaiting final response after interview'
+  ),
+  ...toItems(todayStats.suggestedFollowUps, 'suggested', 'neutral', (app) =>
+    getWaitingReason(app, now) || 'Suggested follow-up based on waiting time'
+  ),
 ].slice(0, 6);
 }, [todayStats]);
 
