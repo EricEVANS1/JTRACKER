@@ -22,6 +22,21 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
+import {
+NO_RESPONSE_DAYS,
+getDaysBetween,
+getDaysWithoutReply,
+getDaysToResponse,
+getFollowUpBucket,
+hasReachedInterview,
+hasReachedOffer,
+hasResponse,
+isActive,
+isArchived,
+isAwaitingFinalResponse,
+isSubmitted,
+type FollowUpBucket,
+} from '../lib/applicationLifecycle';
 
 type ApplicationStatus =
 | 'wishlist'
@@ -117,24 +132,6 @@ interface CVVersion {
 id: string;
 }
 
-// Statuses that mean the employer replied. Withdrawn and ghosted are not replies.
-const responseStatuses: ApplicationStatus[] = [
-'confirmation_received',
-'assessment',
-'interview',
-'final_interview',
-'offer',
-'rejected',
-];
-
-const closedStatuses: ApplicationStatus[] = [
-'offer',
-'rejected',
-'withdrawn',
-'ghosted',
-'archived',
-];
-
 type FunnelGroup = 'progress' | 'outcome';
 
 const funnelStatuses: { value: ApplicationStatus; label: string; group: FunnelGroup }[] = [
@@ -185,34 +182,10 @@ if (ms < 1000) return `${ms}ms`;
 return `${(ms / 1000).toFixed(1)}s`;
 };
 
-const getAppliedDate = (app: DashboardApplication) => app.date_applied || app.created_at;
-
-const getDaysBetween = (start?: string | null, end?: string | null) => {
-if (!start || !end) return null;
-
-const startTime = new Date(start).getTime();
-const endTime = new Date(end).getTime();
-
-if (Number.isNaN(startTime) || Number.isNaN(endTime)) return null;
-
-return Math.max(0, Math.round((endTime - startTime) / 86400000));
-};
-
 const average = (values: number[]) => {
 if (values.length === 0) return 0;
 return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 };
-
-const isSameDay = (date: Date, compareTo: Date) =>
-date.getFullYear() === compareTo.getFullYear() &&
-date.getMonth() === compareTo.getMonth() &&
-date.getDate() === compareTo.getDate();
-
-const startOfDay = (date: Date) =>
-new Date(date.getFullYear(), date.getMonth(), date.getDate());
-
-const isActiveApplication = (app: DashboardApplication) =>
-!app.archived && !closedStatuses.includes(app.status);
 
 // Waiting-time actions for applications without a scheduled follow-up.
 // Interview stages are covered by the awaiting-final-response action instead.
@@ -232,41 +205,14 @@ if (app.status === 'assessment') {
   return days !== null && days >= 5 ? `Assessment outstanding for ${days} days` : null;
 }
 
-if (
-  (app.status === 'applied' && !app.response_received_at) ||
-  app.status === 'confirmation_received'
-) {
-  const days = getDaysBetween(getAppliedDate(app), now.toISOString());
+const daysWithoutReply = getDaysWithoutReply(app, now);
 
-  return days !== null && days >= 7 ? `No response ${days} days after applying` : null;
+if (daysWithoutReply !== null && daysWithoutReply >= NO_RESPONSE_DAYS) {
+  return `No response ${daysWithoutReply} days after applying`;
 }
 
 return null;
 };
-
-const isSubmitted = (app: DashboardApplication) => app.status !== 'wishlist';
-
-const hasReachedOffer = (app: DashboardApplication) =>
-app.status === 'offer' || Boolean(app.offer_received_at);
-
-// Each later stage implies the earlier ones, so offers <= interviews <= responses.
-const hasReachedInterview = (app: DashboardApplication) =>
-Boolean(
-app.reached_interview ||
-app.interview_started_at ||
-app.final_interview_started_at ||
-app.rejected_after_interview ||
-app.status === 'interview' ||
-app.status === 'final_interview' ||
-hasReachedOffer(app)
-);
-
-// Ghosting stamps response_received_at without a real reply, so it is ignored there.
-const hasResponse = (app: DashboardApplication) =>
-hasReachedInterview(app) ||
-responseStatuses.includes(app.status) ||
-Boolean(app.assessment_received_at || app.rejected_at) ||
-(Boolean(app.response_received_at) && app.status !== 'ghosted');
 
 export const DashboardPage: React.FC = () => {
 const { user } = useAuth();
@@ -457,8 +403,8 @@ loadDashboard();
 
 const stats = useMemo(() => {
 const total = applications.length;
-const active = applications.filter(isActiveApplication).length;
-const archived = applications.filter((app) => app.archived || app.status === 'archived').length;
+const active = applications.filter(isActive).length;
+const archived = applications.filter(isArchived).length;
 
 // Rates are based on submitted applications; wishlist items were never sent.
 const submittedApps = applications.filter(isSubmitted);
@@ -467,15 +413,15 @@ const submitted = submittedApps.length;
 const responses = submittedApps.filter(hasResponse).length;
 const interviews = submittedApps.filter(hasReachedInterview).length;
 const offers = submittedApps.filter(hasReachedOffer).length;
-const rejections = submittedApps.filter((app) => app.status === 'rejected' || Boolean(app.rejected_at)).length;
+const rejections = submittedApps.filter((app) => app.status === 'rejected').length;
 
 const responseRate = submitted > 0 ? Math.round((responses / submitted) * 100) : 0;
 const interviewRate = responses > 0 ? Math.round((interviews / responses) * 100) : 0;
 const offerRate = interviews > 0 ? Math.round((offers / interviews) * 100) : 0;
 const rejectionRate = submitted > 0 ? Math.round((rejections / submitted) * 100) : 0;
 
-const responseTimes = applications
-  .map((app) => getDaysBetween(getAppliedDate(app), app.response_received_at))
+const responseTimes = submittedApps
+  .map(getDaysToResponse)
   .filter((value): value is number => value !== null);
 
 const avgTimeToResponse = average(responseTimes);
@@ -501,46 +447,15 @@ return {
 
 const todayStats = useMemo(() => {
 const now = new Date();
-const today = startOfDay(now);
-const inSevenDays = new Date(today);
-inSevenDays.setDate(today.getDate() + 7);
 
+const activeApplications = applications.filter(isActive);
+const inBucket = (bucket: FollowUpBucket) =>
+  activeApplications.filter((app) => getFollowUpBucket(app, now) === bucket);
 
-const activeApplications = applications.filter(isActiveApplication);
-
-const overdueFollowUps = activeApplications.filter((app) => {
-  if (!app.follow_up_date) return false;
-
-  const date = new Date(app.follow_up_date);
-  if (Number.isNaN(date.getTime())) return false;
-
-  return startOfDay(date) < today;
-});
-
-const dueTodayFollowUps = activeApplications.filter((app) => {
-  if (!app.follow_up_date) return false;
-
-  const date = new Date(app.follow_up_date);
-  if (Number.isNaN(date.getTime())) return false;
-
-  return isSameDay(date, today);
-});
-
-const upcomingFollowUps = activeApplications.filter((app) => {
-  if (!app.follow_up_date) return false;
-
-  const date = new Date(app.follow_up_date);
-  if (Number.isNaN(date.getTime())) return false;
-
-  const day = startOfDay(date);
-
-  return day > today && day <= inSevenDays;
-});
-
-const awaitingFinalResponse = activeApplications.filter((app) =>
-  Boolean(app.final_response_pending) ||
-  ['interview', 'final_interview'].includes(app.status)
-);
+const overdueFollowUps = inBucket('overdue');
+const dueTodayFollowUps = inBucket('today');
+const upcomingFollowUps = inBucket('upcoming');
+const awaitingFinalResponse = activeApplications.filter(isAwaitingFinalResponse);
 
 const suggestedFollowUps = activeApplications.filter((app) => getWaitingReason(app, now) !== null);
 

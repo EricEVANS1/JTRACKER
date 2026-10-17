@@ -16,6 +16,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { getFollowUpBucket } from '../lib/applicationLifecycle';
 
 type NotificationPriority = 'urgent' | 'today' | 'upcoming' | 'insight';
 type NotificationSource = 'database' | 'smart';
@@ -159,7 +160,7 @@ export const NotificationsPage: React.FC = () => {
         )
       `)
       .eq('user_id', user.id)
-      .eq('archived', false)
+      .or('archived.is.false,archived.is.null')
       .order('follow_up_date', { ascending: true, nullsFirst: false });
 
     if (error) {
@@ -271,52 +272,45 @@ export const NotificationsPage: React.FC = () => {
         app.last_status_changed_at || app.date_applied || app.created_at
       );
 
-      if (app.follow_up_date) {
-        const followUpDate = new Date(app.follow_up_date);
+      // Same buckets as the dashboard and Follow-ups page; closed applications are skipped.
+      const followUpBucket = getFollowUpBucket(app, now);
 
-        const todayStart = new Date(now);
-        todayStart.setHours(0, 0, 0, 0);
-
-        const todayEnd = new Date(now);
-        todayEnd.setHours(23, 59, 59, 999);
-
-        if (followUpDate < todayStart) {
-          items.push({
-            id: `overdue-${app.id}`,
-            title: 'Follow-up overdue',
-            description: `${app.role_title} at ${company} needs a follow-up. It was due on ${formatDateTime(app.follow_up_date)}.`,
-            priority: 'urgent',
-            type: 'follow_up_overdue',
-            source: 'smart',
-            applicationId: app.id,
-            company,
-            date: app.follow_up_date,
-          });
-        } else if (followUpDate >= todayStart && followUpDate <= todayEnd) {
-          items.push({
-            id: `today-${app.id}`,
-            title: 'Follow-up due today',
-            description: `${app.role_title} at ${company} has a follow-up scheduled for today.`,
-            priority: 'today',
-            type: 'follow_up_today',
-            source: 'smart',
-            applicationId: app.id,
-            company,
-            date: app.follow_up_date,
-          });
-        } else {
-          items.push({
-            id: `upcoming-${app.id}`,
-            title: 'Upcoming follow-up',
-            description: `${app.role_title} at ${company} has a follow-up scheduled for ${formatDateTime(app.follow_up_date)}.`,
-            priority: 'upcoming',
-            type: 'follow_up_upcoming',
-            source: 'smart',
-            applicationId: app.id,
-            company,
-            date: app.follow_up_date,
-          });
-        }
+      if (followUpBucket === 'overdue') {
+        items.push({
+          id: `overdue-${app.id}`,
+          title: 'Follow-up overdue',
+          description: `${app.role_title} at ${company} needs a follow-up. It was due on ${formatDateTime(app.follow_up_date)}.`,
+          priority: 'urgent',
+          type: 'follow_up_overdue',
+          source: 'smart',
+          applicationId: app.id,
+          company,
+          date: app.follow_up_date,
+        });
+      } else if (followUpBucket === 'today') {
+        items.push({
+          id: `today-${app.id}`,
+          title: 'Follow-up due today',
+          description: `${app.role_title} at ${company} has a follow-up scheduled for today.`,
+          priority: 'today',
+          type: 'follow_up_today',
+          source: 'smart',
+          applicationId: app.id,
+          company,
+          date: app.follow_up_date,
+        });
+      } else if (followUpBucket === 'upcoming') {
+        items.push({
+          id: `upcoming-${app.id}`,
+          title: 'Upcoming follow-up',
+          description: `${app.role_title} at ${company} has a follow-up scheduled for ${formatDateTime(app.follow_up_date)}.`,
+          priority: 'upcoming',
+          type: 'follow_up_upcoming',
+          source: 'smart',
+          applicationId: app.id,
+          company,
+          date: app.follow_up_date,
+        });
       }
 
       if (

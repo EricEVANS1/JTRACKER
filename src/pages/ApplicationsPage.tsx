@@ -17,6 +17,7 @@ X,
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { buildStatusUpdate, isAwaitingFinalResponse } from '../lib/applicationLifecycle';
 
 type ApplicationStatus =
 | 'wishlist'
@@ -139,12 +140,6 @@ const statusOptions: { value: ApplicationStatus; label: string }[] = [
 
 type StatusFilter = 'all' | 'awaiting_final_response' | ApplicationStatus;
 
-const closedStatuses: ApplicationStatus[] = ['offer', 'rejected', 'withdrawn', 'ghosted', 'archived'];
-
-const isAwaitingFinalResponse = (app: { status: ApplicationStatus; final_response_pending?: boolean | null }) =>
-!closedStatuses.includes(app.status) &&
-(Boolean(app.final_response_pending) || app.status === 'interview' || app.status === 'final_interview');
-
 const statusStyle: Record<ApplicationStatus, string> = {
 wishlist: 'bg-slate-100 text-slate-700',
 applied: 'bg-blue-50 text-blue-700',
@@ -181,78 +176,6 @@ year: 'numeric',
 };
 
 const nowIso = () => new Date().toISOString();
-
-const hasReachedInterview = (app: Application) =>
-Boolean(
-app.reached_interview ||
-app.interview_started_at ||
-app.final_interview_started_at ||
-app.status === 'interview' ||
-app.status === 'final_interview' ||
-app.status === 'offer'
-);
-
-const getInitialLifecyclePayload = (status: ApplicationStatus, now: string) => {
-const payload: Record<string, string | boolean | number | OutcomeReason | null> = {};
-
-if (status === 'confirmation_received') {
-payload.response_received_at = now;
-}
-
-if (status === 'assessment') {
-payload.response_received_at = now;
-payload.assessment_received_at = now;
-}
-
-if (status === 'interview') {
-payload.response_received_at = now;
-payload.interview_started_at = now;
-payload.reached_interview = true;
-payload.final_response_pending = true;
-payload.interview_count = 1;
-}
-
-if (status === 'final_interview') {
-payload.response_received_at = now;
-payload.interview_started_at = now;
-payload.final_interview_started_at = now;
-payload.reached_interview = true;
-payload.final_response_pending = true;
-payload.interview_count = 1;
-}
-
-if (status === 'offer') {
-payload.response_received_at = now;
-payload.offer_received_at = now;
-payload.final_response_pending = false;
-payload.outcome_reason = 'offer_received';
-}
-
-if (status === 'rejected') {
-payload.response_received_at = now;
-payload.rejected_at = now;
-payload.final_response_pending = false;
-payload.rejected_after_interview = false;
-payload.outcome_reason = 'rejected_before_interview';
-payload.archived = true;
-payload.archived_at = now;
-}
-
-if (status === 'withdrawn') {
-payload.withdrawn_at = now;
-payload.final_response_pending = false;
-payload.outcome_reason = 'withdrawn';
-}
-
-if (status === 'ghosted') {
-payload.response_received_at = now;
-payload.ghosted_at = now;
-payload.final_response_pending = false;
-payload.outcome_reason = 'ghosted';
-}
-
-return payload;
-};
 
 export const ApplicationsPage: React.FC = () => {
 const { user } = useAuth();
@@ -404,114 +327,6 @@ const term = search.toLowerCase().trim();
 
 }, [applications, search, statusFilter]);
 
-const getLifecycleUpdate = (newStatus: ApplicationStatus, app: Application) => {
-const now = nowIso();
-
-
-const update: Record<string, string | boolean | number | OutcomeReason | null> = {
-  status: newStatus,
-  last_status_changed_at: now,
-  status_updated_at: now,
-};
-
-if (newStatus === 'archived') {
-  update.archived = true;
-  update.archived_at = now;
-}
-
-if (newStatus !== 'archived' && app.archived) {
-  update.archived = false;
-  update.archived_at = null;
-}
-
-if (newStatus === 'confirmation_received' && !app.response_received_at) {
-  update.response_received_at = now;
-}
-
-if (newStatus === 'assessment') {
-  if (!app.assessment_received_at) update.assessment_received_at = now;
-  if (!app.response_received_at) update.response_received_at = now;
-  update.final_response_pending = false;
-}
-
-if (newStatus === 'interview') {
-  update.reached_interview = true;
-  update.final_response_pending = true;
-  update.rejected_after_interview = false;
-  update.interview_count = Math.max(app.interview_count || 0, 1);
-
-  if (!app.interview_started_at) update.interview_started_at = now;
-  if (!app.response_received_at) update.response_received_at = now;
-}
-
-if (newStatus === 'final_interview') {
-  update.reached_interview = true;
-  update.final_response_pending = true;
-  update.rejected_after_interview = false;
-  update.interview_count = Math.max(app.interview_count || 0, 1);
-
-  if (!app.final_interview_started_at) update.final_interview_started_at = now;
-  if (!app.interview_started_at) update.interview_started_at = now;
-  if (!app.response_received_at) update.response_received_at = now;
-}
-
-if (newStatus === 'offer') {
-  update.final_response_pending = false;
-  update.outcome_reason = 'offer_received';
-
-  if (hasReachedInterview(app)) {
-    update.reached_interview = true;
-    update.interview_count = Math.max(app.interview_count || 0, 1);
-  }
-
-  if (!app.offer_received_at) update.offer_received_at = now;
-  if (!app.response_received_at) update.response_received_at = now;
-}
-
-if (newStatus === 'rejected') {
-  const hadInterview = hasReachedInterview(app);
-
-  update.archived = true;
-  update.archived_at = now;
-  update.final_response_pending = false;
-
-  if (hadInterview) {
-    update.reached_interview = true;
-    update.rejected_after_interview = true;
-    update.outcome_reason = 'rejected_after_interview';
-    update.interview_count = Math.max(app.interview_count || 0, 1);
-  } else if (app.assessment_received_at || app.status === 'assessment') {
-    update.rejected_after_interview = false;
-    update.outcome_reason = 'rejected_after_assessment';
-  } else {
-    update.rejected_after_interview = false;
-    update.outcome_reason = 'rejected_before_interview';
-  }
-
-  if (!app.rejected_at) update.rejected_at = now;
-  if (!app.response_received_at) update.response_received_at = now;
-}
-
-if (newStatus === 'withdrawn') {
-  update.final_response_pending = false;
-  update.outcome_reason = 'withdrawn';
-
-  if (!app.withdrawn_at) update.withdrawn_at = now;
-}
-
-if (newStatus === 'ghosted') {
-  update.final_response_pending = false;
-  update.outcome_reason = 'ghosted';
-
-  if (!app.ghosted_at) update.ghosted_at = now;
-  if (!app.response_received_at) update.response_received_at = now;
-}
-
-return update;
-
-
-};
-
 const updateApplication = async (
 applicationId: string,
 updatePayload: Record<string, string | boolean | number | OutcomeReason | null>,
@@ -564,7 +379,7 @@ if (!user) return;
 const application = applications.find((app) => app.id === applicationId);
 if (!application || application.status === newStatus) return;
 
-const updatePayload = getLifecycleUpdate(newStatus, application);
+const updatePayload = buildStatusUpdate(newStatus, application, nowIso());
 
 const successMessage =
   newStatus === 'rejected'
@@ -942,7 +757,7 @@ setMessage('');
 try {
   const companyId = await getOrCreateCompanyId();
   const now = nowIso();
-  const lifecyclePayload = getInitialLifecyclePayload(status, now);
+  const lifecyclePayload = buildStatusUpdate(status, null, now);
 
   const { data: insertedApplication, error } = await supabase
     .from('applications')
@@ -960,9 +775,6 @@ try {
       notes: notes.trim() || null,
       priority: priority || 'medium',
       follow_up_date: followUpDate ? new Date(followUpDate).toISOString() : null,
-      status,
-      last_status_changed_at: now,
-      status_updated_at: now,
       ...lifecyclePayload,
     })
     .select('id')

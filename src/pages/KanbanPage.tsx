@@ -24,12 +24,13 @@ import { CSS } from '@dnd-kit/utilities';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { buildStatusUpdate, type LifecycleRecord } from '../lib/applicationLifecycle';
 
 interface CompanySummary {
   name: string;
 }
 
-interface RawKanbanApplication {
+interface RawKanbanApplication extends LifecycleRecord {
   id: string;
   role_title: string;
   status: string;
@@ -39,7 +40,7 @@ interface RawKanbanApplication {
   companies?: CompanySummary | CompanySummary[] | null;
 }
 
-interface KanbanApplication {
+interface KanbanApplication extends LifecycleRecord {
   id: string;
   role_title: string;
   status: string;
@@ -97,18 +98,15 @@ export const KanbanPage: React.FC = () => {
     const { data, error } = await supabase
       .from('applications')
       .select(`
-        id,
-        role_title,
-        status,
-        source,
-        date_applied,
-        application_link,
+        *,
         companies (
           name
         )
       `)
       .eq('user_id', user.id)
-      .eq('archived', false)
+      // Rejected applications are archived, but still belong in the Rejected column.
+      .or('archived.is.false,archived.is.null,status.eq.rejected')
+      .neq('status', 'archived')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -156,16 +154,17 @@ export const KanbanPage: React.FC = () => {
     setMessage('');
 
     const oldStatus = application.status;
+    const updatePayload = buildStatusUpdate(newStatus, application);
 
     setApplications((prev) =>
       prev.map((app) =>
-        app.id === application.id ? { ...app, status: newStatus } : app
+        app.id === application.id ? { ...app, ...updatePayload } : app
       )
     );
 
     const { error: updateError } = await supabase
       .from('applications')
-      .update({ status: newStatus })
+      .update(updatePayload)
       .eq('id', application.id)
       .eq('user_id', user.id);
 
