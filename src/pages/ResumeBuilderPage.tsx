@@ -127,6 +127,11 @@ type BulletReviewItem = {
   after: string;
   reason: string;
   changeType: TailoringChange['type'];
+  // Safety metadata passed through from TailoringChange
+  riskLevel?: TailoringChange['riskLevel'];
+  evidenceSource?: string;
+  jdSignal?: string;
+  jdSignalStrength?: 'explicit' | 'inferred';
 };
 
 type SkillReviewItem = {
@@ -140,6 +145,21 @@ type SkillReviewItem = {
   requiresReview?: boolean;
 };
 
+
+
+const wordSimilarity = (a: string, b: string): number => {
+  const wordsA = new Set(a.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean));
+  const wordsB = new Set(b.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean));
+
+  if (!wordsA.size || !wordsB.size) return 0;
+
+  const intersection = [...wordsA].filter((word) => wordsB.has(word)).length;
+  const union = new Set([...wordsA, ...wordsB]).size;
+
+  return intersection / union;
+};
+
+
 const isReviewableBulletChange = (
   change: TailoringChange,
 ): change is TailoringChange & { before: string; after: string } => {
@@ -150,165 +170,186 @@ const isReviewableBulletChange = (
     change.section === 'experience' &&
     Boolean(change.before?.trim()) &&
     Boolean(change.after?.trim()) &&
-    change.before?.trim() !== change.after?.trim()
+    change.before?.trim() !== change.after?.trim() &&
+    wordSimilarity(change.before ?? '', change.after ?? '') < 0.82
   );
 };
 
 
-const QualityReportPanel: React.FC<{
+const extractKeywordFromMissingMessage = (message: string): string => {
+  const quoted = message.match(/"([^"]+)"/)?.[1];
+  if (quoted) return quoted;
+
+  return message
+    .replace(/^JD keyword\s*/i, '')
+    .replace(/\s*does not appear.*$/i, '')
+    .trim();
+};
+
+const simplifyIssueMessage = (issue: CVQualityReport['issues'][number]): string => {
+  if (issue.category === 'unsupported_claim') {
+    const quoted = issue.message.match(/"([^"]+)"/)?.[1];
+    const afterColon = issue.message.match(/:\s*([^".]+)\.?$/)?.[1];
+    return `Remove unsupported skill${quoted || afterColon ? `: ${quoted || afterColon}` : ''}`;
+  }
+
+  if (issue.category === 'wrong_tense') {
+    return issue.location ? `Fix tense in ${issue.location}` : 'Fix tense in a past role bullet';
+  }
+
+  if (issue.category === 'broken_bullet') {
+    return issue.location ? `Fix broken sentence in ${issue.location}` : 'Fix a broken bullet sentence';
+  }
+
+  if (issue.category === 'repeated_phrase' || issue.category === 'overused_jd_phrase') {
+    return 'Reduce repeated wording';
+  }
+
+  return issue.message;
+};
+
+const CVReadinessCard: React.FC<{
   report: CVQualityReport;
+  skillReviewItems: SkillReviewItem[];
+  claimableGaps: ClaimableGap[];
   onDismiss: () => void;
-}> = ({ report, onDismiss }) => {
-  const severityStyles: Record<CVQualityReport['issues'][number]['severity'], string> = {
-    error: 'border-red-400 bg-red-50 text-red-700',
-    warning: 'border-yellow-400 bg-yellow-50 text-yellow-700',
-    info: 'border-blue-400 bg-blue-50 text-blue-700',
-  };
+}> = ({ report, skillReviewItems, claimableGaps, onDismiss }) => {
+  const blockers = report.issues.filter((issue) =>
+    issue.category === 'unsupported_claim' ||
+    issue.category === 'wrong_tense' ||
+    issue.category === 'broken_bullet'
+  );
+
+  const missingKeywords = report.issues
+    .filter((issue) => issue.category === 'missing_jd_keyword')
+    .map((issue) => extractKeywordFromMissingMessage(issue.message))
+    .filter(Boolean);
+
+  const optionalKeywords = claimableGaps
+    .map((gap) => gap.keyword)
+    .filter(Boolean)
+    .filter((keyword, index, arr) =>
+      arr.findIndex((item) => item.toLowerCase() === keyword.toLowerCase()) === index,
+    );
+
+  const reviewSkills = skillReviewItems
+    .filter((item) => item.requiresReview)
+    .filter((item, index, arr) =>
+      arr.findIndex((other) => other.label.toLowerCase() === item.label.toLowerCase()) === index,
+    );
+
+  const tone = report.passed ? 'emerald' : blockers.length ? 'red' : 'amber';
+  const status = report.passed ? 'Ready to send' : blockers.length ? 'Fix before sending' : 'Needs review';
+
+  const scoreClass =
+    tone === 'emerald'
+      ? 'text-emerald-600'
+      : tone === 'red'
+        ? 'text-red-600'
+        : 'text-amber-600';
+
+  const barClass =
+    tone === 'emerald'
+      ? 'bg-emerald-500'
+      : tone === 'red'
+        ? 'bg-red-500'
+        : 'bg-amber-500';
 
   return (
-    <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">CV Quality Report</h3>
-          <p className="mt-1 text-xs text-slate-500">
-            Generated after JD improvement to detect broken bullets, repeated phrases, tense issues, and unsupported claims.
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            CV Readiness
+          </p>
+          <h3 className="mt-1 text-lg font-bold text-slate-900">{status}</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            JTracker improved the CV for this job and kept risky claims out of the final version.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-          aria-label="Dismiss CV Quality Report"
-        >
-          <X size={16} />
-        </button>
+
+        <div className="flex items-start gap-3">
+          <div className="rounded-2xl bg-slate-50 px-4 py-3 text-center">
+            <div className={`text-2xl font-bold ${scoreClass}`}>{report.score}</div>
+            <div className="text-xs font-medium text-slate-500">/100</div>
+          </div>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Dismiss CV readiness"
+          >
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-          Score: <span className={report.passed ? 'text-emerald-600' : 'text-amber-600'}>{report.score}/100</span>
-        </span>
-        <span
-          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-            report.passed
-              ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-              : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
-          }`}
-        >
-          {report.passed ? 'Passed' : 'Needs Review'}
-        </span>
-        <span className="text-xs text-slate-500">
-          {report.issues.length} issue{report.issues.length === 1 ? '' : 's'} found
-        </span>
+      <div className="mt-4 h-2 rounded-full bg-slate-100">
+        <div
+          className={`h-2 rounded-full ${barClass}`}
+          style={{ width: `${Math.max(0, Math.min(report.score, 100))}%` }}
+        />
       </div>
 
-      {report.issues.length > 0 ? (
-        <ul className="mt-3 space-y-2">
-          {report.issues.map((issue, idx) => (
-            <li
-              key={`${issue.category}-${idx}`}
-              className={`rounded-lg border-l-4 px-3 py-2 text-sm ${severityStyles[issue.severity]}`}
-            >
-              <span className="font-semibold capitalize">{issue.category.replace(/_/g, ' ')}</span>
-              <span>: {issue.message}</span>
-              {issue.location && (
-                <span className="mt-1 block text-xs opacity-80">Location: {issue.location}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-          No issues detected. The tailored CV looks clean.
-        </p>
+      {blockers.length > 0 && (
+        <div className="mt-5 rounded-xl border border-red-100 bg-red-50 p-4">
+          <h4 className="text-sm font-semibold text-red-800">Fix before sending</h4>
+          <ul className="mt-2 space-y-1 text-sm text-red-700">
+            {blockers.slice(0, 4).map((issue, index) => (
+              <li key={`${issue.category}-${index}`}>• {simplifyIssueMessage(issue)}</li>
+            ))}
+          </ul>
+        </div>
       )}
-    </div>
-  );
-};
 
-const SkillReviewPanel: React.FC<{
-  items: SkillReviewItem[];
-  onDismiss: () => void;
-}> = ({ items, onDismiss }) => {
-  if (!items.length) return null;
-
-  return (
-    <div className="mb-4 rounded-xl border border-indigo-100 bg-indigo-50/60 p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900">Skill Review Needed</h3>
-          <p className="mt-1 text-xs text-slate-600">
-            These skills were added, kept, or flagged during JD tailoring. Review them before exporting.
+      {reviewSkills.length > 0 && (
+        <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-4">
+          <h4 className="text-sm font-semibold text-amber-800">Review optional skills</h4>
+          <p className="mt-1 text-xs text-amber-700">
+            Add these only if they are true to your experience.
           </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {reviewSkills.slice(0, 8).map((item) => (
+              <span
+                key={item.id}
+                className="rounded-full bg-white px-3 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200"
+              >
+                {item.label}
+              </span>
+            ))}
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-700"
-          aria-label="Dismiss skill review"
-        >
-          <X size={16} />
-        </button>
-      </div>
+      )}
 
-      <ul className="mt-3 space-y-2">
-        {items.map((item) => (
-          <li key={item.id} className="rounded-lg border border-indigo-100 bg-white px-3 py-2 text-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-semibold text-slate-800">{item.label}</span>
-              {item.requiresReview && (
-                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
-                  Review
-                </span>
-              )}
-              {item.riskLevel && (
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                  {item.riskLevel}
-                </span>
-              )}
-            </div>
-            <p className="mt-1 text-xs text-slate-600">{item.reason}</p>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-};
-
-const ClaimableGapsPanel: React.FC<{
-  gaps: ClaimableGap[];
-  onDismiss: () => void;
-}> = ({ gaps, onDismiss }) => {
-  if (!gaps.length) return null;
-
-  return (
-    <div className="mb-4 rounded-xl border border-amber-100 bg-amber-50/60 p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900">Claimable Gaps</h3>
-          <p className="mt-1 text-xs text-slate-600">
-            These JD keywords may be claimable from your Master CV evidence, but need your confirmation.
+      {(optionalKeywords.length > 0 || missingKeywords.length > 0) && (
+        <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4">
+          <h4 className="text-sm font-semibold text-slate-800">Missing or optional JD keywords</h4>
+          <p className="mt-1 text-xs text-slate-500">
+            These can help screening, but only add them if they are accurate.
           </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {[...optionalKeywords, ...missingKeywords]
+              .filter((keyword, index, arr) =>
+                arr.findIndex((item) => item.toLowerCase() === keyword.toLowerCase()) === index,
+              )
+              .slice(0, 12)
+              .map((keyword) => (
+                <span
+                  key={keyword}
+                  className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200"
+                >
+                  {keyword}
+                </span>
+              ))}
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-700"
-          aria-label="Dismiss claimable gaps"
-        >
-          <X size={16} />
-        </button>
-      </div>
+      )}
 
-      <ul className="mt-3 space-y-2">
-        {gaps.map((gap, idx) => (
-          <li key={`${gap.keyword}-${idx}`} className="rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm">
-            <div className="font-semibold text-slate-800">{gap.keyword}</div>
-            <div className="mt-1 text-xs text-slate-600">Evidence: {gap.evidence}</div>
-            <div className="mt-1 text-xs text-amber-700">{gap.suggestion}</div>
-          </li>
-        ))}
-      </ul>
+      {blockers.length === 0 && reviewSkills.length === 0 && optionalKeywords.length === 0 && (
+        <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-700">
+          Looks good. You can review the CV and export it.
+        </div>
+      )}
     </div>
   );
 };
@@ -420,6 +461,94 @@ const cleanJobTitleValue = (value?: string | null): string => {
 
   return beforeComma;
 };
+
+
+
+
+const inferJobTitleFromText = (value?: string | null): string => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  const lines = raw
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const firstUsefulLine = lines.find((line) => {
+    const lower = line.toLowerCase();
+    return (
+      line.length <= 80 &&
+      !line.includes('@') &&
+      !/^https?:\/\//i.test(line) &&
+      !/^\+?\d/.test(line) &&
+      !['summary', 'professional summary', 'experience', 'education', 'skills'].includes(lower)
+    );
+  });
+
+  const summaryLead = raw.match(
+    /^\s*([A-Z][A-Za-z/&.\-\s]{2,70}?)\s+with\s+experience\b/i,
+  )?.[1];
+
+  const titleLikeLine = lines.find((line) =>
+    /\b(engineer|specialist|analyst|developer|consultant|administrator|representative|support|technician|manager|assistant|coordinator|officer|expert)\b/i.test(line) &&
+    line.length <= 80 &&
+    !line.includes('@'),
+  );
+
+  const candidates = [summaryLead, titleLikeLine, firstUsefulLine];
+
+  for (const candidate of candidates) {
+    const cleaned = cleanJobTitleValue(candidate || '');
+    if (cleaned) return cleaned;
+  }
+
+  return '';
+};
+
+const resolveBuilderJobTitle = (
+  analysis?: AnalysisRecord | null,
+  resume?: ResumeBuilderState | null,
+  cvVersion?: CvVersionRecord | null,
+): string => {
+  const extendedData = analysis?.extended_data as Record<string, unknown> | null | undefined;
+
+  const candidates = [
+    analysis?.job_title,
+    extendedData?.job_title,
+    extendedData?.target_role,
+    extendedData?.role_category,
+    cvVersion?.target_role,
+    resume?.personal?.jobTitle,
+    inferJobTitleFromText(resume?.summary),
+  ];
+
+  for (const candidate of candidates) {
+    const cleaned = cleanJobTitleValue(String(candidate || ''));
+    if (cleaned) return cleaned;
+  }
+
+  return '';
+};
+
+const applyResolvedJobTitle = (
+  currentResume: ResumeBuilderState,
+  resolvedTitle: string,
+): ResumeBuilderState => {
+  const cleanedTitle = cleanJobTitleValue(
+    currentResume.personal.jobTitle || resolvedTitle || inferJobTitleFromText(currentResume.summary) || '',
+  );
+
+  return {
+    ...currentResume,
+    personal: {
+      ...currentResume.personal,
+      jobTitle: cleanedTitle,
+    },
+  };
+};
+
+
 
 const isBadWebsiteValue = (value?: string | null): boolean => {
   const raw = String(value || '').trim().toLowerCase();
@@ -1054,12 +1183,13 @@ const resumeFromImportedGeneratedCv = (
 // label for the catch-all competency group (e.g. "IT Support Competencies"
 // rather than the generic "Support Competencies").
 // ============================================================
+const SKILL_LABEL_PREFIX_REGEX =
+  /^(languages?|technical skills?|soft skills?|tools?|platforms?|systems?|networking|support competencies|technical support competencies|certifications?|awards?)\s*:\s*/i;
+
 const normalizeSkillValue = (value: string) =>
-  value
+  String(value || '')
     .replace(/^[-•]\s*/, '')
-    .replace(/^languages?:\s*/i, '')
-    .replace(/^technical skills?:\s*/i, '')
-    .replace(/^soft skills?:\s*/i, '')
+    .replace(SKILL_LABEL_PREFIX_REGEX, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -1069,29 +1199,141 @@ const skillItems = (value: string): string[] =>
     .map(normalizeSkillValue)
     .filter(Boolean);
 
+const skillKey = (value: string) =>
+  normalizeSkillValue(value)
+    .toLowerCase()
+    .replace(/\bmicrosoft teams\b/g, 'teams')
+    .replace(/\boffice 365\b|\bo365\b|\bm365\b/g, 'microsoft 365')
+    .replace(/\bms office\b|\bmicrosoft office\b/g, 'microsoft 365')
+    .replace(/\bjira service management\b/g, 'jira')
+    .replace(/\bwindows server\b|\bwindows 10\b|\bwindows 11\b|\bmicrosoft windows\b/g, 'windows')
+    .replace(/\blinux server\b|\bunix\/linux\b/g, 'linux basics')
+    .replace(/\boperating system\b|\boperating systems\b|\bos\b/g, 'operating systems')
+    .replace(/\btcp\/ip\b|\btcp ip\b|\bip network\b|\bnetworking basics\b|\bnetworking\b/g, 'ip networking')
+    .replace(/\bsql basics\b|\bsql\b/g, 'sql basics')
+    .replace(/\bmicrosoft sql server\b|\bms sql\b|\bsql server\b/g, 'ms sql')
+    .replace(/\bazure devops\b|\bado\b/g, 'azure devops')
+    .replace(/\btypeScript\b|\btypescript\b/g, 'typescript')
+    .replace(/\bcase handling\b|\bticketing\b|\bticket management\b/g, 'ticket handling')
+    .replace(/\bcase notes\b|\bhandover notes\b|\bknowledge base\b/g, 'documentation')
+    .replace(/\bcross-functional collaboration\b|\bcollaboration\b|\bteamwork\b/g, 'collaboration')
+    .replace(/\bproblem-solving\b/g, 'problem solving')
+    .trim();
+
+const displaySkillName = (value: string): string => {
+  const clean = normalizeSkillValue(value);
+  const key = skillKey(clean);
+
+  const names: Record<string, string> = {
+    'microsoft 365': 'Microsoft 365',
+    excel: 'Excel',
+    jira: 'Jira',
+    confluence: 'Confluence',
+    'active directory': 'Active Directory',
+    zendesk: 'Zendesk',
+    teams: 'Microsoft Teams',
+    windows: 'Windows',
+    'operating systems': 'Operating systems',
+    'ip networking': 'IP networking basics',
+    'connectivity': 'Connectivity troubleshooting',
+    'sql basics': 'SQL basics',
+    sql: 'SQL basics',
+    'ms sql': 'MS SQL',
+    'linux basics': 'Linux basics',
+    powershell: 'PowerShell',
+    bash: 'Bash',
+    ansible: 'Ansible',
+    docker: 'Docker',
+    postgresql: 'PostgreSQL',
+    'azure devops': 'Azure DevOps',
+    nginx: 'NGINX',
+    iis: 'IIS',
+    'it operations support': 'IT operations support',
+    'it infrastructure': 'IT infrastructure',
+    'server administration': 'Server administration',
+    'change management': 'Change management',
+    'system performance monitoring': 'System performance monitoring',
+    'technical support': 'Technical support',
+    troubleshooting: 'Troubleshooting',
+    'incident management': 'Incident handling',
+    'ticket handling': 'Ticket handling',
+    escalation: 'Escalation support',
+    documentation: 'Documentation',
+    'customer communication': 'Customer communication',
+    'problem solving': 'Problem solving',
+    monitoring: 'Service monitoring',
+    collaboration: 'Collaboration',
+    'process improvement': 'Process improvement',
+  };
+
+  return names[key] ?? clean;
+};
+
 const compactUnique = (values: string[]) => {
   const seen = new Set<string>();
   const out: string[] = [];
 
-  values.forEach((value) => {
-    const clean = normalizeSkillValue(value);
-    const key = clean.toLowerCase();
+  values.map(displaySkillName).filter(Boolean).forEach((value) => {
+    const key = skillKey(value);
 
-    if (clean && !seen.has(key)) {
+    if (key && !seen.has(key)) {
       seen.add(key);
-      out.push(clean);
+      out.push(value);
     }
   });
 
   return out;
 };
 
+const isSupportTargetRole = (jobTitle?: string | null): boolean =>
+  /\b(technical support|it support|help desk|service desk|application support|desktop support|support engineer|support specialist|customer support|operations engineer|junior operations engineer|it operations|infrastructure|server administration|systems administration)\b/i.test(
+    jobTitle ?? '',
+  );
+
+const shouldHideSkillForSupportCV = (skill: string, jobTitle?: string | null): boolean => {
+  if (!isSupportTargetRole(jobTitle)) return false;
+
+  const key = skillKey(skill);
+
+  const developerOnly = [
+    'typescript',
+    'javascript',
+    'react',
+    'node',
+    'node.js',
+    'frontend',
+    'backend',
+    'full stack',
+    'software development',
+    'coding',
+    'programming',
+    'github',
+  ];
+
+  return developerOnly.includes(key);
+};
+
 const pickSkillGroup = (items: string[], patterns: RegExp[]) =>
   items.filter((item) => patterns.some((pattern) => pattern.test(item)));
 
 const removePicked = (items: string[], picked: string[]) => {
-  const pickedKeys = new Set(picked.map((item) => item.toLowerCase()));
-  return items.filter((item) => !pickedKeys.has(item.toLowerCase()));
+  const pickedKeys = new Set(picked.map(skillKey));
+  return items.filter((item) => !pickedKeys.has(skillKey(item)));
+};
+
+const orderSkills = (items: string[], preferredOrder: string[]): string[] => {
+  const cleanItems = compactUnique(items);
+
+  return cleanItems.sort((a, b) => {
+    const aIndex = preferredOrder.findIndex((item) => skillKey(item) === skillKey(a));
+    const bIndex = preferredOrder.findIndex((item) => skillKey(item) === skillKey(b));
+
+    if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+    if (aIndex === -1) return 1;
+    if (bIndex === -1) return -1;
+
+    return aIndex - bIndex;
+  });
 };
 
 const joinCompact = (items: string[], limit = 10) =>
@@ -1099,43 +1341,36 @@ const joinCompact = (items: string[], limit = 10) =>
 
 /**
  * Derives a context-aware label for the catch-all competency group from the
- * target job title.  Falls back to "Support Competencies" when the title gives
+ * target job title. Falls back to "Support Competencies" when the title gives
  * no usable signal.
- *
- * Examples:
- *   "IT Support Specialist"   → "IT Support Competencies"
- *   "Service Desk Analyst"    → "Service Desk Competencies"
- *   "Software Engineer"       → "Engineering Competencies"
- *   "Data Analyst"            → "Data & Analytics Competencies"
- *   "Customer Success Manager"→ "Customer Success Competencies"
- *   null / ""                 → "Support Competencies"
  */
 const deriveCatchAllLabel = (jobTitle: string | null | undefined): string => {
   const title = (jobTitle ?? '').trim().toLowerCase();
 
   if (!title) return 'Support Competencies';
 
-  // Ordered from most-specific to most-generic so the first match wins.
   const rules: Array<[RegExp, string]> = [
-    [/service\s+desk/i,           'Service Desk Competencies'],
-    [/help\s+desk/i,              'Help Desk Competencies'],
-    [/it\s+support/i,             'IT Support Competencies'],
-    [/technical\s+support/i,      'Technical Support Competencies'],
-    [/desktop\s+support/i,        'Desktop Support Competencies'],
-    [/network\s*(engineer|admin)/i,'Network Engineering Competencies'],
-    [/software\s+engineer/i,      'Engineering Competencies'],
-    [/data\s+analy/i,             'Data & Analytics Competencies'],
-    [/business\s+analy/i,         'Business Analysis Competencies'],
-    [/project\s+manag/i,          'Project Management Competencies'],
-    [/product\s+manag/i,          'Product Management Competencies'],
-    [/customer\s+success/i,       'Customer Success Competencies'],
-    [/customer\s+service/i,       'Customer Service Competencies'],
-    [/sales/i,                    'Sales Competencies'],
-    [/market/i,                   'Marketing Competencies'],
-    [/devops/i,                   'DevOps Competencies'],
-    [/secur/i,                    'Security Competencies'],
-    [/finance|accounting/i,       'Finance Competencies'],
-    [/hr|human\s+resource/i,      'HR Competencies'],
+    [/service\s+desk/i, 'Service Desk Competencies'],
+    [/help\s+desk/i, 'Help Desk Competencies'],
+    [/it\s+support/i, 'IT Support Competencies'],
+    [/technical\s+support/i, 'Technical Support Competencies'],
+    [/desktop\s+support/i, 'Desktop Support Competencies'],
+    [/operations\s+engineer|it\s+operations|infrastructure/i, 'IT Operations Competencies'],
+    [/server\s+admin|systems?\s+admin/i, 'Infrastructure Competencies'],
+    [/network\s*(engineer|admin)/i, 'Network Engineering Competencies'],
+    [/software\s+engineer/i, 'Engineering Competencies'],
+    [/data\s+analy/i, 'Data & Analytics Competencies'],
+    [/business\s+analy/i, 'Business Analysis Competencies'],
+    [/project\s+manag/i, 'Project Management Competencies'],
+    [/product\s+manag/i, 'Product Management Competencies'],
+    [/customer\s+success/i, 'Customer Success Competencies'],
+    [/customer\s+service/i, 'Customer Service Competencies'],
+    [/sales/i, 'Sales Competencies'],
+    [/market/i, 'Marketing Competencies'],
+    [/devops/i, 'DevOps Competencies'],
+    [/secur/i, 'Security Competencies'],
+    [/finance|accounting/i, 'Finance Competencies'],
+    [/hr|human\s+resource/i, 'HR Competencies'],
   ];
 
   for (const [pattern, label] of rules) {
@@ -1146,17 +1381,16 @@ const deriveCatchAllLabel = (jobTitle: string | null | undefined): string => {
 };
 
 /**
- * Formats the skills & awards state into compact, CV-ready grouped lines.
- *
- * @param skillsAwards  The editor's skills state.
- * @param jobTitle      Optional target job title — used to derive the catch-all
- *                      group label so it reads as role-specific rather than generic.
+ * Formats the skills & awards state into compact, screening-friendly grouped lines.
+ * Goal: skills should support the target role without flooding the CV.
  */
 const formatCompactSkillsSection = (
   skillsAwards: SkillsAwards,
   jobTitle?: string | null,
 ): string[] => {
-  const rawTechnical = skillItems(skillsAwards.technicalSkills);
+  const rawTechnical = skillItems(skillsAwards.technicalSkills).filter(
+    (skill) => !shouldHideSkillForSupportCV(skill, jobTitle),
+  );
   const rawLanguages = skillItems(skillsAwards.languages);
   const rawCerts = skillItems(skillsAwards.trainingCertifications);
   const rawAwards = skillItems(skillsAwards.awards);
@@ -1169,24 +1403,56 @@ const formatCompactSkillsSection = (
 
   let remaining = removePicked(compactUnique(rawTechnical), languageFromTechnical);
 
-  const tools = pickSkillGroup(remaining, [
-    /\b(zendesk|jira|confluence|servicenow|salesforce|hubspot|active directory|microsoft office|office 365|microsoft 365|excel|citrix|exchange|vpn|outlook|teams|postman|sap|crm)\b/i,
-  ]);
+  const tools = orderSkills(
+    pickSkillGroup(remaining, [
+      /\b(zendesk|jira|confluence|servicenow|salesforce|hubspot|active directory|microsoft 365|office 365|microsoft office|excel|citrix|exchange|vpn|outlook|teams|postman|sap|crm|git)\b/i,
+    ]),
+    ['Microsoft 365', 'Excel', 'Jira', 'Confluence', 'Active Directory', 'Zendesk', 'Microsoft Teams', 'Postman', 'Git'],
+  );
   remaining = removePicked(remaining, tools);
 
-  const systemsNetworking = pickSkillGroup(remaining, [
-    /\b(linux|windows|tcp\/ip|tcp|ip|ports?|protocols?|computer networks?|networking|dns|dhcp|vpn|configurations?|hardware|software|operating systems?)\b/i,
-  ]);
+  const systemsNetworking = orderSkills(
+    pickSkillGroup(remaining, [
+      /\b(windows|linux|linux basics|unix|tcp\/ip|tcp|ip networking|ip network|ports?|protocols?|computer networks?|networking|dns|dhcp|vpn|configurations?|hardware|software|operating systems?|connectivity|server administration|it infrastructure)\b/i,
+    ]),
+    ['Windows', 'Operating systems', 'Connectivity troubleshooting', 'IP networking basics', 'VPN', 'IT infrastructure', 'Server administration', 'Hardware', 'Software', 'Linux basics'],
+  );
   remaining = removePicked(remaining, systemsNetworking);
 
-  const supportCompetencies = pickSkillGroup(remaining, [
-    /\b(incident|incident management|sla|service level|service level agreements?|root cause|troubleshooting|ticketing|support|escalation|monitoring|operational dashboards?|prioritization|ownership|clear written communication|collaboration|problem solving|analytical thinking|decision making)\b/i,
-  ]);
+  const databases = orderSkills(
+    pickSkillGroup(remaining, [
+      /\b(sql basics|sql|mysql|postgresql|database|databases|ms sql|microsoft sql server|sql server)\b/i,
+    ]),
+    ['SQL basics', 'MySQL', 'PostgreSQL', 'MS SQL'],
+  );
+  remaining = removePicked(remaining, databases);
+
+  const supportCompetencies = orderSkills(
+    pickSkillGroup(remaining, [
+      /\b(it operations support|technical support|troubleshooting|incident|incident management|sla|service level|service level agreements?|root cause|ticket handling|ticketing|support|escalation|monitoring|system performance monitoring|change management|operational dashboards?|prioritization|prioritisation|ownership|clear written communication|communication|collaboration|teamwork|problem solving|analytical thinking|decision making|documentation|process improvement|complaint resolution|customer communication)\b/i,
+    ]),
+    [
+      'IT operations support',
+      'Technical support',
+      'Troubleshooting',
+      'Incident handling',
+      'Ticket handling',
+      'Escalation support',
+      'Documentation',
+      'SLA support',
+      'Service monitoring',
+      'System performance monitoring',
+      'Customer communication',
+      'Collaboration',
+      'Analytical thinking',
+      'Problem solving',
+      'Process improvement',
+      'Complaint resolution',
+    ],
+  );
   remaining = removePicked(remaining, supportCompetencies);
 
-  // Derive a role-aware label for the catch-all group.
   const catchAllLabel = deriveCatchAllLabel(jobTitle);
-
   const lines: string[] = [];
 
   if (languages.length) {
@@ -1194,15 +1460,19 @@ const formatCompactSkillsSection = (
   }
 
   if (tools.length) {
-    lines.push(`Tools & Platforms: ${joinCompact(tools, 12)}`);
+    lines.push(`Tools & Platforms: ${joinCompact(tools, 10)}`);
   }
 
   if (systemsNetworking.length) {
-    lines.push(`Systems & Networking: ${joinCompact(systemsNetworking, 10)}`);
+    lines.push(`Systems & Networking: ${joinCompact(systemsNetworking, 8)}`);
+  }
+
+  if (databases.length) {
+    lines.push(`Databases: ${joinCompact(databases, 5)}`);
   }
 
   if (supportCompetencies.length || remaining.length) {
-    lines.push(`${catchAllLabel}: ${joinCompact([...supportCompetencies, ...remaining], 12)}`);
+    lines.push(`${catchAllLabel}: ${joinCompact([...supportCompetencies, ...remaining], 10)}`);
   }
 
   if (rawCerts.length) {
@@ -1607,6 +1877,9 @@ export const ResumeBuilderPage: React.FC = () => {
   const [bulletReviewItems, setBulletReviewItems] = useState<BulletReviewItem[]>([]);
   const [bulletReviewResume, setBulletReviewResume] =
     useState<ResumeBuilderState | null>(null);
+  const [summaryReviewChange, setSummaryReviewChange] =
+    useState<TailoringChange | null>(null);
+  const [summaryReviewAccepted, setSummaryReviewAccepted] = useState(true);
   const [qualityReport, setQualityReport] = useState<CVQualityReport | null>(null);
   const [skillReviewItems, setSkillReviewItems] = useState<SkillReviewItem[]>([]);
   const [claimableGaps, setClaimableGaps] = useState<ClaimableGap[]>([]);
@@ -1630,13 +1903,15 @@ export const ResumeBuilderPage: React.FC = () => {
 });
   // Resolved job title — kept separately so it's available for skills formatting
   // even before the analysis record is stored in state.
-  const jobTitle = analysis?.job_title ?? resume.personal.jobTitle ?? null;
+  const jobTitle = resolveBuilderJobTitle(analysis, resume);
 
   const plainText = useMemo(
     () => buildPlainTextResume(resume, jobTitle),
     [resume, jobTitle],
   );
-  const fileBase = makeSafeFileName(analysis?.job_title ? `${analysis.job_title} cv` : resume.personal.fullName || 'optimized-cv');
+  const fileBase = makeSafeFileName(
+    jobTitle ? `${jobTitle} cv` : resume.personal.fullName || 'optimized-cv',
+  );
 
   useEffect(() => {
     const load = async () => {
@@ -1708,9 +1983,12 @@ export const ResumeBuilderPage: React.FC = () => {
                     } as unknown as AnalysisRecord)
                   : null;
 
+              const resolvedTitle = resolveBuilderJobTitle(importedAnalysis, importedResume);
+              const finalImportedResume = applyResolvedJobTitle(importedResume, resolvedTitle);
+
               setAnalysis(importedAnalysis);
-              setResume(importedResume);
-              setOriginalResume(importedResume);
+              setResume(finalImportedResume);
+              setOriginalResume(finalImportedResume);
               setFormatting(defaultFormatting);
 
               localStorage.removeItem('jtracker_resume_builder_import');
@@ -1753,10 +2031,13 @@ export const ResumeBuilderPage: React.FC = () => {
             ),
           };
 
+          const resolvedTitle = resolveBuilderJobTitle(null, hydratedResume, cvRecord);
+          const finalResume = applyResolvedJobTitle(hydratedResume, resolvedTitle);
+
           setFormatting(readBuilderFormatting(cvRecord));
           setAnalysis(null);
-          setResume(hydratedResume);
-          setOriginalResume(hydratedResume);
+          setResume(finalResume);
+          setOriginalResume(finalResume);
           return;
         }
 
@@ -1811,20 +2092,31 @@ export const ResumeBuilderPage: React.FC = () => {
          true,
 );
 
+        const initialResolvedTitle = resolveBuilderJobTitle(record, {
+          ...parsed,
+          personal: hydratedPersonal,
+        });
+
         const hydratedResume = {
-        ...parsed,
-        personal: hydratedPersonal,
-        summary: isWeakSummaryValue(parsed.summary)
-    ? buildFallbackProfessionalSummary(
-        hydratedPersonal.jobTitle || record.job_title,
-        record.matched_keywords ?? [],
-      )
-    : parsed.summary,
-};
+          ...parsed,
+          personal: {
+            ...hydratedPersonal,
+            jobTitle: hydratedPersonal.jobTitle || initialResolvedTitle,
+          },
+          summary: isWeakSummaryValue(parsed.summary)
+            ? buildFallbackProfessionalSummary(
+                hydratedPersonal.jobTitle || initialResolvedTitle || record.job_title,
+                record.matched_keywords ?? [],
+              )
+            : parsed.summary,
+        };
+
+        const resolvedTitle = resolveBuilderJobTitle(record, hydratedResume);
+        const finalResume = applyResolvedJobTitle(hydratedResume, resolvedTitle);
 
         setAnalysis(record);
-        setResume(hydratedResume);
-        setOriginalResume(hydratedResume);
+        setResume(finalResume);
+        setOriginalResume(finalResume);
       } catch (err) { setError(err instanceof Error ? err.message : 'Failed to load Resume Builder.'); }
       finally { setLoading(false); }
     };
@@ -1845,15 +2137,15 @@ export const ResumeBuilderPage: React.FC = () => {
         formatting,
         source_analysis_id: analysis?.id ?? null,
         source_cv_version_id: analysis?.cv_version_id ?? null,
-        job_title: analysis?.job_title ?? resume.personal.jobTitle ?? null,
+        job_title: jobTitle || resume.personal.jobTitle || null,
         company_name: analysis?.company_name ?? null,
         saved_at: new Date().toISOString(),
       };
 
       const { error: ie } = await supabase.from('cv_versions').insert({
         user_id: user.id,
-        name: `${analysis?.job_title || resume.personal.jobTitle || 'Optimized CV'} — Builder`,
-        target_role: analysis?.job_title || resume.personal.jobTitle || null,
+        name: `${jobTitle || resume.personal.fullName || 'Optimized CV'} — Builder`,
+        target_role: jobTitle || resume.personal.jobTitle || null,
         cv_text: plainText,
         last_score: analysis?.score || null,
         last_analyzed_at: new Date().toISOString(),
@@ -1897,6 +2189,15 @@ export const ResumeBuilderPage: React.FC = () => {
     setQualityReport(tailored.qualityReport);
     setClaimableGaps(tailored.claimableGaps ?? []);
 
+    // Extract the summary change (if any) so the user can review it separately
+    const summaryChange = tailored.changes.find(
+      (change) =>
+        change.type === 'summary_tailored' &&
+        change.section === 'summary' &&
+        change.before?.trim() !== change.after?.trim() &&
+        Boolean(change.after?.trim()),
+    ) ?? null;
+
     const reviewItems: BulletReviewItem[] = tailored.changes
       .filter(isReviewableBulletChange)
       .map((change, index) => ({
@@ -1910,10 +2211,19 @@ export const ResumeBuilderPage: React.FC = () => {
         after: change.after,
         reason: change.reason,
         changeType: change.type,
+        riskLevel: change.riskLevel,
+        evidenceSource: change.evidenceSource,
+        jdSignal: change.jdSignal,
+        jdSignalStrength: change.jdSignalStrength,
       }));
 
     const nextSkillReviewItems: SkillReviewItem[] = tailored.changes
-      .filter((change) => change.section === 'skillsAwards')
+      .filter(
+        (change) =>
+          change.section === 'skillsAwards' &&
+          change.type === 'skill_review_needed' &&
+          change.riskLevel !== 'not_recommended',
+      )
       .map((change, index) => ({
         id: `skill-${change.type}-${index}`,
         type: change.type,
@@ -1956,6 +2266,8 @@ export const ResumeBuilderPage: React.FC = () => {
 
     setBulletReviewResume(tailored.resume);
     setBulletReviewItems(reviewItems);
+    setSummaryReviewChange(summaryChange);
+    setSummaryReviewAccepted(true);
     setBulletReviewOpen(true);
 
     flash(`${reviewItems.length} JD improvement(s) ready for review. CV Quality Report is ready.`);
@@ -2019,11 +2331,18 @@ export const ResumeBuilderPage: React.FC = () => {
 
     const rejectedCount = bulletReviewItems.length - acceptedCount;
 
-    setResume(nextResume);
-    setOriginalResume(nextResume);
+    // If the user rejected the summary rewrite, restore the original summary
+    const finalSummary =
+      summaryReviewChange && !summaryReviewAccepted
+        ? summaryReviewChange.before ?? nextResume.summary
+        : nextResume.summary;
+
+    setResume({ ...nextResume, summary: finalSummary ?? nextResume.summary });
+    setOriginalResume({ ...nextResume, summary: finalSummary ?? nextResume.summary });
     setBulletReviewOpen(false);
     setBulletReviewResume(null);
     setBulletReviewItems([]);
+    setSummaryReviewChange(null);
 
     setLastImprovementStats({
       acceptedCount,
@@ -2039,6 +2358,7 @@ export const ResumeBuilderPage: React.FC = () => {
     setBulletReviewOpen(false);
     setBulletReviewResume(null);
     setBulletReviewItems([]);
+    setSummaryReviewChange(null);
   };
 
   const submitImprovementFeedback = async (
@@ -2154,7 +2474,8 @@ export const ResumeBuilderPage: React.FC = () => {
           <h1 className="text-2xl font-bold text-slate-900">Resume Builder</h1>
           {analysis && (
             <p className="text-sm text-slate-500 mt-1">
-              Based on analysis for <span className="font-medium text-slate-700">{analysis.job_title || 'role'}</span>
+              Based on analysis for{' '}
+              <span className="font-medium text-slate-700">{jobTitle || 'target role'}</span>
               {analysis.score != null && <span className="ml-2 text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">Score: {analysis.score}/100</span>}
             </p>
           )}
@@ -2192,23 +2513,15 @@ export const ResumeBuilderPage: React.FC = () => {
       )}
 
       {qualityReport && (
-        <QualityReportPanel
+        <CVReadinessCard
           report={qualityReport}
-          onDismiss={() => setQualityReport(null)}
-        />
-      )}
-
-      {skillReviewItems.length > 0 && (
-        <SkillReviewPanel
-          items={skillReviewItems}
-          onDismiss={() => setSkillReviewItems([])}
-        />
-      )}
-
-      {claimableGaps.length > 0 && (
-        <ClaimableGapsPanel
-          gaps={claimableGaps}
-          onDismiss={() => setClaimableGaps([])}
+          skillReviewItems={skillReviewItems}
+          claimableGaps={claimableGaps}
+          onDismiss={() => {
+            setQualityReport(null);
+            setSkillReviewItems([]);
+            setClaimableGaps([]);
+          }}
         />
       )}
 
@@ -2397,6 +2710,9 @@ export const ResumeBuilderPage: React.FC = () => {
           onRejectAll={() => setAllBulletReviewItems(false)}
           onApply={applySelectedBulletImprovements}
           onClose={closeBulletReview}
+          summaryChange={summaryReviewChange}
+          summaryAccepted={summaryReviewAccepted}
+          onToggleSummary={() => setSummaryReviewAccepted((v) => !v)}
         />
       )}
 
@@ -2817,8 +3133,9 @@ const PrevHead: React.FC<{ title: string; headerPx: number; classic?: boolean; f
 
 // ============================================================
 // BULLET IMPROVEMENT REVIEW MODAL
-// Shows each JD improvement before it is applied.
+// Shows each JD improvement — including summary — before it is applied.
 // ============================================================
+
 const BulletImprovementReviewModal: React.FC<{
   items: BulletReviewItem[];
   onToggle: (id: string) => void;
@@ -2826,150 +3143,196 @@ const BulletImprovementReviewModal: React.FC<{
   onRejectAll: () => void;
   onApply: () => void;
   onClose: () => void;
-}> = ({ items, onToggle, onAcceptAll, onRejectAll, onApply, onClose }) => {
-  const acceptedCount = items.filter((item) => item.accepted).length;
+  summaryChange: TailoringChange | null;
+  summaryAccepted: boolean;
+  onToggleSummary: () => void;
+}> = ({ items, onToggle, onAcceptAll, onRejectAll, onApply, onClose, summaryChange, summaryAccepted, onToggleSummary }) => {
+  const acceptedBullets = items.filter((i) => i.accepted).length;
+  const totalCount      = items.length + (summaryChange ? 1 : 0);
+  const totalAccepted   = acceptedBullets + (summaryChange && summaryAccepted ? 1 : 0);
+  const safeCount       = items.filter((i) => i.riskLevel === 'safe').length;
+  const mediumCount     = items.filter((i) => i.riskLevel === 'medium').length;
+
+  const riskMeta = (risk?: string) => {
+    if (risk === 'safe')            return { label: 'Safe',            dot: 'bg-emerald-500', text: 'text-emerald-700', badge: 'border-emerald-200 bg-emerald-50' };
+    if (risk === 'medium')          return { label: 'Medium Risk',      dot: 'bg-amber-400',  text: 'text-amber-700',  badge: 'border-amber-200 bg-amber-50' };
+    if (risk === 'not_recommended') return { label: 'Not Recommended',  dot: 'bg-red-500',    text: 'text-red-700',    badge: 'border-red-200 bg-red-50' };
+    return                                 { label: 'Review',            dot: 'bg-slate-400',  text: 'text-slate-600',  badge: 'border-slate-200 bg-slate-50' };
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
       <div className="w-full max-w-5xl max-h-[90vh] rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden flex flex-col">
+
+        {/* Header */}
         <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-100">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">
-              Review JD Improvements
-            </h2>
+            <h2 className="text-lg font-semibold text-slate-900">Review JD Improvements</h2>
             <p className="text-sm text-slate-500 mt-1">
-              Review each bullet before applying it. These changes rewrite Master CV facts to better match the JD; they do not add unsupported JD-only claims.
+              Every change is scored for safety.{' '}
+              <span className="font-medium text-emerald-700">Safe</span> = supported by Master CV.{' '}
+              <span className="font-medium text-amber-700">Medium Risk</span> = inferred — review carefully.
             </p>
           </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
-            aria-label="Close"
-          >
+          <button type="button" onClick={onClose} className="p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition" aria-label="Close">
             <X size={18} />
           </button>
         </div>
 
-        <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="text-sm text-slate-600">
-            <span className="font-semibold text-slate-900">{acceptedCount}</span> of{' '}
-            <span className="font-semibold text-slate-900">{items.length}</span>{' '}
-            improvement(s) selected.
+        {/* Toolbar */}
+        <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+            <span><span className="font-semibold text-slate-900">{totalAccepted}</span> of <span className="font-semibold text-slate-900">{totalCount}</span> selected</span>
+            {safeCount > 0 && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 border border-emerald-200 text-emerald-700">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />{safeCount} Safe
+              </span>
+            )}
+            {mediumCount > 0 && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 border border-amber-200 text-amber-700">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />{mediumCount} Medium Risk
+              </span>
+            )}
           </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={onAcceptAll}
-              className="px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-sm font-medium text-emerald-700 hover:bg-emerald-100 transition"
-            >
-              Accept all
-            </button>
-            <button
-              type="button"
-              onClick={onRejectAll}
-              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
-            >
-              Reject all
-            </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={onAcceptAll} className="px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-sm font-medium text-emerald-700 hover:bg-emerald-100 transition">Accept all</button>
+            <button type="button" onClick={onRejectAll} className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition">Reject all</button>
           </div>
         </div>
 
+        {/* Scrollable cards */}
         <div className="overflow-y-auto p-5 space-y-4">
-          {items.map((item, index) => (
-            <div
-              key={item.id}
-              className={`rounded-2xl border p-4 transition ${
-                item.accepted
-                  ? 'border-emerald-200 bg-emerald-50/40'
-                  : 'border-slate-200 bg-slate-50'
-              }`}
-            >
+
+          {/* ── Professional Summary card — always at top ── */}
+          {summaryChange && (
+            <div className={`rounded-2xl border p-4 transition ${summaryAccepted ? 'border-violet-200 bg-violet-50/40' : 'border-slate-200 bg-slate-50'}`}>
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
                 <div>
-                  <p className="text-xs uppercase tracking-wide font-semibold text-slate-400">
-                    Improvement {index + 1}
-                  </p>
-                  <h3 className="text-sm font-semibold text-slate-900 mt-1">
-                    {item.roleTitle || 'Experience role'}
-                    {item.company ? (
-                      <span className="font-normal text-slate-500">
-                        {' '}· {item.company}
-                      </span>
-                    ) : null}
-                  </h3>
+                  <p className="text-xs uppercase tracking-wide font-semibold text-violet-500 mb-1">Professional Summary</p>
+                  <h3 className="text-sm font-semibold text-slate-900">Summary rewritten for this role</h3>
                 </div>
-
                 <button
                   type="button"
-                  onClick={() => onToggle(item.id)}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium border transition ${
-                    item.accepted
-                      ? 'border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50'
-                      : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
+                  onClick={onToggleSummary}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium border transition ${summaryAccepted ? 'border-violet-300 bg-white text-violet-700 hover:bg-violet-50' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}
                 >
-                  {item.accepted ? 'Accepted' : 'Rejected'}
+                  {summaryAccepted ? 'Accepted' : 'Rejected'}
                 </button>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">
-                    Original Master CV bullet
-                  </p>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-700">
-                    {item.before}
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Original summary</p>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-600 italic">
+                    {summaryChange.before?.trim()
+                      ? summaryChange.before.trim()
+                      : <span className="text-slate-400 not-italic">No summary in Master CV</span>
+                    }
                   </div>
                 </div>
-
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">
-                    JD-aligned rewrite
-                  </p>
-                  <div className="rounded-xl border border-emerald-200 bg-white p-3 text-sm leading-6 text-slate-800">
-                    {item.after}
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">JD-aligned summary</p>
+                  <div className="rounded-xl border border-violet-200 bg-white p-3 text-sm leading-6 text-slate-800">
+                    {summaryChange.after}
                   </div>
                 </div>
               </div>
 
-              <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
-                <span className="font-semibold">Why:</span> {item.reason}
+              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-3">
+                <span className="inline-flex items-center gap-1.5 shrink-0 text-xs font-semibold uppercase tracking-wide text-emerald-700 whitespace-nowrap">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  Safety: Safe
+                </span>
+                <span className="text-xs leading-relaxed text-emerald-800 sm:border-l sm:border-emerald-300 sm:pl-3">
+                  {summaryChange.reason}
+                </span>
               </div>
             </div>
-          ))}
+          )}
+
+          {/* ── Bullet cards ── */}
+          {items.map((item, index) => {
+            const meta = riskMeta(item.riskLevel);
+            return (
+              <div
+                key={item.id}
+                className={`rounded-2xl border p-4 transition ${item.accepted ? `border-emerald-200 bg-emerald-50/40` : 'border-slate-200 bg-slate-50'}`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide font-semibold text-slate-400">Bullet {index + 1} of {items.length}</p>
+                    <h3 className="text-sm font-semibold text-slate-900 mt-1">
+                      {item.roleTitle || 'Experience role'}
+                      {item.company && <span className="font-normal text-slate-500"> · {item.company}</span>}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onToggle(item.id)}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium border transition ${item.accepted ? 'border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    {item.accepted ? 'Accepted' : 'Rejected'}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Original Master CV bullet</p>
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-700">{item.before}</div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">JD-aligned rewrite</p>
+                    <div className="rounded-xl border border-emerald-200 bg-white p-3 text-sm leading-6 text-slate-800">{item.after}</div>
+                  </div>
+                </div>
+
+                <div className={`mt-3 rounded-xl border px-3 py-2.5 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-3 ${meta.badge}`}>
+                  <span className={`inline-flex items-center gap-1.5 shrink-0 text-xs font-semibold uppercase tracking-wide whitespace-nowrap ${meta.text}`}>
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${meta.dot}`} />
+                    Safety: {meta.label}
+                  </span>
+                  <span className={`text-xs leading-relaxed sm:border-l sm:border-current sm:border-opacity-20 sm:pl-3 ${meta.text}`}>
+                    {item.reason}
+                    {item.jdSignalStrength === 'explicit' && <span className="ml-1 opacity-60">· Explicitly matched in JD</span>}
+                    {item.jdSignalStrength === 'inferred'  && <span className="ml-1 opacity-60">· Inferred from JD context</span>}
+                  </span>
+                </div>
+
+                {item.evidenceSource && (
+                  <div className="mt-2 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-xs text-slate-500">
+                    <span className="font-medium text-slate-600">Evidence: </span>{item.evidenceSource}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
         </div>
 
+        {/* Footer */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-5 border-t border-slate-100 bg-white">
-          <p className="text-xs text-slate-500">
-            Master-CV-first mode: unsupported missing keywords are not added as experience.
+          <p className="text-xs text-slate-400">
+            Rejected bullet improvements revert to the original Master CV bullet.
           </p>
-
-          <div className="flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
-            >
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
               Cancel
             </button>
             <button
               type="button"
               onClick={onApply}
-              disabled={acceptedCount === 0}
-              className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-700 disabled:opacity-50 transition"
+              disabled={totalAccepted === 0}
+              className="px-5 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-700 transition disabled:opacity-40"
             >
               Apply selected
             </button>
           </div>
         </div>
+
       </div>
     </div>
   );
 };
-
 // ============================================================
 // CUSTOM SECTION MODAL — matches JTracker modal style
 // ============================================================
