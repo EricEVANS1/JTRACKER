@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   Archive,
   BarChart3,
@@ -18,10 +18,12 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
+import { ErrorBoundary } from './ErrorBoundary';
 import { supabase } from '../lib/supabase';
 
 export const AppLayout: React.FC = () => {
   const { user, signOut } = useAuth();
+  const location = useLocation();
 
   const [sharedCount, setSharedCount] = useState(0);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -279,7 +281,10 @@ export const AppLayout: React.FC = () => {
       )}
 
       <main className="w-full max-w-full overflow-x-hidden p-4 sm:p-6 lg:ml-64 lg:w-[calc(100%-16rem)] lg:p-8">
-        <Outlet />
+        {/* A crash in one page shows an error here; the sidebar keeps working. */}
+        <ErrorBoundary resetKey={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   );

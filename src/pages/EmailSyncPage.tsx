@@ -26,6 +26,7 @@ import { extractApplicationDataFromEmail } from '../utils/emailApplicationExtrac
 import { findBestApplicationMatch } from '../utils/emailMatcher';
 import { filterEmail } from '../utils/emailFilter';
 import { supabase } from '../lib/supabase';
+import { isGmailConfigured, isOutlookConfigured } from '../lib/config';
 import { useAuth } from '../context/AuthContext';
 import { buildStatusUpdate } from '../lib/applicationLifecycle';
 import { useGmailToken } from '../hooks/useGmailToken';
@@ -121,6 +122,15 @@ cacheLocation: 'sessionStorage',
 };
 
 const msalInstance = new PublicClientApplication(msalConfig);
+
+// Shown on the provider cards when this deployment has no OAuth client ID,
+// instead of opening a sign-in popup that can only fail.
+const GMAIL_SETUP_NOTE = isGmailConfigured()
+  ? undefined
+  : 'Gmail sign-in is not set up for this site yet: the Google OAuth client ID is missing.';
+const OUTLOOK_SETUP_NOTE = isOutlookConfigured()
+  ? undefined
+  : 'Outlook sign-in is not set up for this site yet: the Microsoft (Azure) client ID is missing.';
 const OUTLOOK_SCOPES = ['Mail.Read'];
 
 const DEFAULT_EMAIL_SETTINGS: EmailAutomationSettings = {
@@ -1556,6 +1566,7 @@ return ( <div> <h2 className="text-3xl font-bold mb-2">Email Sync</h2>
       syncing={syncingGmail}
       disabled={emailSyncDisabled || anyProviderSyncing}
       sessionNote={gmailConnected ? `Session active · expires in ${minutesRemaining}m` : undefined}
+      setupNote={GMAIL_SETUP_NOTE}
       onConnect={() => loginGmail()}
       onSync={syncGmail}
       onDisconnect={() => {
@@ -1576,6 +1587,7 @@ setMessage('Gmail disconnected. Reconnect Gmail and approve Gmail read access.')
       connected={outlookConnected}
       syncing={syncingOutlook}
       disabled={emailSyncDisabled || anyProviderSyncing}
+      setupNote={OUTLOOK_SETUP_NOTE}
       onConnect={connectOutlook}
       onSync={syncOutlook}
       onDisconnect={disconnectOutlook}
@@ -1832,6 +1844,7 @@ connected,
 syncing,
 disabled,
 sessionNote,
+setupNote,
 onConnect,
 onSync,
 onDisconnect,
@@ -1842,6 +1855,8 @@ connected: boolean;
 syncing: boolean;
 disabled: boolean;
 sessionNote?: string;
+// Set when this provider can't be connected on this deployment.
+setupNote?: string;
 onConnect: () => void;
 onSync: () => void;
 onDisconnect: () => void;
@@ -1862,6 +1877,12 @@ onDisconnect: () => void;
         {sessionNote}
       </p>
     )}
+
+    {setupNote && !connected && (
+      <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
+        {setupNote}
+      </p>
+    )}
   </div>
 </div>
 
@@ -1869,7 +1890,8 @@ onDisconnect: () => void;
   {!connected ? (
     <button
       onClick={onConnect}
-      className="bg-slate-900 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-3"
+      disabled={!!setupNote}
+      className="bg-slate-900 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
     >
       <MailCheck size={20} />
       Connect {title}
