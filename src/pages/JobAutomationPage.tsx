@@ -520,9 +520,16 @@ export const JobAutomationPage: React.FC = () => {
         return;
       }
 
+      // Each title/location pair is searched on every source; a run has a cap.
+      const searched = Array.isArray(payload.combinations_searched) ? payload.combinations_searched.length : null;
+      const skipped = Array.isArray(payload.combinations_skipped) ? payload.combinations_skipped.length : 0;
+
       setSuccess(
         [
           'Job search completed.',
+          searched != null
+            ? `Searched ${searched} of ${searched + skipped} title and location combinations${skipped ? ' (the rest did not fit in this run\'s search limit)' : ''}.`
+            : '',
           `Scanned: ${payload.scanned_count ?? 0}.`,
           `Saved: ${payload.saved_count ?? 0}.`,
           `Scored: ${payload.scored_count ?? 0}.`,

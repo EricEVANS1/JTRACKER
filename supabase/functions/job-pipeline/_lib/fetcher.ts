@@ -1,3 +1,4 @@
+import { cleanTerms, DEFAULT_MAX_SEARCH_CALLS, planSearchQueries, type SearchCombination } from './queryPlan.ts';
 import type { RawJob, UserJobPreferences } from './types.ts';
 
 type SearchSource =
@@ -1076,46 +1077,55 @@ export async function fetchJobsForPreferences(
   preferences: UserJobPreferences,
   serpApiKey: string,
   perQueryLimit = 2,
+  maxSearchCalls = DEFAULT_MAX_SEARCH_CALLS,
 ): Promise<{
   jobs: RawJob[];
   queriesRun: Array<{ source: string; query: string; location: string }>;
   sourcesUsed: string[];
+  // Title/location combinations searched on every source this run, and the
+  // ones left for later (per-run call cap or time budget).
+  combinationsSearched: SearchCombination[];
+  combinationsSkipped: SearchCombination[];
 }> {
 
   const startedAt = Date.now();
   const maxRuntimeMs = 120_000;
 
   const hasTimeBudget = () => Date.now() - startedAt < maxRuntimeMs;
-  const titles =
-    preferences.target_titles?.length > 0 ? preferences.target_titles : DEFAULT_TARGET_TITLES;
-
-  const locations =
-    preferences.preferred_locations?.length > 0
-      ? preferences.preferred_locations
-      : DEFAULT_LOCATIONS;
+  const preferredTitles = cleanTerms(preferences.target_titles);
+  const preferredLocations = cleanTerms(preferences.preferred_locations);
+  const titles = preferredTitles.length > 0 ? preferredTitles : DEFAULT_TARGET_TITLES;
+  const locations = preferredLocations.length > 0 ? preferredLocations : DEFAULT_LOCATIONS;
 
   const sources = getSearchSources(preferences);
 
-  const queries = titles.slice(0, 1).flatMap((title) =>
-    locations.slice(0, 1).map((location) => ({
-      title,
-      location,
-    })),
-  );
+  // Every title and location the user set, within the per-run call cap.
+  const plan = planSearchQueries({
+    titles,
+    locations,
+    sourceCount: sources.length,
+    maxCalls: maxSearchCalls,
+  });
+  const queries = plan.combinations;
+  const combinationsSearched: SearchCombination[] = [];
+  const combinationsSkipped: SearchCombination[] = [...plan.skipped];
 
   console.log('[fetcher] selected sources:', sources);
   console.log('[fetcher] selected titles:', titles);
   console.log('[fetcher] selected locations:', locations);
-  console.log('[fetcher] total query combinations:', queries.length);
+  console.log('[fetcher] query combinations:', queries.length, 'of', queries.length + plan.skipped.length);
 
   const jobs: RawJob[] = [];
   const queriesRun: Array<{ source: string; query: string; location: string }> = [];
 
-for (const query of queries) {
+for (const [index, query] of queries.entries()) {
   if (!hasTimeBudget()) {
     console.warn('[fetcher] stopping before next query because time budget is nearly exhausted');
+    combinationsSkipped.unshift(...queries.slice(index));
     break;
   }
+
+  combinationsSearched.push(query);
 
   for (const source of sources) {
     if (!hasTimeBudget()) {
@@ -1184,5 +1194,7 @@ for (const query of queries) {
     jobs: uniqueJobs,
     queriesRun,
     sourcesUsed: sources,
+    combinationsSearched,
+    combinationsSkipped,
   };
 }

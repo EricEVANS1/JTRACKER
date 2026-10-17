@@ -7,6 +7,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 import { errorResponse, getCorsHeaders, jsonResponse } from './_lib/cors.ts';
 import { fetchJobsForPreferences } from './_lib/fetcher.ts';
+import { parseMaxCalls } from './_lib/queryPlan.ts';
 import { scoreJobAgainstCV } from './_lib/scorer.ts';
 import type {
   CVProfile,
@@ -49,6 +50,10 @@ const LLM_CONFIG: LLMConfig = {
 
 const SERPAPI_KEY =
   Deno.env.get('SERPAPI_KEY') || Deno.env.get('SERP_API_KEY') || '';
+
+// Paid SerpAPI searches allowed per run (each title/location pair costs one per
+// source). Defaults to 18; set JOB_SEARCH_MAX_CALLS to change it.
+const MAX_SEARCH_CALLS = parseMaxCalls(Deno.env.get('JOB_SEARCH_MAX_CALLS'));
 
 function makeDedupHash(job: RawJob) {
   return `${job.source}:${job.external_id || job.job_url}`
@@ -403,7 +408,9 @@ Deno.serve(async (req) => {
       jobs: fetchedJobs,
       queriesRun,
       sourcesUsed,
-    } = await fetchJobsForPreferences(preferences, SERPAPI_KEY, 10);
+      combinationsSearched,
+      combinationsSkipped,
+    } = await fetchJobsForPreferences(preferences, SERPAPI_KEY, 10, MAX_SEARCH_CALLS);
 
     const freshJobs = fetchedJobs.filter((job) =>
       isFreshEnough(job, preferences.max_job_age_days),
@@ -486,6 +493,9 @@ Deno.serve(async (req) => {
         metadata: {
           sources_used: sourcesUsed,
           queries_run: queriesRun,
+          combinations_searched: combinationsSearched,
+          combinations_skipped: combinationsSkipped,
+          max_search_calls: MAX_SEARCH_CALLS,
           fetched_count: fetchedJobs.length,
           fresh_count: freshJobs.length,
           inserted_count: insertedJobs.length,
@@ -512,6 +522,8 @@ Deno.serve(async (req) => {
       processing_time_ms: Date.now() - startedAt,
       top_jobs: topJobs.slice(0, 10),
       no_cv_warning: !cvProfile,
+      combinations_searched: combinationsSearched,
+      combinations_skipped: combinationsSkipped,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
