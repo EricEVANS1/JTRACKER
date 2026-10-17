@@ -18,9 +18,6 @@ import { useAuth } from '../context/AuthContext';
 
 interface PublicSharedOpportunity {
 id: string;
-sender_user_id: string;
-recipient_user_id: string | null;
-application_id: string | null;
 public_share_id: string | null;
 role_title: string | null;
 company_name: string | null;
@@ -78,29 +75,7 @@ return;
 
 setError('');
 
-const { data, error } = await supabase
-  .from('shared_opportunities')
-  .select(`
-    id,
-    sender_user_id,
-    recipient_user_id,
-    application_id,
-    public_share_id,
-    role_title,
-    company_name,
-    location,
-    job_link,
-    note,
-    include_status,
-    include_notes,
-    include_experience,
-    status_snapshot,
-    notes_snapshot,
-    experience_snapshot,
-    created_at
-  `)
-  .eq('public_share_id', publicShareId)
-  .maybeSingle();
+const { data, error } = await supabase.rpc('get_public_share', { share_id: publicShareId });
 
 if (error) {
   setError(error.message);

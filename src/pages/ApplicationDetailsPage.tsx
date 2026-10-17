@@ -608,10 +608,8 @@ Best regards,`;
     setMessage('');
 
     const { data: recipientProfile, error: recipientError } = await supabase
-      .from('profiles')
-      .select('id, email')
-      .ilike('email', recipientEmail.trim())
-      .maybeSingle();
+      .rpc('find_user_by_email', { lookup_email: recipientEmail.trim() })
+      .maybeSingle<{ id: string; email: string | null }>();
 
     if (recipientError) {
       setError(recipientError.message);

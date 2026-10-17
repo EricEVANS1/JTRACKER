@@ -33,11 +33,6 @@ interface Props {
 const inputCls =
   'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
 
-const makePublicId = () => {
-  const randomPart = Math.random().toString(36).slice(2, 10);
-  return `${Date.now().toString(36)}-${randomPart}`;
-};
-
 export const ShareOpportunityModal: React.FC<Props> = ({ application, open, onClose }) => {
   const { user } = useAuth();
 
@@ -91,11 +86,8 @@ export const ShareOpportunityModal: React.FC<Props> = ({ application, open, onCl
     setRecipient(null);
 
     const { data, error } = await supabase
-      .from('profiles')
-      .select('id, full_name, email')
-      .ilike('email', recipientEmail.trim())
-      .limit(1)
-      .maybeSingle();
+      .rpc('find_user_by_email', { lookup_email: recipientEmail.trim() })
+      .maybeSingle<ProfileResult>();
 
     if (error) {
       setError(error.message);
@@ -144,7 +136,7 @@ export const ShareOpportunityModal: React.FC<Props> = ({ application, open, onCl
     setError('');
     setMessage('');
 
-    const publicShareId = makePublicId();
+    const publicShareId = crypto.randomUUID();
 
     const { data, error } = await supabase
       .from('shared_opportunities')

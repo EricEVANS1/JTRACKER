@@ -671,9 +671,7 @@ try {
   const cleanEmail = recipientEmail.trim().toLowerCase();
 
   const { data: profiles, error: recipientError } = await supabase
-    .from('profiles')
-    .select('id, email')
-    .ilike('email', cleanEmail);
+    .rpc('find_user_by_email', { lookup_email: cleanEmail });
 
   if (recipientError) throw new Error(recipientError.message);
 
