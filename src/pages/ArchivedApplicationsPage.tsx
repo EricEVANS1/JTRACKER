@@ -13,6 +13,7 @@ import { Link } from 'react-router-dom';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { buildStatusUpdate, getFurthestActiveStatus } from '../lib/applicationLifecycle';
 import type { Application } from '../types/application';
 
 interface CompanyJoin {
@@ -229,8 +230,14 @@ export const ArchivedApplicationsPage: React.FC = () => {
   const handleRestoreApplication = async (application: ArchivedApplication) => {
     if (!user) return;
 
+    // Rejected and archived records go back to the furthest stage they reached;
+    // staying "rejected" outside the archive would break the archive rule.
+    const restoredStatus = ['rejected', 'archived'].includes(application.status)
+      ? getFurthestActiveStatus(application)
+      : application.status;
+
     const confirmed = window.confirm(
-      'Restore this application to your active pipeline?'
+      `Restore this application to your active pipeline as "${formatStatus(restoredStatus)}"?`
     );
 
     if (!confirmed) return;
@@ -244,11 +251,9 @@ export const ArchivedApplicationsPage: React.FC = () => {
     const { error } = await supabase
       .from('applications')
       .update({
+        ...buildStatusUpdate(restoredStatus, application, now),
         archived: false,
         archived_at: null,
-        status: application.status === 'archived' ? 'applied' : application.status,
-        last_status_changed_at: now,
-        status_updated_at: now,
       })
       .eq('id', application.id)
       .eq('user_id', user.id);
@@ -269,7 +274,7 @@ export const ArchivedApplicationsPage: React.FC = () => {
     });
 
     setApplications((prev) => prev.filter((item) => item.id !== application.id));
-    setMessage('Application restored to active pipeline.');
+    setMessage(`Application restored to active pipeline as ${formatStatus(restoredStatus)}.`);
     setRestoringId('');
   };
 

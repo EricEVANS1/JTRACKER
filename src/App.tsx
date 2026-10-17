@@ -14,6 +14,7 @@ import { CompaniesPage } from './pages/CompaniesPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { FollowUpsPage } from './pages/FollowUpsPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 import { ArchivedApplicationsPage } from './pages/ArchivedApplicationsPage';
 import { RecruitersPage } from './pages/RecruitersPage';
 import { KanbanPage } from './pages/KanbanPage';
@@ -60,10 +61,7 @@ const App: React.FC = () => {
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
 
-            <Route
-              path="/notifications"
-              element={<Navigate to="/settings?tab=notifications" replace />}
-            />
+            <Route path="/notifications" element={<NotificationsPage />} />
 
             <Route path="/shared" element={<SharedOpportunitiesPage />} />
 

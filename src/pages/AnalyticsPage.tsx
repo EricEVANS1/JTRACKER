@@ -26,6 +26,19 @@ YAxis,
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import {
+getAppliedDate,
+getDaysBetween,
+getDaysToResponse,
+getFollowUpBucket,
+hasReachedInterview,
+hasReachedOffer,
+hasResponse,
+isActive,
+isArchived,
+isAwaitingFinalResponse,
+isSubmitted,
+} from '../lib/applicationLifecycle';
 
 interface CVVersionJoin {
 name: string;
@@ -100,35 +113,8 @@ const chartColors = [
 '#1e293b',
 ];
 
-const responseStatuses = [
-'confirmation_received',
-'assessment',
-'interview',
-'final_interview',
-'offer',
-'rejected',
-'withdrawn',
-'ghosted',
-];
-
-const closedStatuses = ['offer', 'rejected', 'withdrawn', 'ghosted', 'archived'];
-
 const formatLabel = (value: string) =>
 value.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
-
-const getAppliedDate = (app: ApplicationRecord) => app.date_applied || app.created_at;
-
-
-const getDaysBetween = (start?: string | null, end?: string | null) => {
-if (!start || !end) return null;
-
-const startTime = new Date(start).getTime();
-const endTime = new Date(end).getTime();
-
-if (Number.isNaN(startTime) || Number.isNaN(endTime)) return null;
-
-return Math.max(0, Math.round((endTime - startTime) / (1000 * 60 * 60 * 24)));
-};
 
 const average = (values: number[]) => {
 if (values.length === 0) return 0;
@@ -150,37 +136,8 @@ const week = Math.ceil((days + firstDay.getDay() + 1) / 7);
 return `${year}-W${String(week).padStart(2, '0')}`;
 };
 
-const hasReachedInterview = (app: ApplicationRecord) =>
-Boolean(
-app.reached_interview ||
-app.interview_started_at ||
-app.final_interview_started_at ||
-app.rejected_after_interview ||
-app.status === 'interview' ||
-app.status === 'final_interview' ||
-app.status === 'offer'
-);
-
-const hasClearResponse = (app: ApplicationRecord) =>
-responseStatuses.includes(app.status) ||
-Boolean(
-app.response_received_at ||
-app.assessment_received_at ||
-app.interview_started_at ||
-app.final_interview_started_at ||
-app.offer_received_at ||
-app.rejected_at ||
-app.withdrawn_at ||
-app.ghosted_at
-);
-
-const isArchived = (app: ApplicationRecord) =>
-Boolean(app.archived) || app.status === 'archived';
-
-const isSubmitted = (app: ApplicationRecord) => app.status !== 'wishlist';
-
-const isActive = (app: ApplicationRecord) =>
-isSubmitted(app) && !isArchived(app) && !closedStatuses.includes(app.status);
+// Submitted applications that are still in play.
+const isActiveSubmission = (app: ApplicationRecord) => isSubmitted(app) && isActive(app);
 
 const buildBottleneck = ({
 submitted,
@@ -364,19 +321,15 @@ const submittedApps = applications.filter(isSubmitted);
 const submitted = submittedApps.length;
 
 
-const active = applications.filter(isActive).length;
+const active = applications.filter(isActiveSubmission).length;
 const archived = applications.filter(isArchived).length;
 
-const responses = submittedApps.filter(hasClearResponse).length;
+const responses = submittedApps.filter(hasResponse).length;
 const interviews = submittedApps.filter(hasReachedInterview).length;
-const offers = submittedApps.filter((app) => app.status === 'offer' || Boolean(app.offer_received_at)).length;
+const offers = submittedApps.filter(hasReachedOffer).length;
 const rejections = submittedApps.filter((app) => app.status === 'rejected').length;
 const rejectedAfterInterview = submittedApps.filter((app) => Boolean(app.rejected_after_interview)).length;
-const awaitingFinalResponse = submittedApps.filter(
-  (app) =>
-    Boolean(app.final_response_pending) ||
-    (!isArchived(app) && ['interview', 'final_interview'].includes(app.status))
-).length;
+const awaitingFinalResponse = submittedApps.filter(isAwaitingFinalResponse).length;
 
 const ghosted = submittedApps.filter((app) => app.status === 'ghosted').length;
 
@@ -387,7 +340,7 @@ const rejectionRate = safePercent(rejections, submitted);
 const postInterviewDeclineRate = safePercent(rejectedAfterInterview, interviews);
 
 const responseTimes = submittedApps
-  .map((app) => getDaysBetween(getAppliedDate(app), app.response_received_at))
+  .map(getDaysToResponse)
   .filter((value): value is number => value !== null);
 
 const interviewTimes = submittedApps
@@ -405,10 +358,8 @@ const rejectionTimes = submittedApps
 const now = new Date();
 
 const followUpsDue = submittedApps.filter((app) => {
-  if (!app.follow_up_date) return false;
-  if (isArchived(app) || closedStatuses.includes(app.status)) return false;
-
-  return new Date(app.follow_up_date) <= now;
+  const bucket = getFollowUpBucket(app, now);
+  return bucket === 'overdue' || bucket === 'today';
 }).length;
 
 const sourceCounts = submittedApps.reduce<
@@ -437,9 +388,9 @@ const sourceCounts = submittedApps.reduce<
 
   acc[source].applications += 1;
 
-  if (hasClearResponse(app)) acc[source].responses += 1;
+  if (hasResponse(app)) acc[source].responses += 1;
   if (hasReachedInterview(app)) acc[source].interviews += 1;
-  if (app.status === 'offer' || app.offer_received_at) acc[source].offers += 1;
+  if (hasReachedOffer(app)) acc[source].offers += 1;
   if (app.status === 'rejected') acc[source].rejections += 1;
 
   return acc;
@@ -501,9 +452,9 @@ const cvCounts = submittedApps.reduce<
 
   acc[cvName].total += 1;
 
-  if (hasClearResponse(app)) acc[cvName].responses += 1;
+  if (hasResponse(app)) acc[cvName].responses += 1;
   if (hasReachedInterview(app)) acc[cvName].interviews += 1;
-  if (app.status === 'offer' || app.offer_received_at) acc[cvName].offers += 1;
+  if (hasReachedOffer(app)) acc[cvName].offers += 1;
   if (app.status === 'rejected') acc[cvName].rejections += 1;
 
   return acc;
@@ -535,7 +486,7 @@ const weeklyCounts = submittedApps.reduce<
     }
   >
 >((acc, app) => {
-  const appliedDate = getAppliedDate(app);
+  const appliedDate = getAppliedDate(app) || app.created_at;
   const week = getWeekKey(appliedDate);
 
   if (!acc[week]) {
@@ -550,9 +501,9 @@ const weeklyCounts = submittedApps.reduce<
 
   acc[week].applications += 1;
 
-  if (hasClearResponse(app)) acc[week].responses += 1;
+  if (hasResponse(app)) acc[week].responses += 1;
   if (hasReachedInterview(app)) acc[week].interviews += 1;
-  if (app.status === 'offer' || app.offer_received_at) acc[week].offers += 1;
+  if (hasReachedOffer(app)) acc[week].offers += 1;
 
   return acc;
 }, {});

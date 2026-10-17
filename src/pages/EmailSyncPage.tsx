@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
+import { useSearchParams } from 'react-router-dom';
 import {
 PublicClientApplication,
 type Configuration,
@@ -26,23 +27,12 @@ import { findBestApplicationMatch } from '../utils/emailMatcher';
 import { filterEmail } from '../utils/emailFilter';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { buildStatusUpdate } from '../lib/applicationLifecycle';
 import { useGmailToken } from '../hooks/useGmailToken';
 
 type EmailProvider = 'gmail' | 'outlook' | 'manual';
 
 type EmailActionType = 'IGNORE' | 'REVIEW' | 'LINK_EXISTING' | 'CREATE_APPLICATION';
-
-type OutcomeReason =
-| 'rejected_before_interview'
-| 'rejected_after_assessment'
-| 'rejected_after_interview'
-| 'offer_received'
-| 'offer_declined'
-| 'offer_accepted'
-| 'withdrawn'
-| 'ghosted'
-| 'no_response'
-| null;
 
 interface CompanyJoin {
 name: string;
@@ -62,6 +52,10 @@ interview_started_at?: string | null;
 final_interview_started_at?: string | null;
 offer_received_at?: string | null;
 rejected_at?: string | null;
+withdrawn_at?: string | null;
+ghosted_at?: string | null;
+outcome_reason?: string | null;
+archived?: boolean | null;
 companies?: CompanyJoin | CompanyJoin[] | null;
 }
 
@@ -79,6 +73,10 @@ interview_started_at?: string | null;
 final_interview_started_at?: string | null;
 offer_received_at?: string | null;
 rejected_at?: string | null;
+withdrawn_at?: string | null;
+ghosted_at?: string | null;
+outcome_reason?: string | null;
+archived?: boolean | null;
 companies: CompanyJoin | null;
 }
 
@@ -220,110 +218,8 @@ const getSafeStatus = (status: string) =>
 const canUpdateApplicationStatus = (status: string) =>
 !['unknown', 'opportunity', 'pre_offer'].includes(status);
 
-const getLifecycleUpdate = (status: string, app?: ApplicationOption | null) => {
-const now = new Date().toISOString();
-
-const update: Record<string, string | boolean | number | OutcomeReason | null> = {
-status,
-last_status_changed_at: now,
-status_updated_at: now,
-};
-
-if (status === 'confirmation_received') {
-update.response_received_at = now;
-}
-
-if (status === 'assessment') {
-update.response_received_at = now;
-update.assessment_received_at = now;
-update.final_response_pending = false;
-}
-
-if (status === 'interview') {
-update.response_received_at = now;
-update.interview_started_at = now;
-update.reached_interview = true;
-update.final_response_pending = true;
-update.rejected_after_interview = false;
-update.interview_count = Math.max(app?.interview_count || 0, 1);
-}
-
-if (status === 'final_interview') {
-update.response_received_at = now;
-update.interview_started_at = now;
-update.final_interview_started_at = now;
-update.reached_interview = true;
-update.final_response_pending = true;
-update.rejected_after_interview = false;
-update.interview_count = Math.max(app?.interview_count || 0, 1);
-}
-
-if (status === 'offer') {
-update.response_received_at = now;
-update.offer_received_at = now;
-update.final_response_pending = false;
-update.outcome_reason = 'offer_received';
-
-
-if (
-  app?.status === 'interview' ||
-  app?.status === 'final_interview' ||
-  app?.reached_interview
-) {
-  update.reached_interview = true;
-  update.interview_count = Math.max(app?.interview_count || 0, 1);
-}
-
-
-}
-
-if (status === 'rejected') {
-const hadInterview =
-app?.reached_interview ||
-app?.status === 'interview' ||
-app?.status === 'final_interview' ||
-app?.status === 'offer' ||
-Boolean(app?.interview_started_at) ||
-Boolean(app?.final_interview_started_at);
-
-
-update.response_received_at = now;
-update.rejected_at = now;
-update.archived = true;
-update.archived_at = now;
-update.final_response_pending = false;
-
-if (hadInterview) {
-  update.reached_interview = true;
-  update.rejected_after_interview = true;
-  update.interview_count = Math.max(app?.interview_count || 0, 1);
-  update.outcome_reason = 'rejected_after_interview';
-} else if (app?.status === 'assessment' || Boolean(app?.assessment_received_at)) {
-  update.rejected_after_interview = false;
-  update.outcome_reason = 'rejected_after_assessment';
-} else {
-  update.rejected_after_interview = false;
-  update.outcome_reason = 'rejected_before_interview';
-}
-
-
-}
-
-if (status === 'withdrawn') {
-update.withdrawn_at = now;
-update.final_response_pending = false;
-update.outcome_reason = 'withdrawn';
-}
-
-if (status === 'ghosted') {
-update.response_received_at = now;
-update.ghosted_at = now;
-update.final_response_pending = false;
-update.outcome_reason = 'ghosted';
-}
-
-return update;
-};
+const getLifecycleUpdate = (status: string, app?: ApplicationOption | null) =>
+buildStatusUpdate(status, app ?? null);
 
 const getEmailAction = (
 email: EmailMessage,
@@ -679,6 +575,10 @@ const { data, error: fetchError } = await supabase
     final_interview_started_at,
     offer_received_at,
     rejected_at,
+    withdrawn_at,
+    ghosted_at,
+    outcome_reason,
+    archived,
     companies (
       name
     )
@@ -1203,6 +1103,29 @@ try {
 
 
 };
+
+// The dashboard's "Sync now" / "Retry sync" opens this page with ?sync=gmail.
+// Run the normal sync once settings have loaded, then drop the parameter so a
+// reload doesn't sync again. syncGmail still checks sign-in, settings and the
+// Gmail connection itself.
+const [searchParams, setSearchParams] = useSearchParams();
+const autoSyncStarted = useRef(false);
+
+useEffect(() => {
+if (searchParams.get('sync') !== 'gmail' || settingsLoading || autoSyncStarted.current) return;
+
+autoSyncStarted.current = true;
+setSearchParams(
+  (params) => {
+    const next = new URLSearchParams(params);
+    next.delete('sync');
+    return next;
+  },
+  { replace: true },
+);
+void Promise.resolve().then(syncGmail);
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [searchParams, settingsLoading]);
 
 const updateApplicationFromEmail = async (
 applicationId: string,

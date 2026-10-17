@@ -1,124 +1,97 @@
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-console.log('EXTRACT CV TEXT VERSION 2 RUNNING');
+import { CV_BUCKET, createExtractCvTextHandler } from './handler.ts';
 
+console.log('EXTRACT CV TEXT VERSION 3 RUNNING');
 
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+const apiKey = Deno.env.get('PARSER_API_KEY') ?? '';
+const apiUrl = Deno.env.get('PARSER_API_URL') ?? '';
+
+// Acts as the caller (anon key + their session token), so Row Level Security
+// and storage policies apply. No service-role key is used here.
+const clientFor = (authHeader: string) =>
+  createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+const tokenFrom = (authHeader: string) => authHeader.replace(/^Bearer\s+/i, '');
+
+const parseText = async (file: Blob) => {
+  const form = new FormData();
+  form.append('file', file, 'cv.pdf');
+  form.append('result_type', 'text');
+
+  const uploadRes = await fetch(`${apiUrl}/api/parsing/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  });
+
+  if (!uploadRes.ok) {
+    throw new Error(`Parser upload failed with status ${uploadRes.status}`);
   }
 
-  try {
-    const { fileUrl } = await req.json();
+  const uploadData = await uploadRes.json();
+  const jobId = uploadData.id;
+  let extractedText = '';
 
-    if (!fileUrl) {
-      return new Response(
-        JSON.stringify({ error: 'Missing fileUrl' }),
-        {
-          status: 400,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-    }
+  for (let i = 0; i < 20; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
-const apiKey = Deno.env.get('PARSER_API_KEY');
-const apiUrl = Deno.env.get('PARSER_API_URL');
+    const resultRes = await fetch(`${apiUrl}/api/parsing/job/${jobId}/result/text`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
 
-if (!apiKey) {
-  throw new Error('Missing PARSER_API_KEY');
-}
+    if (resultRes.ok) {
+      extractedText = await resultRes.text();
 
-if (!apiUrl) {
-  throw new Error('Missing PARSER_API_URL');
-}
-
-    const fileRes = await fetch(fileUrl);
-
-    if (!fileRes.ok) {
-      throw new Error(`Failed to download file: ${fileRes.status}`);
-    }
-
-    const fileBlob = await fileRes.blob();
-
-    const form = new FormData();
-
-    form.append('file', fileBlob, 'cv.pdf');
-
-    form.append('result_type', 'text');
-
-    const uploadRes = await fetch(
-      `${apiUrl}/api/parsing/upload`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: form,
-      },
-    );
-
-    const uploadData = await uploadRes.json();
-
-    if (!uploadRes.ok) {
-      throw new Error(
-        uploadData?.detail || 'LlamaParse upload failed',
-      );
-    }
-
-    const jobId = uploadData.id;
-
-    let extractedText = '';
-
-    for (let i = 0; i < 20; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      const resultRes = await fetch(
-        `${apiUrl}/api/parsing/job/${jobId}/result/text`,
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-          },
-        },
-      );
-
-      if (resultRes.ok) {
-        extractedText = await resultRes.text();
-
-        if (extractedText?.trim()) {
-          break;
-        }
+      if (extractedText?.trim()) {
+        break;
       }
     }
-
-    return new Response(
-      JSON.stringify({
-        text: extractedText,
-      }),
-      {
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
-      },
-    );
-  } catch (err) {
-    return new Response(
-      JSON.stringify({
-        error: err instanceof Error ? err.message : 'Unknown error',
-      }),
-      {
-        status: 500,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
-      },
-    );
   }
-});
+
+  return extractedText;
+};
+
+Deno.serve(
+  createExtractCvTextHandler({
+    supabaseUrl,
+    parserConfigured: Boolean(apiKey && apiUrl),
+
+    getUser: async (authHeader) => {
+      const { data, error } = await clientFor(authHeader).auth.getUser(tokenFrom(authHeader));
+      return error || !data.user ? null : { id: data.user.id };
+    },
+
+    ownsCvFile: async (authHeader, userId, fileUrl) => {
+      const { data, error } = await clientFor(authHeader)
+        .from('cv_versions')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('file_url', fileUrl)
+        .limit(1);
+
+      return !error && (data?.length ?? 0) > 0;
+    },
+
+    downloadCvFile: async (authHeader, path) => {
+      // Prefer downloading as the caller so storage policies apply.
+      const { data, error } = await clientFor(authHeader).storage.from(CV_BUCKET).download(path);
+      if (!error && data) return data;
+
+      // The bucket currently serves CVs by public URL. The path has already been
+      // checked to be in this project's bucket and the caller's own folder.
+      const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+      const res = await fetch(`${supabaseUrl}/storage/v1/object/public/${CV_BUCKET}/${encodedPath}`);
+      return res.ok ? await res.blob() : null;
+    },
+
+    parseText,
+
+    log: (message, details) => console.error(message, details ?? {}),
+  }),
+);

@@ -22,6 +22,40 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
+import { useGmailToken } from '../hooks/useGmailToken';
+import {
+buildGmailSyncSummary,
+type EmailEventRecord,
+type GmailSyncSummary,
+type SyncSessionRecord,
+} from '../lib/gmailSyncSummary';
+import {
+buildTimeline,
+groupTimelineByDay,
+type ActivityEventRecord,
+type ActivityKind,
+type TimelineEvent,
+} from '../lib/activityTimeline';
+import {
+NO_RESPONSE_DAYS,
+REACHED_STAGES,
+getDaysBetween,
+getDaysWithoutReply,
+getUpcomingInterviewDate,
+hasReachedStage,
+isOfferAwaitingDecision,
+type ReachedStage,
+getDaysToResponse,
+getFollowUpBucket,
+hasReachedInterview,
+hasReachedOffer,
+hasResponse,
+isActive,
+isArchived,
+isAwaitingFinalResponse,
+isSubmitted,
+type FollowUpBucket,
+} from '../lib/applicationLifecycle';
 
 type ApplicationStatus =
 | 'wishlist'
@@ -40,6 +74,8 @@ interface DashboardApplication {
 id: string;
 role_title: string | null;
 status: ApplicationStatus;
+outcome_reason?: string | null;
+interview_notes?: { interview_date: string | null }[] | null;
 archived: boolean | null;
 date_applied: string | null;
 created_at: string;
@@ -60,19 +96,6 @@ final_response_pending?: boolean | null;
 rejected_after_interview?: boolean | null;
 }
 
-interface RecentEvent {
-id: string;
-title: string;
-description: string | null;
-event_date: string;
-applications?: {
-role_title: string;
-companies?: {
-name: string;
-} | null;
-} | null;
-}
-
 interface NotificationItem {
 id: string;
 title: string | null;
@@ -80,29 +103,6 @@ message: string | null;
 type: string | null;
 read: boolean | null;
 created_at: string;
-}
-
-interface GmailSyncSession {
-id: string;
-scanned_count: number | null;
-accepted_count: number | null;
-review_count: number | null;
-rejected_count: number | null;
-processing_time_ms: number | null;
-status: string | null;
-error_message: string | null;
-created_at: string;
-}
-
-interface EmailEvent {
-id: string;
-provider_message_id: string | null;
-received_at: string | null;
-application_id: string | null;
-}
-
-interface IgnoredEmailEvent {
-id: string;
 }
 
 interface Recruiter {
@@ -117,38 +117,28 @@ interface CVVersion {
 id: string;
 }
 
-const responseStatuses: ApplicationStatus[] = [
-'confirmation_received',
-'assessment',
-'interview',
-'final_interview',
-'offer',
-'rejected',
-'withdrawn',
-'ghosted',
+type FunnelGroup = 'progress' | 'outcome';
+
+const funnelStatuses: { value: ApplicationStatus; label: string; group: FunnelGroup }[] = [
+{ value: 'wishlist', label: 'Wishlist', group: 'progress' },
+{ value: 'applied', label: 'Applied', group: 'progress' },
+{ value: 'confirmation_received', label: 'Confirmed', group: 'progress' },
+{ value: 'assessment', label: 'Assessment', group: 'progress' },
+{ value: 'interview', label: 'Interview', group: 'progress' },
+{ value: 'final_interview', label: 'Final interview', group: 'progress' },
+{ value: 'offer', label: 'Offer', group: 'outcome' },
+{ value: 'rejected', label: 'Rejected', group: 'outcome' },
+{ value: 'withdrawn', label: 'Withdrawn', group: 'outcome' },
+{ value: 'ghosted', label: 'Ghosted', group: 'outcome' },
+{ value: 'archived', label: 'Archived', group: 'outcome' },
 ];
 
-const closedStatuses: ApplicationStatus[] = [
-'offer',
-'rejected',
-'withdrawn',
-'ghosted',
-'archived',
-];
-
-const funnelStatuses: { value: ApplicationStatus; label: string }[] = [
-{ value: 'wishlist', label: 'Wishlist' },
-{ value: 'applied', label: 'Applied' },
-{ value: 'confirmation_received', label: 'Response' },
-{ value: 'assessment', label: 'Assessment' },
-{ value: 'interview', label: 'Interview' },
-{ value: 'final_interview', label: 'Final' },
-{ value: 'offer', label: 'Offer' },
-{ value: 'rejected', label: 'Rejected' },
-{ value: 'withdrawn', label: 'Withdrawn' },
-{ value: 'ghosted', label: 'Ghosted' },
-{ value: 'archived', label: 'Archived' },
-];
+interface FunnelStage {
+value: ApplicationStatus;
+label: string;
+group: FunnelGroup;
+count: number;
+}
 
 const formatDateTime = (date?: string | null) => {
 if (!date) return 'Not set';
@@ -177,44 +167,65 @@ if (ms < 1000) return `${ms}ms`;
 return `${(ms / 1000).toFixed(1)}s`;
 };
 
-const getAppliedDate = (app: DashboardApplication) => app.date_applied || app.created_at;
-
-const getDaysBetween = (start?: string | null, end?: string | null) => {
-if (!start || !end) return null;
-
-const startTime = new Date(start).getTime();
-const endTime = new Date(end).getTime();
-
-if (Number.isNaN(startTime) || Number.isNaN(endTime)) return null;
-
-return Math.max(0, Math.round((endTime - startTime) / 86400000));
-};
-
 const average = (values: number[]) => {
 if (values.length === 0) return 0;
 return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 };
 
-const isSameDay = (date: Date, compareTo: Date) =>
-date.getFullYear() === compareTo.getFullYear() &&
-date.getMonth() === compareTo.getMonth() &&
-date.getDate() === compareTo.getDate();
+// Assessment in progress with no follow-up scheduled.
+const getAssessmentReason = (app: DashboardApplication, now: Date) => {
+if (!isActive(app) || app.status !== 'assessment' || getFollowUpBucket(app, now)) return null;
 
-const startOfDay = (date: Date) =>
-new Date(date.getFullYear(), date.getMonth(), date.getDate());
+const days = getDaysBetween(
+  app.assessment_received_at ||
+    app.last_status_changed_at ||
+    app.status_updated_at ||
+    app.updated_at ||
+    app.created_at,
+  now.toISOString()
+) || 0;
 
-const isActiveApplication = (app: DashboardApplication) =>
-!app.archived && !closedStatuses.includes(app.status);
+return days === 0
+  ? 'Assessment received today'
+  : `Assessment outstanding for ${days} day${days === 1 ? '' : 's'}`;
+};
 
-const hasReachedInterview = (app: DashboardApplication) =>
-Boolean(
-app.reached_interview ||
-app.interview_started_at ||
-app.final_interview_started_at ||
-app.status === 'interview' ||
-app.status === 'final_interview' ||
-app.status === 'offer'
-);
+// Still waiting on a reply, with no follow-up scheduled.
+const getNoReplyReason = (app: DashboardApplication, now: Date) => {
+if (getFollowUpBucket(app, now)) return null;
+
+const days = getDaysWithoutReply(app, now);
+
+return days !== null && days >= NO_RESPONSE_DAYS
+  ? `No response ${days} days after applying`
+  : null;
+};
+
+const formatInterviewDate = (date: string) =>
+new Date(date).toLocaleString('en-GB', {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+type ActionTone = 'danger' | 'warning' | 'info' | 'neutral';
+
+interface ActionItem {
+id: string;
+title: string;
+reason: string;
+href: string;
+tone: ActionTone;
+}
+
+interface ActionCategory {
+key: string;
+label: string;
+count: number;
+href: string;
+}
 
 export const DashboardPage: React.FC = () => {
 const { user } = useAuth();
@@ -229,11 +240,17 @@ dismissOnboarding,
 } = useOnboarding();
 
 const [applications, setApplications] = useState<DashboardApplication[]>([]);
-const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
+const [recentEvents, setRecentEvents] = useState<ActivityEventRecord[]>([]);
+const [activityError, setActivityError] = useState('');
 const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-const [emailEvents, setEmailEvents] = useState<EmailEvent[]>([]);
-const [ignoredEmails, setIgnoredEmails] = useState<IgnoredEmailEvent[]>([]);
-const [latestSync, setLatestSync] = useState<GmailSyncSession | null>(null);
+const [unreadCount, setUnreadCount] = useState(0);
+const [gmailSessions, setGmailSessions] = useState<SyncSessionRecord[]>([]);
+const [gmailEmailEvents, setGmailEmailEvents] = useState<EmailEventRecord[]>([]);
+const [gmailImportIds, setGmailImportIds] = useState<(string | null)[]>([]);
+const [gmailDismissed, setGmailDismissed] = useState(0);
+const [gmailSyncEnabled, setGmailSyncEnabled] = useState<boolean | null>(null);
+const [gmailError, setGmailError] = useState('');
+const { gmailConnected, minutesRemaining } = useGmailToken();
 const [recruiters, setRecruiters] = useState<Recruiter[]>([]);
 const [recruiterInteractions, setRecruiterInteractions] = useState<RecruiterInteraction[]>([]);
 const [cvVersions, setCvVersions] = useState<CVVersion[]>([]);
@@ -255,6 +272,8 @@ const [
   emailEventsResult,
   ignoredEmailsResult,
   syncSessionsResult,
+  gmailImportsResult,
+  emailSettingsResult,
   recruitersResult,
   recruiterInteractionsResult,
   cvVersionsResult,
@@ -282,7 +301,11 @@ const [
       status_updated_at,
       reached_interview,
       final_response_pending,
-      rejected_after_interview
+      rejected_after_interview,
+      outcome_reason,
+      interview_notes (
+        interview_date
+      )
     `)
     .eq('user_id', user.id)
     .order('created_at', { ascending: false }),
@@ -293,8 +316,11 @@ const [
       id,
       title,
       description,
+      event_type,
       event_date,
+      application_id,
       applications (
+        id,
         role_title,
         companies (
           name
@@ -303,28 +329,32 @@ const [
     `)
     .eq('user_id', user.id)
     .order('event_date', { ascending: false })
-    .limit(8),
+    // Extra rows leave room for removing duplicates and "Show more".
+    .limit(40),
 
   supabase
     .from('notifications')
-    .select('id, title, message, type, read, created_at')
+    .select('id, title, message, type, read, created_at', { count: 'exact' })
     .eq('user_id', user.id)
     .eq('read', false)
     .order('created_at', { ascending: false })
     .limit(5),
 
+  // Gmail Sync: only what the Email Sync page stores for Gmail.
   supabase
     .from('email_events')
-    .select('id, provider_message_id, received_at, application_id')
-    .eq('user_id', user.id),
+    .select('id, application_id, detected_status')
+    .eq('user_id', user.id)
+    .eq('provider', 'gmail'),
 
   supabase
     .from('ignored_email_events')
-    .select('id')
-    .eq('user_id', user.id),
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('provider', 'gmail'),
 
   supabase
-    .from('gmail_sync_sessions')
+    .from('email_sync_sessions')
     .select(`
       id,
       scanned_count,
@@ -337,8 +367,22 @@ const [
       created_at
     `)
     .eq('user_id', user.id)
+    .eq('provider', 'gmail')
     .order('created_at', { ascending: false })
-    .limit(1),
+    .limit(10),
+
+  supabase
+    .from('application_events')
+    .select('application_id')
+    .eq('user_id', user.id)
+    .eq('event_type', 'email_import')
+    .ilike('title', '%gmail%'),
+
+  supabase
+    .from('user_settings')
+    .select('gmail_sync_enabled')
+    .eq('user_id', user.id)
+    .maybeSingle(),
 
   supabase.from('recruiters').select('id').eq('user_id', user.id),
 
@@ -361,20 +405,36 @@ if (applicationsResult.error) {
   setApplications(normalised);
 }
 
-if (eventsResult.error) setError(eventsResult.error.message);
-else setRecentEvents((eventsResult.data || []) as unknown as RecentEvent[]);
+if (eventsResult.error) {
+  setActivityError(eventsResult.error.message);
+} else {
+  setActivityError('');
+  setRecentEvents((eventsResult.data || []) as unknown as ActivityEventRecord[]);
+}
 
-if (notificationsResult.error) setError(notificationsResult.error.message);
-else setNotifications((notificationsResult.data || []) as NotificationItem[]);
+if (notificationsResult.error) {
+  setError(notificationsResult.error.message);
+} else {
+  // Only the newest few are listed; the count covers every unread notification.
+  setNotifications((notificationsResult.data || []) as NotificationItem[]);
+  setUnreadCount(notificationsResult.count ?? (notificationsResult.data || []).length);
+}
 
-if (emailEventsResult.error) setError(emailEventsResult.error.message);
-else setEmailEvents(emailEventsResult.data || []);
+// Gmail problems are shown in the Gmail Sync card rather than for the whole page.
+const gmailFailure = [emailEventsResult, ignoredEmailsResult, syncSessionsResult, gmailImportsResult, emailSettingsResult]
+  .find((result) => result.error)?.error;
 
-if (ignoredEmailsResult.error) setError(ignoredEmailsResult.error.message);
-else setIgnoredEmails(ignoredEmailsResult.data || []);
-
-if (syncSessionsResult.error) setError(syncSessionsResult.error.message);
-else setLatestSync((syncSessionsResult.data?.[0] || null) as GmailSyncSession | null);
+if (gmailFailure) {
+  setGmailError(gmailFailure.message);
+} else {
+  setGmailError('');
+  setGmailEmailEvents((emailEventsResult.data || []) as EmailEventRecord[]);
+  setGmailDismissed(ignoredEmailsResult.count ?? 0);
+  setGmailSessions((syncSessionsResult.data || []) as SyncSessionRecord[]);
+  setGmailImportIds((gmailImportsResult.data || []).map((row) => row.application_id));
+  // Email Sync treats a missing settings row as sync enabled.
+  setGmailSyncEnabled(emailSettingsResult.data?.gmail_sync_enabled ?? true);
+}
 
 if (recruitersResult.error) setError(recruitersResult.error.message);
 else setRecruiters(recruitersResult.data || []);
@@ -405,24 +465,25 @@ loadDashboard();
 
 const stats = useMemo(() => {
 const total = applications.length;
-const active = applications.filter(isActiveApplication).length;
-const archived = applications.filter((app) => app.archived || app.status === 'archived').length;
+const active = applications.filter(isActive).length;
+const archived = applications.filter(isArchived).length;
 
-const responses = applications.filter((app) =>
-  responseStatuses.includes(app.status) || Boolean(app.response_received_at)
-).length;
+// Rates are based on submitted applications; wishlist items were never sent.
+const submittedApps = applications.filter(isSubmitted);
+const submitted = submittedApps.length;
 
-const interviews = applications.filter(hasReachedInterview).length;
-const offers = applications.filter((app) => app.status === 'offer' || Boolean(app.offer_received_at)).length;
-const rejections = applications.filter((app) => app.status === 'rejected' || Boolean(app.rejected_at)).length;
+const responses = submittedApps.filter(hasResponse).length;
+const interviews = submittedApps.filter(hasReachedInterview).length;
+const offers = submittedApps.filter(hasReachedOffer).length;
+const rejections = submittedApps.filter((app) => app.status === 'rejected').length;
 
-const responseRate = total > 0 ? Math.round((responses / total) * 100) : 0;
+const responseRate = submitted > 0 ? Math.round((responses / submitted) * 100) : 0;
 const interviewRate = responses > 0 ? Math.round((interviews / responses) * 100) : 0;
 const offerRate = interviews > 0 ? Math.round((offers / interviews) * 100) : 0;
-const rejectionRate = total > 0 ? Math.round((rejections / total) * 100) : 0;
+const rejectionRate = submitted > 0 ? Math.round((rejections / submitted) * 100) : 0;
 
-const responseTimes = applications
-  .map((app) => getDaysBetween(getAppliedDate(app), app.response_received_at))
+const responseTimes = submittedApps
+  .map(getDaysToResponse)
   .filter((value): value is number => value !== null);
 
 const avgTimeToResponse = average(responseTimes);
@@ -431,6 +492,7 @@ return {
   total,
   active,
   archived,
+  submitted,
   responses,
   interviews,
   offers,
@@ -447,175 +509,181 @@ return {
 
 const todayStats = useMemo(() => {
 const now = new Date();
-const today = startOfDay(now);
-const inSevenDays = new Date(today);
-inSevenDays.setDate(today.getDate() + 7);
 
+const activeApplications = applications.filter(isActive);
+const inBucket = (bucket: FollowUpBucket) =>
+  activeApplications.filter((app) => getFollowUpBucket(app, now) === bucket);
 
-const activeApplications = applications.filter(isActiveApplication);
+const overdueFollowUps = inBucket('overdue');
+const dueTodayFollowUps = inBucket('today');
+const upcomingFollowUps = inBucket('upcoming');
+const awaitingFinalResponse = activeApplications.filter(isAwaitingFinalResponse);
 
-const overdueFollowUps = activeApplications.filter((app) => {
-  if (!app.follow_up_date) return false;
-
-  const date = new Date(app.follow_up_date);
-  if (Number.isNaN(date.getTime())) return false;
-
-  return startOfDay(date) < today;
-});
-
-const dueTodayFollowUps = activeApplications.filter((app) => {
-  if (!app.follow_up_date) return false;
-
-  const date = new Date(app.follow_up_date);
-  if (Number.isNaN(date.getTime())) return false;
-
-  return isSameDay(date, today);
-});
-
-const upcomingFollowUps = activeApplications.filter((app) => {
-  if (!app.follow_up_date) return false;
-
-  const date = new Date(app.follow_up_date);
-  if (Number.isNaN(date.getTime())) return false;
-
-  const day = startOfDay(date);
-
-  return day > today && day <= inSevenDays;
-});
-
-const awaitingFinalResponse = activeApplications.filter((app) =>
-  Boolean(app.final_response_pending) ||
-  ['interview', 'final_interview'].includes(app.status)
-);
-
-const suggestedFollowUps = activeApplications.filter((app) => {
-  if (app.follow_up_date) return false;
-
-  const appliedDate = new Date(getAppliedDate(app));
-  if (Number.isNaN(appliedDate.getTime())) return false;
-
-  const daysSinceApplied = getDaysBetween(appliedDate.toISOString(), now.toISOString()) || 0;
-
-  if (app.status === 'applied' && !app.response_received_at && daysSinceApplied >= 7) {
-    return true;
-  }
-
-  const assessmentDays = getDaysBetween(app.assessment_received_at, now.toISOString()) || 0;
-
-  if (app.status === 'assessment' && assessmentDays >= 5) {
-    return true;
-  }
-
-  const interviewDays =
-    getDaysBetween(
-      app.final_interview_started_at || app.interview_started_at,
-      now.toISOString()
-    ) || 0;
-
-  if (['interview', 'final_interview'].includes(app.status) && interviewDays >= 5) {
-    return true;
-  }
-
-  return false;
-});
+const upcomingInterviews = activeApplications
+  .filter((app) => getUpcomingInterviewDate(app, now) !== null)
+  .sort(
+    (a, b) =>
+      new Date(getUpcomingInterviewDate(a, now) || 0).getTime() -
+      new Date(getUpcomingInterviewDate(b, now) || 0).getTime()
+  );
+const offersAwaitingDecision = applications.filter(isOfferAwaitingDecision);
+const outstandingAssessments = activeApplications.filter((app) => getAssessmentReason(app, now) !== null);
+const awaitingReply = activeApplications.filter((app) => getNoReplyReason(app, now) !== null);
 
 return {
   overdueFollowUps,
   dueTodayFollowUps,
   upcomingFollowUps,
   awaitingFinalResponse,
-  suggestedFollowUps,
-  unreadNotifications: notifications.length,
+  upcomingInterviews,
+  offersAwaitingDecision,
+  outstandingAssessments,
+  awaitingReply,
+  unreadNotifications: unreadCount,
 };
 
 
-}, [applications, notifications]);
+}, [applications, unreadCount]);
 
-const funnelData = useMemo(() => {
-return funnelStatuses.map((status) => {
-const count = applications.filter((app) => {
-if (status.value === 'archived') {
-return app.archived || app.status === 'archived';
-}
-
-
-    return app.status === status.value && !app.archived;
-  }).length;
-
-  return {
-    ...status,
-    count,
-  };
-});
-
-
+// How many applications ever got as far as each stage.
+const reachedData = useMemo(() => {
+return REACHED_STAGES.map((stage) => ({
+  ...stage,
+  count: applications.filter((app) => hasReachedStage(app, stage.value)).length,
+}));
 }, [applications]);
 
-const actionItems = useMemo(() => {
-return [
-...todayStats.overdueFollowUps.slice(0, 3).map((app) => ({
-id: `overdue-${app.id}`,
-title: app.role_title || 'Untitled role',
-reason: `Follow-up overdue since ${formatShortDate(app.follow_up_date)}`,
-href: '/applications',
-tone: 'danger' as const,
-})),
-...todayStats.dueTodayFollowUps.slice(0, 3).map((app) => ({
-id: `today-${app.id}`,
-title: app.role_title || 'Untitled role',
-reason: 'Follow-up due today',
-href: '/applications',
-tone: 'warning' as const,
-})),
-...todayStats.awaitingFinalResponse.slice(0, 3).map((app) => ({
-id: `final-${app.id}`,
-title: app.role_title || 'Untitled role',
-reason: 'Awaiting final response after interview',
-href: '/applications',
-tone: 'info' as const,
-})),
-...todayStats.suggestedFollowUps.slice(0, 3).map((app) => ({
-id: `suggested-${app.id}`,
-title: app.role_title || 'Untitled role',
-reason: 'Suggested follow-up based on waiting time',
-href: '/applications',
-tone: 'neutral' as const,
-})),
-].slice(0, 6);
-}, [todayStats]);
+// Each application is counted once, at its current status, so stages sum to the total.
+const timeline = useMemo(() => buildTimeline(recentEvents), [recentEvents]);
 
-const gmailStats = useMemo(() => {
-const gmailEmails = emailEvents.filter((item) => item.provider_message_id);
-const linkedEmails = emailEvents.filter((item) => item.application_id);
+const funnelData = useMemo<FunnelStage[]>(() => {
+return funnelStatuses.map((stage) => ({
+  ...stage,
+  count: applications.filter((app) => app.status === stage.value).length,
+}));
+}, [applications]);
 
+// Every category links to a list holding exactly its applications, so the
+// totals here match what "View all" shows.
+const actionNeeded = useMemo(() => {
+const now = new Date();
+const listed = new Set<string>();
 
-const scanned = latestSync?.scanned_count || 0;
-const accepted = latestSync?.accepted_count || 0;
-const review = latestSync?.review_count || 0;
-const rejected = latestSync?.rejected_count || 0;
+const overdueByDate = [...todayStats.overdueFollowUps].sort(
+  (a, b) => new Date(a.follow_up_date || 0).getTime() - new Date(b.follow_up_date || 0).getTime()
+);
 
-const acceptanceRate = scanned > 0 ? Math.round((accepted / scanned) * 100) : 0;
-const reviewRate = scanned > 0 ? Math.round((review / scanned) * 100) : 0;
-const rejectionRate = scanned > 0 ? Math.round((rejected / scanned) * 100) : 0;
+const categories: (ActionCategory & {
+  apps: DashboardApplication[];
+  tone: ActionTone;
+  getReason: (app: DashboardApplication) => string;
+})[] = [
+  {
+    key: 'overdue',
+    label: 'Overdue follow-ups',
+    href: '/follow-ups?filter=overdue',
+    apps: overdueByDate,
+    tone: 'danger',
+    getReason: (app) => `Follow-up overdue since ${formatShortDate(app.follow_up_date)}`,
+    count: 0,
+  },
+  {
+    key: 'today',
+    label: 'Follow-ups due today',
+    href: '/follow-ups?filter=today',
+    apps: todayStats.dueTodayFollowUps,
+    tone: 'warning',
+    getReason: () => 'Follow-up due today',
+    count: 0,
+  },
+  {
+    key: 'interview',
+    label: 'Interviews in the next 7 days',
+    href: '/applications?view=upcoming_interviews',
+    apps: todayStats.upcomingInterviews,
+    tone: 'info',
+    getReason: (app) => `Interview on ${formatInterviewDate(getUpcomingInterviewDate(app, now) || '')}`,
+    count: 0,
+  },
+  {
+    key: 'offer',
+    label: 'Offers awaiting your decision',
+    href: '/applications?view=offers_awaiting_decision',
+    apps: todayStats.offersAwaitingDecision,
+    tone: 'warning',
+    getReason: () => 'Offer received: accept or decline',
+    count: 0,
+  },
+  {
+    key: 'final',
+    label: 'Awaiting final response',
+    href: '/applications?view=awaiting_final_response',
+    apps: todayStats.awaitingFinalResponse,
+    tone: 'info',
+    getReason: () => 'Awaiting final response after interview',
+    count: 0,
+  },
+  {
+    key: 'assessment',
+    label: 'Assessments in progress',
+    href: '/follow-ups?filter=assessment',
+    apps: todayStats.outstandingAssessments,
+    tone: 'neutral',
+    getReason: (app) => getAssessmentReason(app, now) || 'Assessment in progress',
+    count: 0,
+  },
+  {
+    key: 'no_reply',
+    label: 'No response yet',
+    href: '/follow-ups?filter=no_response',
+    apps: todayStats.awaitingReply,
+    tone: 'neutral',
+    getReason: (app) => getNoReplyReason(app, now) || 'No response yet',
+    count: 0,
+  },
+];
+
+// Each application is listed once, under its most urgent action.
+const items: ActionItem[] = categories
+  .flatMap((category) =>
+    category.apps
+      .filter((app) => !listed.has(app.id))
+      .slice(0, 3)
+      .map((app) => {
+        listed.add(app.id);
+
+        return {
+          id: `${category.key}-${app.id}`,
+          title: app.role_title || 'Untitled role',
+          reason: category.getReason(app),
+          href: `/applications/${app.id}`,
+          tone: category.tone,
+        };
+      })
+  )
+  .slice(0, 6);
+
+const uniqueApplications = new Set(categories.flatMap((category) => category.apps.map((app) => app.id)));
 
 return {
-  totalEmails: gmailEmails.length,
-  linkedEmails: linkedEmails.length,
-  ignoredEmails: ignoredEmails.length,
-  scanned,
-  accepted,
-  review,
-  rejected,
-  acceptanceRate,
-  reviewRate,
-  rejectionRate,
-  latestImport: latestSync?.created_at || '',
-  latestStatus: latestSync?.status || 'No sync yet',
-  processingTime: latestSync?.processing_time_ms || 0,
+  items,
+  totalApplications: uniqueApplications.size,
+  categories: categories
+    .filter((category) => category.apps.length > 0)
+    .map(({ key, label, href, apps }) => ({ key, label, href, count: apps.length })),
 };
+}, [todayStats]);
 
-
-}, [emailEvents, ignoredEmails, latestSync]);
+const gmailSummary = useMemo(
+() =>
+  buildGmailSyncSummary({
+    sessions: gmailSessions,
+    emailEvents: gmailEmailEvents,
+    importedApplicationIds: gmailImportIds,
+    dismissedCount: gmailDismissed,
+  }),
+[gmailSessions, gmailEmailEvents, gmailImportIds, gmailDismissed]
+);
 
 const insight = useMemo(() => {
 if (stats.total === 0) {
@@ -659,7 +727,7 @@ helper: `${stats.active} active · ${stats.archived} archived`,
 label: 'Response Rate',
 value: `${stats.responseRate}%`,
 icon: TrendingUp,
-helper: `${stats.responses} applications received a response`,
+helper: `${stats.responses} of ${stats.submitted} submitted applications received a response`,
 },
 {
 label: 'Interviews',
@@ -892,11 +960,20 @@ Today’s job-search actions, pipeline health, follow-ups, notifications, and re
     <RateCard label="Rejection Rate" value={`${stats.rejectionRate}%`} negative />
   </div>
 
-  <PipelineFunnel data={funnelData} />
+  <PipelineFunnel
+    data={funnelData}
+    reachedData={reachedData}
+    total={stats.total}
+    submitted={stats.submitted}
+  />
 
   <div className="grid grid-cols-1 xl:grid-cols-[1fr_0.9fr] gap-6 mb-8">
-    <ActionNeededPanel actionItems={actionItems} />
-    <NotificationsPanel notifications={notifications} />
+    <ActionNeededPanel
+      actionItems={actionNeeded.items}
+      categories={actionNeeded.categories}
+      totalApplications={actionNeeded.totalApplications}
+    />
+    <NotificationsPanel notifications={notifications} total={unreadCount} />
   </div>
 
   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -921,61 +998,17 @@ Today’s job-search actions, pipeline health, follow-ups, notifications, and re
   </div>
 
   <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-6">
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-          <MailCheck size={20} className="text-slate-700" />
-        </div>
+    <GmailSyncPanel
+      summary={gmailSummary}
+      connected={gmailConnected}
+      minutesRemaining={minutesRemaining}
+      syncEnabled={gmailSyncEnabled}
+      loading={refreshing}
+      error={gmailError}
+      onReload={handleRefresh}
+    />
 
-        <div className="min-w-0">
-          <h3 className="text-lg sm:text-xl font-semibold break-words">
-            Gmail Sync Summary
-          </h3>
-          <p className="text-slate-500 text-sm break-words">
-            Real sync data from your Gmail sync sessions.
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
-        <SummaryCard label="Emails Processed" value={gmailStats.totalEmails} />
-        <SummaryCard label="Emails Linked" value={gmailStats.linkedEmails} />
-        <SummaryCard label="Ignored Emails" value={gmailStats.ignoredEmails} />
-        <SummaryCard label="Latest Scanned" value={gmailStats.scanned} />
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <SummaryCard label="Accepted" value={gmailStats.accepted} />
-        <SummaryCard label="Needs Review" value={gmailStats.review} />
-        <SummaryCard label="Rejected" value={gmailStats.rejected} />
-
-        <div className="border border-slate-200 rounded-xl p-4 bg-slate-50 overflow-hidden">
-          <p className="text-sm text-slate-500">Latest Sync</p>
-          <p className="text-sm font-semibold mt-2 text-slate-900 break-words">
-            {gmailStats.latestImport
-              ? formatDateTime(gmailStats.latestImport)
-              : 'No sync yet'}
-          </p>
-          <p className="text-xs text-slate-400 mt-1 break-words">
-            {gmailStats.latestStatus} · {formatDuration(gmailStats.processingTime)}
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-        <RateCard label="Accepted Rate" value={`${gmailStats.acceptanceRate}%`} positive />
-        <RateCard label="Review Rate" value={`${gmailStats.reviewRate}%`} />
-        <RateCard label="Rejected Rate" value={`${gmailStats.rejectionRate}%`} negative />
-      </div>
-
-      {latestSync?.error_message && (
-        <div className="mt-4 bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm break-words">
-          Latest sync error: {latestSync.error_message}
-        </div>
-      )}
-    </div>
-
-    <RecentActivityPanel recentEvents={recentEvents} />
+    <RecentActivityPanel timeline={timeline} loading={refreshing} error={activityError} />
   </div>
 </div>
 
@@ -1012,7 +1045,7 @@ unreadNotifications: number;
       label="Overdue follow-ups"
       value={overdueFollowUps}
       icon={Clock}
-      href="/applications"
+      href="/follow-ups?filter=overdue"
       urgent={overdueFollowUps > 0}
     />
 
@@ -1020,7 +1053,7 @@ unreadNotifications: number;
       label="Due today"
       value={dueTodayFollowUps}
       icon={CalendarCheck}
-      href="/applications"
+      href="/follow-ups?filter=today"
       urgent={dueTodayFollowUps > 0}
     />
 
@@ -1028,14 +1061,14 @@ unreadNotifications: number;
       label="Upcoming follow-ups"
       value={upcomingFollowUps}
       icon={Timer}
-      href="/applications"
+      href="/follow-ups?filter=upcoming"
     />
 
     <TodayPill
       label="Awaiting final response"
       value={awaitingFinalResponse}
       icon={MailCheck}
-      href="/applications"
+      href="/applications?view=awaiting_final_response"
       urgent={awaitingFinalResponse > 0}
     />
 
@@ -1043,7 +1076,7 @@ unreadNotifications: number;
       label="Unread notifications"
       value={unreadNotifications}
       icon={Bell}
-      href="/notifications"
+      href="/notifications?filter=unread"
       urgent={unreadNotifications > 0}
     />
   </div>
@@ -1089,74 +1122,233 @@ urgent?: boolean;
   </Link>
 );
 
+type FunnelMode = 'current' | 'reached';
+
 const PipelineFunnel = ({
 data,
+reachedData,
+total,
+submitted,
 }: {
-data: { value: ApplicationStatus; label: string; count: number }[];
+data: FunnelStage[];
+reachedData: { value: ReachedStage; label: string; count: number }[];
+total: number;
+submitted: number;
 }) => {
-const maxCount = Math.max(...data.map((item) => item.count), 1);
+const [mode, setMode] = useState<FunnelMode>('current');
 
-return ( <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 mb-8 overflow-hidden"> <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6"> <div> <h3 className="text-lg sm:text-xl font-semibold">Pipeline Funnel</h3> <p className="text-sm text-slate-500 mt-1">
-See where applications sit across the full status journey. </p> </div>
+const groups: { id: FunnelGroup; title: string; gridCls: string }[] = [
+  { id: 'progress', title: 'In progress', gridCls: 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-6' },
+  { id: 'outcome', title: 'Outcomes', gridCls: 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-5' },
+];
 
-    <Link
-      to="/applications"
-      className="inline-flex justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-700 transition"
-    >
-      Manage Applications
-    </Link>
-  </div>
+const currentMax = Math.max(...data.map((item) => item.count), 1);
+const reachedMax = Math.max(...reachedData.map((item) => item.count), 1);
 
-  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-    {data.map((item) => {
-      const width = Math.max(8, Math.round((item.count / maxCount) * 100));
+return (
+  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 mb-8">
+    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+      <div className="min-w-0">
+        <h3 className="text-lg sm:text-xl font-semibold">Pipeline Funnel</h3>
+        <p className="text-sm text-slate-500 mt-1 break-words">
+          {mode === 'current'
+            ? `Where your ${total} ${total === 1 ? 'application sits' : 'applications sit'} right now. Each one is counted once, at its current status.`
+            : `How far your ${submitted} submitted ${submitted === 1 ? 'application' : 'applications'} got, including ones that have since closed.`}{' '}
+          Select a stage to see its applications.
+        </p>
+      </div>
 
-      return (
-        <div key={item.value} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <p className="text-sm font-medium text-slate-700">{item.label}</p>
-            <p className="text-lg font-bold text-slate-900">{item.count}</p>
-          </div>
-
-          <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-slate-900 transition-all"
-              style={{ width: `${width}%` }}
-            />
-          </div>
+      <div className="flex flex-col sm:items-end gap-3 shrink-0">
+        <div role="group" aria-label="Funnel view" className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm">
+          {(['current', 'reached'] as FunnelMode[]).map((option) => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={mode === option}
+              onClick={() => setMode(option)}
+              className={`flex-1 whitespace-nowrap rounded-lg px-3 py-1.5 transition ${
+                mode === option ? 'bg-white text-slate-900 shadow-sm font-medium' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              {option === 'current' ? 'Now' : 'Furthest reached'}
+            </button>
+          ))}
         </div>
-      );
-    })}
+
+        <Link
+          to="/applications"
+          className="inline-flex justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-700 transition"
+        >
+          Manage Applications
+        </Link>
+      </div>
+    </div>
+
+    {mode === 'current' ? (
+      <div className="space-y-5">
+        {groups.map((group) => (
+          <div key={group.id}>
+            <p className="text-xs font-medium uppercase tracking-widest text-slate-400 mb-2">
+              {group.title}
+            </p>
+
+            <div className={`grid ${group.gridCls} gap-3`}>
+              {data
+                .filter((item) => item.group === group.id)
+                .map((item) => (
+                  <FunnelStageCard
+                    key={item.value}
+                    id={`current-${item.value}`}
+                    label={item.label}
+                    count={item.count}
+                    maxCount={currentMax}
+                    base={total}
+                    baseLabel="all"
+                    href={`/applications?status=${item.value}`}
+                    describe={(count, share) =>
+                      `${count} ${count === 1 ? 'application is' : 'applications are'} at ${item.label} (${share}% of ${total}).`
+                    }
+                    emptyText={`No applications are at ${item.label} right now.`}
+                  />
+                ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div>
+        <p className="text-xs font-medium uppercase tracking-widest text-slate-400 mb-2">
+          Furthest stage reached
+        </p>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+          {reachedData.map((item) => (
+            <FunnelStageCard
+              key={item.value}
+              id={`reached-${item.value}`}
+              label={item.label}
+              count={item.count}
+              maxCount={reachedMax}
+              base={submitted}
+              baseLabel="applied"
+              href={`/applications?reached=${item.value}`}
+              describe={(count, share) =>
+                `${count} of ${submitted} submitted ${submitted === 1 ? 'application' : 'applications'} reached ${item.label} (${share}%).`
+              }
+              emptyText={`No applications have reached ${item.label} yet.`}
+            />
+          ))}
+        </div>
+      </div>
+    )}
   </div>
-</div>
+);
+};
 
+const FunnelStageCard = ({
+id,
+label,
+count,
+maxCount,
+base,
+baseLabel,
+href,
+describe,
+emptyText,
+}: {
+id: string;
+label: string;
+count: number;
+maxCount: number;
+base: number;
+baseLabel: string;
+href: string;
+describe: (count: number, share: number) => string;
+emptyText: string;
+}) => {
+const isEmpty = count === 0;
+const share = base > 0 ? Math.round((count / base) * 100) : 0;
+const width = isEmpty ? 0 : Math.max(4, Math.round((count / maxCount) * 100));
+const tooltipId = `funnel-tip-${id}`;
+const tooltip = isEmpty
+  ? emptyText
+  : `${describe(count, share)} Select to view ${count === 1 ? 'it' : 'them'}.`;
 
+const body = (
+  <>
+    <div className="flex items-start justify-between gap-2 mb-3">
+      <p className={`text-sm font-medium break-words ${isEmpty ? 'text-slate-400' : 'text-slate-700'}`}>
+        {label}
+      </p>
+      <p className={`text-lg font-bold leading-none ${isEmpty ? 'text-slate-300' : 'text-slate-900'}`}>
+        {count}
+      </p>
+    </div>
+
+    <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+      <div
+        className="h-full rounded-full bg-slate-900 transition-all"
+        style={{ width: `${width}%` }}
+      />
+    </div>
+
+    <p className="text-xs text-slate-400 mt-2">{isEmpty ? 'None yet' : `${share}% of ${baseLabel}`}</p>
+
+    <span
+      id={tooltipId}
+      role="tooltip"
+      className="pointer-events-none absolute inset-x-0 bottom-full z-20 mb-2 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white shadow-lg opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+    >
+      {tooltip}
+    </span>
+  </>
+);
+
+if (isEmpty) {
+  return (
+    <div
+      aria-describedby={tooltipId}
+      className="group relative rounded-xl border border-dashed border-slate-200 bg-white p-3 sm:p-4"
+    >
+      {body}
+    </div>
+  );
+}
+
+return (
+  <Link
+    to={href}
+    aria-describedby={tooltipId}
+    className="group relative block rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4 hover:bg-white hover:border-slate-300 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 transition"
+  >
+    {body}
+  </Link>
 );
 };
 
 const ActionNeededPanel = ({
 actionItems,
+categories,
+totalApplications,
 }: {
-actionItems: {
-id: string;
-title: string;
-reason: string;
-href: string;
-tone: 'danger' | 'warning' | 'info' | 'neutral';
-}[];
+actionItems: ActionItem[];
+categories: ActionCategory[];
+totalApplications: number;
 }) => (
 
   <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden">
     <h3 className="text-lg sm:text-xl font-semibold mb-1">Action Needed</h3>
-    <p className="text-sm text-slate-500 mb-5">
-      Follow-ups and interview-response items that should not be missed.
+    <p className="text-sm text-slate-500 mb-5 break-words">
+      {totalApplications > actionItems.length
+        ? `The ${actionItems.length} most urgent of ${totalApplications} applications that need action.`
+        : 'Follow-ups, interviews, offers and replies that should not be missed.'}
     </p>
 
 
 {actionItems.length === 0 ? (
   <EmptyState
     title="No urgent actions"
-    description="You have no overdue follow-ups or urgent interview-response items right now."
+    description="Nothing needs a follow-up, decision or reply right now."
     actionLabel="View Applications"
     actionHref="/applications"
   />
@@ -1193,14 +1385,38 @@ tone: 'danger' | 'warning' | 'info' | 'neutral';
   </div>
 )}
 
+{categories.length > 0 && (
+  <div className="mt-5 border-t border-slate-100 pt-4">
+    <p className="text-xs font-medium uppercase tracking-widest text-slate-400 mb-1">By category</p>
+    <ul className="divide-y divide-slate-100">
+      {categories.map((category) => (
+        <li key={category.key}>
+          <Link
+            to={category.href}
+            className="group flex items-center justify-between gap-3 py-2 text-sm text-slate-600 hover:text-slate-900"
+          >
+            <span className="min-w-0 break-words">{category.label}</span>
+            <span className="flex items-center gap-3 shrink-0">
+              <span className="font-semibold text-slate-900">{category.count}</span>
+              <span className="text-xs text-slate-400 group-hover:text-slate-700">View all →</span>
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  </div>
+)}
+
 
   </div>
 );
 
 const NotificationsPanel = ({
 notifications,
+total,
 }: {
 notifications: NotificationItem[];
+total: number;
 }) => (
 
   <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden">
@@ -1247,75 +1463,433 @@ notifications: NotificationItem[];
   </div>
 )}
 
-
-  </div>
-);
-
-const RecentActivityPanel = ({
-recentEvents,
-}: {
-recentEvents: RecentEvent[];
-}) => (
-
-  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 min-w-0 overflow-hidden">
-    <h3 className="text-lg sm:text-xl font-semibold mb-1 break-words">
-      Recent Activity
-    </h3>
-    <p className="text-slate-500 text-sm mb-6 break-words">
-      Latest updates from your job search.
-    </p>
-
-
-{recentEvents.length === 0 ? (
-  <EmptyState
-    title="No recent activity"
-    description="Activity will appear here when applications are created, updated, or imported."
-    actionLabel="Add Application"
-    actionHref="/applications"
-  />
-) : (
-  <div className="space-y-4">
-    {recentEvents.map((event) => (
-      <div
-        key={event.id}
-        className="border border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition overflow-hidden"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <CheckCircle2 size={15} className="text-slate-500 shrink-0" />
-              <h4 className="font-semibold text-slate-900 break-words">
-                {event.title}
-              </h4>
-            </div>
-
-            {event.applications?.role_title && (
-              <p className="text-sm text-slate-500 break-words">
-                {event.applications.companies?.name
-                  ? `${event.applications.role_title} · ${event.applications.companies.name}`
-                  : event.applications.role_title}
-              </p>
-            )}
-
-            {event.description && (
-              <p className="text-sm text-slate-600 mt-2 leading-relaxed break-words">
-                {event.description}
-              </p>
-            )}
-          </div>
-
-          <span className="text-xs text-slate-400 whitespace-nowrap shrink-0">
-            {formatDateTime(event.event_date)}
-          </span>
-        </div>
-      </div>
-    ))}
-  </div>
+{total > notifications.length && (
+  <Link
+    to="/notifications?filter=unread"
+    className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3 text-sm text-slate-600 hover:text-slate-900"
+  >
+    <span>Showing {notifications.length} of {total} unread</span>
+    <span className="text-xs text-slate-400">View all →</span>
+  </Link>
 )}
 
 
   </div>
 );
+
+// Retry runs the existing sync on the Email Sync page, which keeps the Gmail
+// connection and read-only permission handling in one place.
+const GMAIL_SYNC_HREF = '/email-sync?sync=gmail';
+
+const GmailStat = ({
+label,
+value,
+hint,
+}: {
+label: string;
+value: number;
+hint?: string;
+}) => (
+<div className="rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4 min-w-0">
+  <p className="text-xs sm:text-sm text-slate-500 break-words">{label}</p>
+  <p className="text-xl sm:text-2xl font-bold mt-1 text-slate-900">{value}</p>
+  {hint && <p className="text-xs text-slate-400 mt-1 break-words">{hint}</p>}
+</div>
+);
+
+const GmailSyncPanel = ({
+summary,
+connected,
+minutesRemaining,
+syncEnabled,
+loading,
+error,
+onReload,
+}: {
+summary: GmailSyncSummary;
+connected: boolean;
+minutesRemaining: number;
+syncEnabled: boolean | null;
+loading: boolean;
+error: string;
+onReload: () => void;
+}) => {
+const { lastSuccess, lastFailure, lastRun, detected } = summary;
+const neverSynced = !summary.lastAttempt;
+const syncAction = connected
+  ? { label: lastFailure ? 'Retry sync' : 'Sync now', href: GMAIL_SYNC_HREF }
+  : { label: 'Reconnect Gmail', href: '/email-sync' };
+
+const status =
+  syncEnabled === false
+    ? { label: 'Sync turned off', className: 'bg-amber-50 text-amber-700 border-amber-200' }
+    : connected
+      ? { label: `Connected · ${minutesRemaining} min left`, className: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+      : { label: 'Not connected', className: 'bg-slate-50 text-slate-600 border-slate-200' };
+
+return (
+  <div
+    aria-busy={loading}
+    className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden min-w-0"
+  >
+    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+      <div className="flex items-start gap-3 min-w-0">
+        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+          <MailCheck size={20} className="text-slate-700" />
+        </div>
+
+        <div className="min-w-0">
+          <h3 className="text-lg sm:text-xl font-semibold break-words">Gmail Sync Summary</h3>
+          <p className="text-slate-500 text-sm break-words">
+            From your Gmail sync runs and the emails you've processed.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 shrink-0">
+        {loading && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+            <RefreshCw size={12} className="animate-spin" />
+            Updating
+          </span>
+        )}
+        <span
+          title="Gmail read access lasts one hour per browser session. Reconnect on Email Sync when it expires."
+          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${status.className}`}
+        >
+          {status.label}
+        </span>
+      </div>
+    </div>
+
+    {error ? (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <p className="font-medium">Couldn't load Gmail sync data.</p>
+        <p className="mt-1 break-words">{error}</p>
+        <button
+          type="button"
+          onClick={onReload}
+          className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+        >
+          Try again
+        </button>
+      </div>
+    ) : loading && neverSynced && summary.emailsProcessed === 0 ? (
+      <div className="space-y-3" aria-hidden="true">
+        <div className="h-16 rounded-xl bg-slate-100 animate-pulse" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="h-20 rounded-xl bg-slate-100 animate-pulse" />
+          ))}
+        </div>
+      </div>
+    ) : (
+      <div className="space-y-6">
+        {syncEnabled === false && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            Gmail sync is turned off.{' '}
+            <Link to="/settings?tab=emailSync" className="font-medium underline">
+              Turn it on in Settings
+            </Link>
+          </div>
+        )}
+
+        {neverSynced ? (
+          <EmptyState
+            title="No Gmail syncs yet"
+            description="Connect Gmail on Email Sync and run a sync to see results here."
+            actionLabel="Go to Email Sync"
+            actionHref="/email-sync"
+          />
+        ) : (
+          <div
+            className={`rounded-xl border p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${
+              lastFailure ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50'
+            }`}
+          >
+            <div className="min-w-0 text-sm">
+              {lastFailure ? (
+                <>
+                  <p className="font-medium text-red-800 flex items-start gap-1.5">
+                    <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                    <span>Last sync failed · {formatDateTime(lastFailure.created_at)}</span>
+                  </p>
+                  {lastFailure.error_message && (
+                    <p className="text-red-700 mt-1 break-words">{lastFailure.error_message}</p>
+                  )}
+                  <p className="text-red-700/80 mt-1">
+                    {lastSuccess
+                      ? `Last successful sync: ${formatDateTime(lastSuccess.created_at)}`
+                      : 'No successful sync yet.'}
+                  </p>
+                </>
+              ) : (
+                <p className="font-medium text-emerald-800 flex items-start gap-1.5">
+                  <CheckCircle2 size={15} className="shrink-0 mt-0.5" />
+                  <span>
+                    Last successful sync · {formatDateTime(lastSuccess?.created_at)}
+                    {lastSuccess?.processing_time_ms ? (
+                      <span className="font-normal text-emerald-700"> · took {formatDuration(lastSuccess.processing_time_ms)}</span>
+                    ) : null}
+                  </span>
+                </p>
+              )}
+            </div>
+
+            {syncEnabled !== false && (
+              <Link
+                to={syncAction.href}
+                className={`inline-flex justify-center shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                  lastFailure
+                    ? 'bg-red-700 text-white hover:bg-red-800'
+                    : 'bg-slate-900 text-white hover:bg-slate-700'
+                }`}
+              >
+                {syncAction.label}
+              </Link>
+            )}
+          </div>
+        )}
+
+        {lastRun && (
+          <section>
+            <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 mb-2">
+              <h4 className="text-xs font-medium uppercase tracking-widest text-slate-400">Last successful sync</h4>
+              {(lastRun.needsReview > 0 || lastRun.actionable > 0) && connected && (
+                <Link to={GMAIL_SYNC_HREF} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                  Review detected emails →
+                </Link>
+              )}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <GmailStat label="Emails scanned" value={lastRun.scanned} />
+              <GmailStat label="Already processed" value={lastRun.alreadyProcessed} hint="Skipped as duplicates" />
+              <GmailStat label="Matched or new" value={lastRun.actionable} hint="Incl. rejections applied automatically" />
+              <GmailStat label="Needs review" value={lastRun.needsReview} />
+              <GmailStat label="Filtered out" value={lastRun.filteredOut} hint="Not recruitment-related" />
+            </div>
+            {lastRun.needsReview > 0 && (
+              <p className="text-xs text-slate-400 mt-2">
+                Emails flagged for review appear again on Email Sync each time the sync runs, until you handle them.
+              </p>
+            )}
+          </section>
+        )}
+
+        {!neverSynced && (
+          <section>
+            <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 mb-2">
+              <h4 className="text-xs font-medium uppercase tracking-widest text-slate-400">All time from Gmail</h4>
+              <Link to="/settings?tab=emailEvents" className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                View processed emails →
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <GmailStat
+                label="Emails processed"
+                value={summary.emailsProcessed}
+                hint={summary.emailsNotLinked > 0 ? `${summary.emailsNotLinked} not linked to an application` : undefined}
+              />
+              <GmailStat
+                label="Applications updated"
+                value={summary.applicationsUpdated}
+                hint="Unique applications"
+              />
+              <GmailStat label="New applications" value={summary.newApplications} hint="Created from an email" />
+              <GmailStat label="Existing updated" value={summary.existingApplicationsUpdated} />
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-slate-500">Detected in processed emails:</span>
+              {[
+                ['Interviews', detected.interviews],
+                ['Assessments', detected.assessments],
+                ['Offers', detected.offers],
+                ['Rejections', detected.rejections],
+              ].map(([label, value]) => (
+                <span key={label} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-700">
+                  {label} <span className="font-semibold text-slate-900">{value}</span>
+                </span>
+              ))}
+              {summary.dismissed > 0 && (
+                <span className="text-slate-400">· {summary.dismissed} dismissed by you</span>
+              )}
+            </div>
+          </section>
+        )}
+      </div>
+    )}
+  </div>
+);
+};
+
+const ACTIVITY_PREVIEW_COUNT = 10;
+
+const activityStyles: Record<ActivityKind, { icon: React.ElementType; className: string }> = {
+added: { icon: Briefcase, className: 'bg-blue-50 text-blue-700' },
+status: { icon: TrendingUp, className: 'bg-slate-100 text-slate-600' },
+assessment: { icon: FileText, className: 'bg-violet-50 text-violet-700' },
+interview: { icon: CalendarCheck, className: 'bg-indigo-50 text-indigo-700' },
+offer: { icon: Trophy, className: 'bg-emerald-50 text-emerald-700' },
+rejection: { icon: XCircle, className: 'bg-red-50 text-red-700' },
+follow_up: { icon: Clock, className: 'bg-amber-50 text-amber-700' },
+closed: { icon: Timer, className: 'bg-slate-100 text-slate-500' },
+note: { icon: FileText, className: 'bg-slate-100 text-slate-600' },
+email: { icon: MailCheck, className: 'bg-cyan-50 text-cyan-700' },
+other: { icon: CheckCircle2, className: 'bg-slate-100 text-slate-600' },
+};
+
+const formatTime = (date: string) =>
+new Date(date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+const RecentActivityPanel = ({
+timeline,
+loading,
+error,
+}: {
+timeline: TimelineEvent[];
+loading: boolean;
+error: string;
+}) => {
+const [expanded, setExpanded] = useState(false);
+const visible = expanded ? timeline : timeline.slice(0, ACTIVITY_PREVIEW_COUNT);
+const days = groupTimelineByDay(visible);
+const hiddenCount = timeline.length - ACTIVITY_PREVIEW_COUNT;
+
+return (
+  <div
+    aria-busy={loading}
+    className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 min-w-0 overflow-hidden"
+  >
+    <div className="flex items-start justify-between gap-3 mb-5">
+      <div className="min-w-0">
+        <h3 className="text-lg sm:text-xl font-semibold mb-1 break-words">Recent Activity</h3>
+        <p className="text-slate-500 text-sm break-words">
+          Latest updates across your applications, newest first.
+        </p>
+      </div>
+
+      {loading && (
+        <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 shrink-0 mt-1">
+          <RefreshCw size={12} className="animate-spin" />
+          Updating
+        </span>
+      )}
+    </div>
+
+    {error ? (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 break-words">
+        Couldn't load recent activity. {error}
+      </div>
+    ) : loading && timeline.length === 0 ? (
+      <div className="space-y-4" aria-hidden="true">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="flex items-start gap-3">
+            <div className="h-8 w-8 rounded-full bg-slate-100 animate-pulse shrink-0" />
+            <div className="flex-1 space-y-2 pt-1">
+              <div className="h-3.5 w-2/3 rounded bg-slate-100 animate-pulse" />
+              <div className="h-3 w-1/2 rounded bg-slate-100 animate-pulse" />
+            </div>
+          </div>
+        ))}
+      </div>
+    ) : timeline.length === 0 ? (
+      <EmptyState
+        title="No activity yet"
+        description="Adding applications, changing statuses and completing follow-ups will show up here."
+        actionLabel="Add Application"
+        actionHref="/applications"
+      />
+    ) : (
+      <div className="space-y-6">
+        {days.map((day) => (
+          <section key={day.key} aria-labelledby={`activity-day-${day.key}`}>
+            <h4
+              id={`activity-day-${day.key}`}
+              className="text-xs font-medium uppercase tracking-widest text-slate-400 mb-2"
+            >
+              {day.label}
+            </h4>
+
+            <ol>
+              {day.events.map((item, index) => (
+                <li key={item.id} className="relative">
+                  {index < day.events.length - 1 && (
+                    // Connects this event's icon to the next one in the same day.
+                    <span aria-hidden="true" className="absolute left-4 top-10 -bottom-2 w-px bg-slate-200" />
+                  )}
+                  <ActivityRow item={item} />
+                </li>
+              ))}
+            </ol>
+          </section>
+        ))}
+
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="w-full rounded-xl border border-slate-200 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition"
+          >
+            {expanded ? 'Show less' : `Show ${hiddenCount} more`}
+          </button>
+        )}
+      </div>
+    )}
+  </div>
+);
+};
+
+const ActivityRow = ({ item }: { item: TimelineEvent }) => {
+const { icon: Icon, className } = activityStyles[item.kind];
+const subject = [item.roleTitle, item.companyName].filter(Boolean).join(' · ');
+
+const content = (
+  <div className="flex items-start gap-3">
+    <span
+      className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ring-4 ring-white ${className}`}
+    >
+      <Icon size={15} />
+    </span>
+
+    <div className="min-w-0 flex-1 pt-1">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm font-semibold text-slate-900 break-words">{item.title}</p>
+        <time
+          dateTime={item.date}
+          title={formatDateTime(item.date)}
+          className="text-xs text-slate-400 whitespace-nowrap shrink-0"
+        >
+          {formatTime(item.date)}
+        </time>
+      </div>
+
+      {subject ? (
+        <p className="text-sm text-slate-600 break-words">{subject}</p>
+      ) : item.applicationDeleted ? (
+        <p className="text-sm text-slate-400 italic">Deleted application</p>
+      ) : null}
+
+      {item.detail && (
+        <p className="text-xs text-slate-500 mt-1 break-words line-clamp-2">{item.detail}</p>
+      )}
+    </div>
+  </div>
+);
+
+if (!item.applicationId) {
+  return <div className="py-2">{content}</div>;
+}
+
+return (
+  <Link
+    to={`/applications/${item.applicationId}`}
+    className="block -mx-2 rounded-xl px-2 py-2 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 transition"
+  >
+    {content}
+  </Link>
+);
+};
 
 const ErrorMessage = ({
 error,
@@ -1438,20 +2012,6 @@ helper: string;
 <p className="text-xs text-slate-400 mt-3 break-words">{helper}</p>
 
 
-  </div>
-);
-
-const SummaryCard = ({
-label,
-value,
-}: {
-label: string;
-value: number;
-}) => (
-
-  <div className="border border-slate-200 rounded-xl p-4 bg-slate-50 overflow-hidden">
-    <p className="text-sm text-slate-500 break-words">{label}</p>
-    <p className="text-2xl font-bold mt-2 text-slate-900 break-words">{value}</p>
   </div>
 );
 

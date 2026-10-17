@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
 AlertCircle,
 Briefcase,
@@ -17,6 +17,16 @@ X,
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import {
+REACHED_STAGES,
+buildOfferDecision,
+buildStatusUpdate,
+getUpcomingInterviewDate,
+hasReachedStage,
+isAwaitingFinalResponse,
+isOfferAwaitingDecision,
+type ReachedStage,
+} from '../lib/applicationLifecycle';
 
 type ApplicationStatus =
 | 'wishlist'
@@ -99,6 +109,7 @@ rejected_after_interview?: boolean | null;
 final_response_pending?: boolean | null;
 interview_count?: number | null;
 outcome_reason?: OutcomeReason;
+interview_notes?: { interview_date: string | null }[] | null;
 
 analysis_id?: string | null;
 match_score?: number | null;
@@ -137,6 +148,27 @@ const statusOptions: { value: ApplicationStatus; label: string }[] = [
 { value: 'archived', label: 'Archived' },
 ];
 
+type ListView = 'awaiting_final_response' | 'offers_awaiting_decision' | 'upcoming_interviews';
+
+type StatusFilter = 'all' | ListView | `reached:${ReachedStage}` | ApplicationStatus;
+
+const listViews: { value: ListView; label: string }[] = [
+{ value: 'awaiting_final_response', label: 'Awaiting final response' },
+{ value: 'offers_awaiting_decision', label: 'Offers awaiting decision' },
+{ value: 'upcoming_interviews', label: 'Interviews in the next 7 days' },
+];
+
+// Reads ?view=, ?reached= or ?status= so dashboard links open the matching list.
+const getInitialStatusFilter = (params: URLSearchParams): StatusFilter => {
+const view = listViews.find((item) => item.value === params.get('view'));
+if (view) return view.value;
+
+const reached = REACHED_STAGES.find((stage) => stage.value === params.get('reached'));
+if (reached) return `reached:${reached.value}`;
+
+return statusOptions.find((option) => option.value === params.get('status'))?.value || 'all';
+};
+
 const statusStyle: Record<ApplicationStatus, string> = {
 wishlist: 'bg-slate-100 text-slate-700',
 applied: 'bg-blue-50 text-blue-700',
@@ -174,76 +206,26 @@ year: 'numeric',
 
 const nowIso = () => new Date().toISOString();
 
-const hasReachedInterview = (app: Application) =>
-Boolean(
-app.reached_interview ||
-app.interview_started_at ||
-app.final_interview_started_at ||
-app.status === 'interview' ||
-app.status === 'final_interview' ||
-app.status === 'offer'
-);
+const matchesStatusFilter = (app: Application, filter: StatusFilter) => {
+// Archived records only appear for an exact status or a furthest-reached stage.
+const isArchivedApp = Boolean(app.archived) || app.status === 'archived';
 
-const getInitialLifecyclePayload = (status: ApplicationStatus, now: string) => {
-const payload: Record<string, string | boolean | number | OutcomeReason | null> = {};
-
-if (status === 'confirmation_received') {
-payload.response_received_at = now;
+if (filter.startsWith('reached:')) {
+  return hasReachedStage(app, filter.slice('reached:'.length) as ReachedStage);
 }
 
-if (status === 'assessment') {
-payload.response_received_at = now;
-payload.assessment_received_at = now;
+switch (filter) {
+  case 'all':
+    return !isArchivedApp;
+  case 'awaiting_final_response':
+    return isAwaitingFinalResponse(app);
+  case 'offers_awaiting_decision':
+    return isOfferAwaitingDecision(app);
+  case 'upcoming_interviews':
+    return getUpcomingInterviewDate(app) !== null;
+  default:
+    return app.status === filter;
 }
-
-if (status === 'interview') {
-payload.response_received_at = now;
-payload.interview_started_at = now;
-payload.reached_interview = true;
-payload.final_response_pending = true;
-payload.interview_count = 1;
-}
-
-if (status === 'final_interview') {
-payload.response_received_at = now;
-payload.interview_started_at = now;
-payload.final_interview_started_at = now;
-payload.reached_interview = true;
-payload.final_response_pending = true;
-payload.interview_count = 1;
-}
-
-if (status === 'offer') {
-payload.response_received_at = now;
-payload.offer_received_at = now;
-payload.final_response_pending = false;
-payload.outcome_reason = 'offer_received';
-}
-
-if (status === 'rejected') {
-payload.response_received_at = now;
-payload.rejected_at = now;
-payload.final_response_pending = false;
-payload.rejected_after_interview = false;
-payload.outcome_reason = 'rejected_before_interview';
-payload.archived = true;
-payload.archived_at = now;
-}
-
-if (status === 'withdrawn') {
-payload.withdrawn_at = now;
-payload.final_response_pending = false;
-payload.outcome_reason = 'withdrawn';
-}
-
-if (status === 'ghosted') {
-payload.response_received_at = now;
-payload.ghosted_at = now;
-payload.final_response_pending = false;
-payload.outcome_reason = 'ghosted';
-}
-
-return payload;
 };
 
 export const ApplicationsPage: React.FC = () => {
@@ -260,7 +242,8 @@ const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
 const [error, setError] = useState('');
 const [message, setMessage] = useState('');
 const [search, setSearch] = useState('');
-const [statusFilter, setStatusFilter] = useState<'all' | ApplicationStatus>('all');
+const [searchParams] = useSearchParams();
+const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => getInitialStatusFilter(searchParams));
 
 const [roleTitle, setRoleTitle] = useState('');
 const [companyName, setCompanyName] = useState('');
@@ -308,11 +291,12 @@ const { data, error } = await supabase
       id,
       name,
       email
+    ),
+    interview_notes (
+      interview_date
     )
   `)
   .eq('user_id', user.id)
-  .or('archived.is.false,archived.is.null')
-  .neq('status', 'archived')
   .order('created_at', { ascending: false });
 
 if (error) {
@@ -375,121 +359,13 @@ const term = search.toLowerCase().trim();
     Boolean(app.companies?.name?.toLowerCase().includes(term)) ||
     Boolean(app.source?.toLowerCase().includes(term));
 
-  const matchesStatus = statusFilter === 'all' || app.status === statusFilter;
+  const matchesStatus = matchesStatusFilter(app, statusFilter);
 
   return matchesSearch && matchesStatus;
 });
 
 
 }, [applications, search, statusFilter]);
-
-const getLifecycleUpdate = (newStatus: ApplicationStatus, app: Application) => {
-const now = nowIso();
-
-
-const update: Record<string, string | boolean | number | OutcomeReason | null> = {
-  status: newStatus,
-  last_status_changed_at: now,
-  status_updated_at: now,
-};
-
-if (newStatus === 'archived') {
-  update.archived = true;
-  update.archived_at = now;
-}
-
-if (newStatus !== 'archived' && app.archived) {
-  update.archived = false;
-  update.archived_at = null;
-}
-
-if (newStatus === 'confirmation_received' && !app.response_received_at) {
-  update.response_received_at = now;
-}
-
-if (newStatus === 'assessment') {
-  if (!app.assessment_received_at) update.assessment_received_at = now;
-  if (!app.response_received_at) update.response_received_at = now;
-  update.final_response_pending = false;
-}
-
-if (newStatus === 'interview') {
-  update.reached_interview = true;
-  update.final_response_pending = true;
-  update.rejected_after_interview = false;
-  update.interview_count = Math.max(app.interview_count || 0, 1);
-
-  if (!app.interview_started_at) update.interview_started_at = now;
-  if (!app.response_received_at) update.response_received_at = now;
-}
-
-if (newStatus === 'final_interview') {
-  update.reached_interview = true;
-  update.final_response_pending = true;
-  update.rejected_after_interview = false;
-  update.interview_count = Math.max(app.interview_count || 0, 1);
-
-  if (!app.final_interview_started_at) update.final_interview_started_at = now;
-  if (!app.interview_started_at) update.interview_started_at = now;
-  if (!app.response_received_at) update.response_received_at = now;
-}
-
-if (newStatus === 'offer') {
-  update.final_response_pending = false;
-  update.outcome_reason = 'offer_received';
-
-  if (hasReachedInterview(app)) {
-    update.reached_interview = true;
-    update.interview_count = Math.max(app.interview_count || 0, 1);
-  }
-
-  if (!app.offer_received_at) update.offer_received_at = now;
-  if (!app.response_received_at) update.response_received_at = now;
-}
-
-if (newStatus === 'rejected') {
-  const hadInterview = hasReachedInterview(app);
-
-  update.archived = true;
-  update.archived_at = now;
-  update.final_response_pending = false;
-
-  if (hadInterview) {
-    update.reached_interview = true;
-    update.rejected_after_interview = true;
-    update.outcome_reason = 'rejected_after_interview';
-    update.interview_count = Math.max(app.interview_count || 0, 1);
-  } else if (app.assessment_received_at || app.status === 'assessment') {
-    update.rejected_after_interview = false;
-    update.outcome_reason = 'rejected_after_assessment';
-  } else {
-    update.rejected_after_interview = false;
-    update.outcome_reason = 'rejected_before_interview';
-  }
-
-  if (!app.rejected_at) update.rejected_at = now;
-  if (!app.response_received_at) update.response_received_at = now;
-}
-
-if (newStatus === 'withdrawn') {
-  update.final_response_pending = false;
-  update.outcome_reason = 'withdrawn';
-
-  if (!app.withdrawn_at) update.withdrawn_at = now;
-}
-
-if (newStatus === 'ghosted') {
-  update.final_response_pending = false;
-  update.outcome_reason = 'ghosted';
-
-  if (!app.ghosted_at) update.ghosted_at = now;
-  if (!app.response_received_at) update.response_received_at = now;
-}
-
-return update;
-
-
-};
 
 const updateApplication = async (
 applicationId: string,
@@ -526,18 +402,9 @@ await supabase.from('application_events').insert({
   event_date: nowIso(),
 });
 
-setApplications((prev) => {
-  const shouldLeaveActivePage =
-    updatePayload.archived === true || updatePayload.status === 'archived';
-
-  if (shouldLeaveActivePage) {
-    return prev.filter((app) => app.id !== applicationId);
-  }
-
-  return prev.map((app) =>
-    app.id === applicationId ? { ...app, ...updatePayload } : app
-  );
-});
+setApplications((prev) =>
+  prev.map((app) => (app.id === applicationId ? { ...app, ...updatePayload } : app))
+);
 
 setMessage(successMessage);
 setStatusUpdatingId(null);
@@ -552,7 +419,7 @@ if (!user) return;
 const application = applications.find((app) => app.id === applicationId);
 if (!application || application.status === newStatus) return;
 
-const updatePayload = getLifecycleUpdate(newStatus, application);
+const updatePayload = buildStatusUpdate(newStatus, application, nowIso());
 
 const successMessage =
   newStatus === 'rejected'
@@ -657,6 +524,19 @@ await updateApplication(
 );
 
 
+};
+
+const handleOfferDecision = async (applicationId: string, decision: 'accepted' | 'declined') => {
+const app = applications.find((item) => item.id === applicationId);
+if (!app) return;
+
+await updateApplication(
+  applicationId,
+  buildOfferDecision(decision, nowIso()),
+  decision === 'accepted' ? 'Offer marked as accepted.' : 'Offer marked as declined.',
+  decision === 'accepted' ? 'Offer accepted' : 'Offer declined',
+  `The offer for ${app.role_title} was ${decision}.`
+);
 };
 
 const handleDeleteApplication = async (applicationId: string) => {
@@ -930,7 +810,7 @@ setMessage('');
 try {
   const companyId = await getOrCreateCompanyId();
   const now = nowIso();
-  const lifecyclePayload = getInitialLifecyclePayload(status, now);
+  const lifecyclePayload = buildStatusUpdate(status, null, now);
 
   const { data: insertedApplication, error } = await supabase
     .from('applications')
@@ -948,9 +828,6 @@ try {
       notes: notes.trim() || null,
       priority: priority || 'medium',
       follow_up_date: followUpDate ? new Date(followUpDate).toISOString() : null,
-      status,
-      last_status_changed_at: now,
-      status_updated_at: now,
       ...lifecyclePayload,
     })
     .select('id')
@@ -1253,17 +1130,29 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
 
       <select
         value={statusFilter}
-        onChange={(e) => setStatusFilter(e.target.value as 'all' | ApplicationStatus)}
+        onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
         className={inputCls}
       >
         <option value="all">All active statuses</option>
-        {statusOptions
-          .filter((option) => option.value !== 'archived')
-          .map((statusOption) => (
+        {listViews.map((view) => (
+          <option key={view.value} value={view.value}>
+            {view.label}
+          </option>
+        ))}
+        <optgroup label="Current status">
+          {statusOptions.map((statusOption) => (
             <option key={statusOption.value} value={statusOption.value}>
               {statusOption.label}
             </option>
           ))}
+        </optgroup>
+        <optgroup label="Furthest stage reached">
+          {REACHED_STAGES.map((stage) => (
+            <option key={stage.value} value={`reached:${stage.value}`}>
+              Reached: {stage.label}
+            </option>
+          ))}
+        </optgroup>
       </select>
     </div>
   </div>
@@ -1298,6 +1187,7 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
           onMarkInterviewReached={handleMarkInterviewReached}
           onMarkAwaitingFinalResponse={handleMarkAwaitingFinalResponse}
           onMarkRejectedAfterInterview={handleMarkRejectedAfterInterview}
+          onOfferDecision={handleOfferDecision}
         />
       ))}
     </div>
@@ -1465,6 +1355,7 @@ onDelete,
 onMarkInterviewReached,
 onMarkAwaitingFinalResponse,
 onMarkRejectedAfterInterview,
+onOfferDecision,
 }: {
 app: Application;
 updating: boolean;
@@ -1474,6 +1365,7 @@ onDelete: (applicationId: string) => void;
 onMarkInterviewReached: (applicationId: string) => void;
 onMarkAwaitingFinalResponse: (applicationId: string) => void;
 onMarkRejectedAfterInterview: (applicationId: string) => void;
+onOfferDecision: (applicationId: string, decision: 'accepted' | 'declined') => void;
 }) => {
 const [showMore, setShowMore] = useState(false);
 
@@ -1680,6 +1572,28 @@ return ( <div className="group bg-white border border-slate-200 rounded-2xl shad
         {showMore ? 'Hide details' : 'Show details'}
       </button>
     </div>
+
+    {isOfferAwaitingDecision(app) && (
+      <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+        <p className="text-xs font-medium text-emerald-800 sm:mr-auto">Offer awaiting your decision</p>
+        <button
+          type="button"
+          disabled={updating}
+          onClick={() => onOfferDecision(app.id, 'accepted')}
+          className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+        >
+          Accept offer
+        </button>
+        <button
+          type="button"
+          disabled={updating}
+          onClick={() => onOfferDecision(app.id, 'declined')}
+          className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+        >
+          Decline offer
+        </button>
+      </div>
+    )}
 
     {showMore && (
       <div className="mt-4 border border-slate-200 rounded-xl bg-white p-4">
