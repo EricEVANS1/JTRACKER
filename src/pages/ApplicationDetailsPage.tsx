@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
+import { getSignatureName, signOff } from '../lib/emailSignature';
 import { useAuth } from '../context/AuthContext';
 import { buildStatusUpdate } from '../lib/applicationLifecycle';
 import type { Application } from '../types/application';
@@ -532,6 +533,9 @@ export const ApplicationDetailsPage: React.FC = () => {
 
     const companyName = application.companies?.name || 'your company';
 
+    const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle();
+    const signatureName = getSignatureName(profile?.full_name, user.user_metadata);
+
     const generatedMessage = `Hello,
 
 I hope you are doing well.
@@ -540,7 +544,7 @@ I wanted to kindly follow up on my application for the ${application.role_title}
 
 Thank you for your time and consideration.
 
-Best regards,`;
+${signOff(signatureName)}`;
 
     setFollowUpMessage(generatedMessage);
     setCopiedFollowUp(false);

@@ -18,6 +18,7 @@ import { useSearchParams } from 'react-router-dom';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { getSignatureName, signOff } from '../lib/emailSignature';
 import {
   NO_RESPONSE_DAYS,
   buildStatusUpdate,
@@ -218,19 +219,19 @@ const getUrgencyScore = (app: ApplicationItem, group: FollowUpGroup, daysSinceAp
   return 20;
 };
 
-const buildFollowUpMessage = (app: FollowUpItem) => {
+const buildFollowUpMessage = (app: FollowUpItem, signatureName: string) => {
   const companyName = app.companies?.name || 'your team';
   const roleTitle = app.role_title;
 
   if (app.status === 'interview' || app.status === 'final_interview') {
-    return `Subject: Follow-up on ${roleTitle}\n\nDear Hiring Team,\n\nI hope you are doing well.\n\nThank you again for the opportunity to discuss the ${roleTitle} position with ${companyName}. I enjoyed learning more about the role and the team, and I remain very interested in the opportunity.\n\nI wanted to kindly ask whether there are any updates regarding the next steps in the process.\n\nThank you for your time and consideration.\n\nBest regards,\nEric`;
+    return `Subject: Follow-up on ${roleTitle}\n\nDear Hiring Team,\n\nI hope you are doing well.\n\nThank you again for the opportunity to discuss the ${roleTitle} position with ${companyName}. I enjoyed learning more about the role and the team, and I remain very interested in the opportunity.\n\nI wanted to kindly ask whether there are any updates regarding the next steps in the process.\n\nThank you for your time and consideration.\n\n${signOff(signatureName)}`;
   }
 
   if (app.status === 'assessment') {
-    return `Subject: Follow-up on ${roleTitle} assessment\n\nDear Hiring Team,\n\nI hope you are doing well.\n\nI am writing to follow up regarding the ${roleTitle} assessment for ${companyName}. I remain very interested in the role and wanted to confirm whether there are any updates or additional next steps required from my side.\n\nThank you for your time and consideration.\n\nBest regards,\nEric`;
+    return `Subject: Follow-up on ${roleTitle} assessment\n\nDear Hiring Team,\n\nI hope you are doing well.\n\nI am writing to follow up regarding the ${roleTitle} assessment for ${companyName}. I remain very interested in the role and wanted to confirm whether there are any updates or additional next steps required from my side.\n\nThank you for your time and consideration.\n\n${signOff(signatureName)}`;
   }
 
-  return `Subject: Follow-up on ${roleTitle} application\n\nDear Hiring Team,\n\nI hope you are doing well.\n\nI recently applied for the ${roleTitle} position with ${companyName}, and I wanted to kindly follow up to ask whether there are any updates regarding my application.\n\nI remain very interested in the opportunity and would be happy to provide any additional information if needed.\n\nThank you for your time and consideration.\n\nBest regards,\nEric`;
+  return `Subject: Follow-up on ${roleTitle} application\n\nDear Hiring Team,\n\nI hope you are doing well.\n\nI recently applied for the ${roleTitle} position with ${companyName}, and I wanted to kindly follow up to ask whether there are any updates regarding my application.\n\nI remain very interested in the opportunity and would be happy to provide any additional information if needed.\n\nThank you for your time and consideration.\n\n${signOff(signatureName)}`;
 };
 
 export const FollowUpsPage: React.FC = () => {
@@ -254,6 +255,25 @@ export const FollowUpsPage: React.FC = () => {
   const [selectedMessageApp, setSelectedMessageApp] = useState<FollowUpItem | null>(null);
   const [followUpMessage, setFollowUpMessage] = useState('');
   const [copied, setCopied] = useState(false);
+  // Name the follow-up emails are signed with (profile, then account name).
+  const [signatureName, setSignatureName] = useState('');
+
+  useEffect(() => {
+    if (!user) return;
+
+    let cancelled = false;
+
+    const loadSignatureName = async () => {
+      const { data } = await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle();
+      if (!cancelled) setSignatureName(getSignatureName(data?.full_name, user.user_metadata));
+    };
+
+    loadSignatureName();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const fetchApplications = async () => {
     if (!user) return;
@@ -525,7 +545,7 @@ export const FollowUpsPage: React.FC = () => {
 
   const handleGenerateMessage = (app: FollowUpItem) => {
     setSelectedMessageApp(app);
-    setFollowUpMessage(buildFollowUpMessage(app));
+    setFollowUpMessage(buildFollowUpMessage(app, signatureName));
     setCopied(false);
   };
 
