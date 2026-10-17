@@ -21,6 +21,7 @@ import {
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { buildStatusUpdate } from '../lib/applicationLifecycle';
 import type { Application } from '../types/application';
 
 type ApplicationStatus =
@@ -167,60 +168,6 @@ const formatDateTime = (date?: string | null) => {
     hour: '2-digit',
     minute: '2-digit',
   });
-};
-
-const getLifecycleUpdate = (status: ApplicationStatus) => {
-  const now = new Date().toISOString();
-
-  const update: Record<string, string | boolean | null> = {
-    status,
-    last_status_changed_at: now,
-  };
-
-  if (status === 'archived') {
-    update.archived = true;
-    update.archived_at = now;
-  } else {
-    update.archived = false;
-    update.archived_at = null;
-  }
-
-  if (status === 'confirmation_received') update.response_received_at = now;
-
-  if (status === 'assessment') {
-    update.response_received_at = now;
-    update.assessment_received_at = now;
-  }
-
-  if (status === 'interview') {
-    update.response_received_at = now;
-    update.interview_started_at = now;
-  }
-
-  if (status === 'final_interview') {
-    update.response_received_at = now;
-    update.interview_started_at = now;
-    update.final_interview_started_at = now;
-  }
-
-  if (status === 'offer') {
-    update.response_received_at = now;
-    update.offer_received_at = now;
-  }
-
-  if (status === 'rejected') {
-    update.response_received_at = now;
-    update.rejected_at = now;
-  }
-
-  if (status === 'withdrawn') update.withdrawn_at = now;
-
-  if (status === 'ghosted') {
-    update.response_received_at = now;
-    update.ghosted_at = now;
-  }
-
-  return update;
 };
 
 export const ApplicationDetailsPage: React.FC = () => {
@@ -435,7 +382,7 @@ export const ApplicationDetailsPage: React.FC = () => {
     setMessage('');
 
     const oldStatus = application.status;
-    const updatePayload = getLifecycleUpdate(selectedStatus);
+    const updatePayload = buildStatusUpdate(selectedStatus, application);
 
     const { error: updateError } = await supabase
       .from('applications')

@@ -18,6 +18,12 @@ import { useSearchParams } from 'react-router-dom';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import {
+  NO_RESPONSE_DAYS,
+  buildStatusUpdate,
+  getDaysWithoutReply,
+  getFollowUpBucket,
+} from '../lib/applicationLifecycle';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { OnboardingHint } from '../components/OnboardingHint';
 
@@ -53,6 +59,7 @@ type FollowUpGroup =
   | 'overdue'
   | 'today'
   | 'upcoming'
+  | 'later'
   | 'assessment'
   | 'interview'
   | 'no_response'
@@ -65,6 +72,7 @@ const FILTER_VALUES: FilterValue[] = [
   'overdue',
   'today',
   'upcoming',
+  'later',
   'assessment',
   'interview',
   'no_response',
@@ -100,7 +108,6 @@ const ACTIVE_STATUSES = [
   'assessment',
   'interview',
   'final_interview',
-  'ghosted',
 ];
 
 const formatStatus = (status: string) =>
@@ -154,33 +161,15 @@ const getDateInDays = (days: number) => {
   return date.toISOString();
 };
 
-const isSameDay = (a: Date, b: Date) =>
-  a.getFullYear() === b.getFullYear() &&
-  a.getMonth() === b.getMonth() &&
-  a.getDate() === b.getDate();
-
 const getFollowUpGroup = (app: ApplicationItem): FollowUpGroup => {
-  if (app.follow_up_date) {
-    const now = new Date();
-    const target = new Date(app.follow_up_date);
-
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-
-    if (target < todayStart) return 'overdue';
-    if (isSameDay(target, now)) return 'today';
-    return 'upcoming';
-  }
+  const bucket = getFollowUpBucket(app);
+  if (bucket) return bucket;
 
   if (app.status === 'assessment') return 'assessment';
   if (app.status === 'interview' || app.status === 'final_interview') return 'interview';
 
-  const waitingStatuses = ['applied', 'confirmation_received'];
-  const daysSinceApplied = getDaysSince(app.date_applied || app.created_at);
-
-  if (waitingStatuses.includes(app.status) && daysSinceApplied >= 10) {
-    return 'no_response';
-  }
+  const daysWithoutReply = getDaysWithoutReply(app);
+  if (daysWithoutReply !== null && daysWithoutReply >= NO_RESPONSE_DAYS) return 'no_response';
 
   return 'missing';
 };
@@ -193,7 +182,8 @@ const getGroupPriority = (group: FollowUpGroup) => {
     interview: 3,
     no_response: 4,
     upcoming: 5,
-    missing: 6,
+    later: 6,
+    missing: 7,
   };
 
   return priority[group];
@@ -210,7 +200,8 @@ const getSuggestedAction = (app: ApplicationItem, group: FollowUpGroup, daysSinc
       ? 'Consider one final follow-up or mark this as ghosted later.'
       : 'Send a short follow-up asking whether there is any update on your application.';
   }
-  if (group === 'upcoming') return 'Follow-up is already scheduled.';
+  if (group === 'upcoming') return 'Follow-up is scheduled within the next 7 days.';
+  if (group === 'later') return 'Follow-up is scheduled for later.';
   return 'Set a follow-up date so this application does not get forgotten.';
 };
 
@@ -223,6 +214,7 @@ const getUrgencyScore = (app: ApplicationItem, group: FollowUpGroup, daysSinceAp
   if (group === 'no_response' && daysSinceApplied >= 21) return 70;
   if (group === 'no_response') return 60;
   if (group === 'upcoming') return 40;
+  if (group === 'later') return 30;
   return 20;
 };
 
@@ -293,6 +285,7 @@ export const FollowUpsPage: React.FC = () => {
       `)
       .eq('user_id', user.id)
       .in('status', ACTIVE_STATUSES)
+      .or('archived.is.false,archived.is.null')
       .order('follow_up_date', { ascending: true, nullsFirst: false });
 
     if (error) {
@@ -384,6 +377,7 @@ export const FollowUpsPage: React.FC = () => {
       interview: grouped.filter((group) => group === 'interview').length,
       noResponse: grouped.filter((group) => group === 'no_response').length,
       upcoming: grouped.filter((group) => group === 'upcoming').length,
+      later: grouped.filter((group) => group === 'later').length,
       missing: grouped.filter((group) => group === 'missing').length,
     };
   }, [applications]);
@@ -505,9 +499,8 @@ export const FollowUpsPage: React.FC = () => {
     const { error } = await supabase
       .from('applications')
       .update({
-        status: 'ghosted',
+        ...buildStatusUpdate('ghosted', app),
         follow_up_date: null,
-        ghosted_at: new Date().toISOString(),
       })
       .eq('id', app.id)
       .eq('user_id', user.id);
@@ -592,9 +585,10 @@ export const FollowUpsPage: React.FC = () => {
         <StatCard label="Interviews" value={stats.interview} tone="blue" />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <StatCard label="No Response" value={stats.noResponse} tone="neutral" compact />
-        <StatCard label="Upcoming" value={stats.upcoming} tone="muted" compact />
+        <StatCard label="Upcoming (7 days)" value={stats.upcoming} tone="muted" compact />
+        <StatCard label="Scheduled Later" value={stats.later} tone="muted" compact />
         <StatCard label="Needs Date" value={stats.missing} tone="muted" compact />
       </div>
 
@@ -624,7 +618,8 @@ export const FollowUpsPage: React.FC = () => {
             <option value="assessment">Assessments</option>
             <option value="interview">Interviews</option>
             <option value="no_response">No response</option>
-            <option value="upcoming">Upcoming</option>
+            <option value="upcoming">Upcoming (next 7 days)</option>
+            <option value="later">Scheduled later</option>
             <option value="missing">Needs follow-up date</option>
           </select>
         </div>
@@ -692,6 +687,7 @@ const FollowUpCard = ({
     overdue: 'bg-red-50 text-red-700 border-red-200',
     today: 'bg-amber-50 text-amber-700 border-amber-200',
     upcoming: 'bg-blue-50 text-blue-700 border-blue-200',
+    later: 'bg-slate-50 text-slate-600 border-slate-200',
     assessment: 'bg-violet-50 text-violet-700 border-violet-200',
     interview: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     no_response: 'bg-orange-50 text-orange-700 border-orange-200',
@@ -702,6 +698,7 @@ const FollowUpCard = ({
     overdue: 'Overdue',
     today: 'Due Today',
     upcoming: 'Upcoming',
+    later: 'Scheduled Later',
     assessment: 'Assessment',
     interview: 'Interview Follow-up',
     no_response: 'No Response',
