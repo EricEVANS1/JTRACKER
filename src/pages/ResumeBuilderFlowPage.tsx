@@ -526,16 +526,8 @@ const handleUseGeneratedInResumeBuilder = () => {
     importedAt: new Date().toISOString(),
   };
 
-  localStorage.setItem(
-    'jtracker_resume_builder_import',
-    JSON.stringify(importPayload),
-  );
-
-  sessionStorage.setItem(
-    'jtracker_resume_builder_import',
-    JSON.stringify(importPayload),
-  );
-
+  // Handed over in memory only: the CV text and job description are not
+  // written to browser storage.
   navigate('/resume-builder/editor', {
     state: {
       resumeBuilderImport: importPayload,

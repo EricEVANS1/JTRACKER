@@ -2,7 +2,10 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import App from './App';
+import { clearLegacyResumeImport } from './lib/resumeDraft';
 import './index.css';
+
+clearLegacyResumeImport();
 
 const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 

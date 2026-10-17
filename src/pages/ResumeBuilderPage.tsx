@@ -4,8 +4,8 @@
 // Note: requires jsPDF, docx, file-saver — install with:
 //   npm install jspdf docx file-saver @types/file-saver
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ChevronDown,
@@ -1887,6 +1887,12 @@ export const ResumeBuilderPage: React.FC = () => {
       ? rawAnalysisId
       : undefined;
   const navigate = useNavigate();
+  const location = useLocation();
+  // A tailored CV handed over by the Resume Builder Flow page through
+  // navigation state (kept in memory, never in browser storage).
+  const importedDraftRef = useRef<ResumeBuilderImportPayload | null>(
+    (location.state as { resumeBuilderImport?: ResumeBuilderImportPayload } | null)?.resumeBuilderImport ?? null,
+  );
   const [analysis, setAnalysis] = useState<AnalysisRecord | null>(null);
   const [resume, setResume] = useState<ResumeBuilderState>(emptyResume);
   const [originalResume, setOriginalResume] = useState<ResumeBuilderState>(emptyResume);
@@ -1996,17 +2002,11 @@ export const ResumeBuilderPage: React.FC = () => {
 
         setProfileDefaults(loadedProfileDefaults);
 
-        const rawImportedDraft = localStorage.getItem(
-          'jtracker_resume_builder_import',
-        );
+        const importedPayload = importedDraftRef.current;
 
-        if (!analysisId && !cvVersionId && rawImportedDraft) {
+        if (!analysisId && !cvVersionId && importedPayload) {
           try {
-            const importedPayload = JSON.parse(
-              rawImportedDraft,
-            ) as ResumeBuilderImportPayload;
-
-            if (importedPayload?.generatedCv?.trim()) {
+            if (importedPayload.generatedCv?.trim()) {
               const importedResume = resumeFromImportedGeneratedCv(
                 importedPayload,
                 loadedProfileDefaults,
@@ -2030,7 +2030,7 @@ export const ResumeBuilderPage: React.FC = () => {
                       missing_keywords: importedPayload.missingKeywords ?? [],
                       ats_keyword_evidence: [],
                       extended_data: {
-                        imported_from: importedPayload.source ?? 'localStorage',
+                        imported_from: importedPayload.source ?? 'resume_builder_flow',
                         role_category: importedPayload.roleCategory ?? null,
                         recommendations: importedPayload.recommendations ?? [],
                         imported_at: importedPayload.importedAt ?? null,
@@ -2047,8 +2047,6 @@ export const ResumeBuilderPage: React.FC = () => {
               setFormatting(defaultFormatting);
               finishLoad(finalImportedResume, defaultFormatting, true);
 
-              localStorage.removeItem('jtracker_resume_builder_import');
-
               setSavedMsg(
                 'Imported tailored CV draft into Resume Builder. Review the Imported Tailored CV Draft section below.',
               );
@@ -2057,8 +2055,7 @@ export const ResumeBuilderPage: React.FC = () => {
               return;
             }
           } catch (importError) {
-            console.error('Failed to import Resume Builder draft:', importError);
-            localStorage.removeItem('jtracker_resume_builder_import');
+            console.error('Failed to import Resume Builder draft:', importError instanceof Error ? importError.name : 'unknown');
           }
         }
 
@@ -2197,6 +2194,14 @@ export const ResumeBuilderPage: React.FC = () => {
     };
     load();
   }, [analysisId, cvVersionId]);
+
+  // Drop the hand-off from browser history once read, so it isn't kept with
+  // the page or imported again on reload (the unsaved draft covers reloads).
+  useEffect(() => {
+    if ((location.state as { resumeBuilderImport?: unknown } | null)?.resumeBuilderImport) {
+      navigate(location.pathname + location.search, { replace: true, state: null });
+    }
+  }, [location, navigate]);
 
   const isDirty = useMemo(
     () => baseline !== null && serializeEditorState(resume, formatting) !== baseline,

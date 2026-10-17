@@ -91,6 +91,21 @@ export const clearAllDrafts = (storage: Storage | null = defaultStorage()) => {
   }
 };
 
+// Older versions handed a tailored CV (with the job description) from the Flow
+// page to the Resume Builder through localStorage, where it could stay
+// indefinitely. Remove any copy left behind.
+export const LEGACY_IMPORT_KEY = 'jtracker_resume_builder_import';
+
+export const clearLegacyResumeImport = () => {
+  for (const storage of [() => window.localStorage, () => window.sessionStorage]) {
+    try {
+      storage().removeItem(LEGACY_IMPORT_KEY);
+    } catch {
+      // Storage unavailable.
+    }
+  }
+};
+
 // True when the draft holds edits that differ from what was just loaded.
 export const draftDiffersFrom = (draft: ResumeDraft | null, loadedSnapshot: string) =>
   !!draft && serializeEditorState(draft.resume, draft.formatting) !== loadedSnapshot;
