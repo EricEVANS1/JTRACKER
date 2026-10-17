@@ -117,6 +117,7 @@ interface CVVersion {
 id: string;
 }
 
+// Statuses that mean the employer replied. Withdrawn and ghosted are not replies.
 const responseStatuses: ApplicationStatus[] = [
 'confirmation_received',
 'assessment',
@@ -124,8 +125,6 @@ const responseStatuses: ApplicationStatus[] = [
 'final_interview',
 'offer',
 'rejected',
-'withdrawn',
-'ghosted',
 ];
 
 const closedStatuses: ApplicationStatus[] = [
@@ -136,19 +135,28 @@ const closedStatuses: ApplicationStatus[] = [
 'archived',
 ];
 
-const funnelStatuses: { value: ApplicationStatus; label: string }[] = [
-{ value: 'wishlist', label: 'Wishlist' },
-{ value: 'applied', label: 'Applied' },
-{ value: 'confirmation_received', label: 'Response' },
-{ value: 'assessment', label: 'Assessment' },
-{ value: 'interview', label: 'Interview' },
-{ value: 'final_interview', label: 'Final' },
-{ value: 'offer', label: 'Offer' },
-{ value: 'rejected', label: 'Rejected' },
-{ value: 'withdrawn', label: 'Withdrawn' },
-{ value: 'ghosted', label: 'Ghosted' },
-{ value: 'archived', label: 'Archived' },
+type FunnelGroup = 'progress' | 'outcome';
+
+const funnelStatuses: { value: ApplicationStatus; label: string; group: FunnelGroup }[] = [
+{ value: 'wishlist', label: 'Wishlist', group: 'progress' },
+{ value: 'applied', label: 'Applied', group: 'progress' },
+{ value: 'confirmation_received', label: 'Confirmed', group: 'progress' },
+{ value: 'assessment', label: 'Assessment', group: 'progress' },
+{ value: 'interview', label: 'Interview', group: 'progress' },
+{ value: 'final_interview', label: 'Final interview', group: 'progress' },
+{ value: 'offer', label: 'Offer', group: 'outcome' },
+{ value: 'rejected', label: 'Rejected', group: 'outcome' },
+{ value: 'withdrawn', label: 'Withdrawn', group: 'outcome' },
+{ value: 'ghosted', label: 'Ghosted', group: 'outcome' },
+{ value: 'archived', label: 'Archived', group: 'outcome' },
 ];
+
+interface FunnelStage {
+value: ApplicationStatus;
+label: string;
+group: FunnelGroup;
+count: number;
+}
 
 const formatDateTime = (date?: string | null) => {
 if (!date) return 'Not set';
@@ -206,15 +214,59 @@ new Date(date.getFullYear(), date.getMonth(), date.getDate());
 const isActiveApplication = (app: DashboardApplication) =>
 !app.archived && !closedStatuses.includes(app.status);
 
+// Waiting-time actions for applications without a scheduled follow-up.
+// Interview stages are covered by the awaiting-final-response action instead.
+const getWaitingReason = (app: DashboardApplication, now: Date) => {
+if (app.follow_up_date) return null;
+
+if (app.status === 'assessment') {
+  const days = getDaysBetween(
+    app.assessment_received_at ||
+      app.last_status_changed_at ||
+      app.status_updated_at ||
+      app.updated_at ||
+      app.created_at,
+    now.toISOString()
+  );
+
+  return days !== null && days >= 5 ? `Assessment outstanding for ${days} days` : null;
+}
+
+if (
+  (app.status === 'applied' && !app.response_received_at) ||
+  app.status === 'confirmation_received'
+) {
+  const days = getDaysBetween(getAppliedDate(app), now.toISOString());
+
+  return days !== null && days >= 7 ? `No response ${days} days after applying` : null;
+}
+
+return null;
+};
+
+const isSubmitted = (app: DashboardApplication) => app.status !== 'wishlist';
+
+const hasReachedOffer = (app: DashboardApplication) =>
+app.status === 'offer' || Boolean(app.offer_received_at);
+
+// Each later stage implies the earlier ones, so offers <= interviews <= responses.
 const hasReachedInterview = (app: DashboardApplication) =>
 Boolean(
 app.reached_interview ||
 app.interview_started_at ||
 app.final_interview_started_at ||
+app.rejected_after_interview ||
 app.status === 'interview' ||
 app.status === 'final_interview' ||
-app.status === 'offer'
+hasReachedOffer(app)
 );
+
+// Ghosting stamps response_received_at without a real reply, so it is ignored there.
+const hasResponse = (app: DashboardApplication) =>
+hasReachedInterview(app) ||
+responseStatuses.includes(app.status) ||
+Boolean(app.assessment_received_at || app.rejected_at) ||
+(Boolean(app.response_received_at) && app.status !== 'ghosted');
 
 export const DashboardPage: React.FC = () => {
 const { user } = useAuth();
@@ -408,18 +460,19 @@ const total = applications.length;
 const active = applications.filter(isActiveApplication).length;
 const archived = applications.filter((app) => app.archived || app.status === 'archived').length;
 
-const responses = applications.filter((app) =>
-  responseStatuses.includes(app.status) || Boolean(app.response_received_at)
-).length;
+// Rates are based on submitted applications; wishlist items were never sent.
+const submittedApps = applications.filter(isSubmitted);
+const submitted = submittedApps.length;
 
-const interviews = applications.filter(hasReachedInterview).length;
-const offers = applications.filter((app) => app.status === 'offer' || Boolean(app.offer_received_at)).length;
-const rejections = applications.filter((app) => app.status === 'rejected' || Boolean(app.rejected_at)).length;
+const responses = submittedApps.filter(hasResponse).length;
+const interviews = submittedApps.filter(hasReachedInterview).length;
+const offers = submittedApps.filter(hasReachedOffer).length;
+const rejections = submittedApps.filter((app) => app.status === 'rejected' || Boolean(app.rejected_at)).length;
 
-const responseRate = total > 0 ? Math.round((responses / total) * 100) : 0;
+const responseRate = submitted > 0 ? Math.round((responses / submitted) * 100) : 0;
 const interviewRate = responses > 0 ? Math.round((interviews / responses) * 100) : 0;
 const offerRate = interviews > 0 ? Math.round((offers / interviews) * 100) : 0;
-const rejectionRate = total > 0 ? Math.round((rejections / total) * 100) : 0;
+const rejectionRate = submitted > 0 ? Math.round((rejections / submitted) * 100) : 0;
 
 const responseTimes = applications
   .map((app) => getDaysBetween(getAppliedDate(app), app.response_received_at))
@@ -431,6 +484,7 @@ return {
   total,
   active,
   archived,
+  submitted,
   responses,
   interviews,
   offers,
@@ -488,36 +542,7 @@ const awaitingFinalResponse = activeApplications.filter((app) =>
   ['interview', 'final_interview'].includes(app.status)
 );
 
-const suggestedFollowUps = activeApplications.filter((app) => {
-  if (app.follow_up_date) return false;
-
-  const appliedDate = new Date(getAppliedDate(app));
-  if (Number.isNaN(appliedDate.getTime())) return false;
-
-  const daysSinceApplied = getDaysBetween(appliedDate.toISOString(), now.toISOString()) || 0;
-
-  if (app.status === 'applied' && !app.response_received_at && daysSinceApplied >= 7) {
-    return true;
-  }
-
-  const assessmentDays = getDaysBetween(app.assessment_received_at, now.toISOString()) || 0;
-
-  if (app.status === 'assessment' && assessmentDays >= 5) {
-    return true;
-  }
-
-  const interviewDays =
-    getDaysBetween(
-      app.final_interview_started_at || app.interview_started_at,
-      now.toISOString()
-    ) || 0;
-
-  if (['interview', 'final_interview'].includes(app.status) && interviewDays >= 5) {
-    return true;
-  }
-
-  return false;
-});
+const suggestedFollowUps = activeApplications.filter((app) => getWaitingReason(app, now) !== null);
 
 return {
   overdueFollowUps,
@@ -531,56 +556,55 @@ return {
 
 }, [applications, notifications]);
 
-const funnelData = useMemo(() => {
-return funnelStatuses.map((status) => {
-const count = applications.filter((app) => {
-if (status.value === 'archived') {
-return app.archived || app.status === 'archived';
-}
-
-
-    return app.status === status.value && !app.archived;
-  }).length;
-
-  return {
-    ...status,
-    count,
-  };
-});
-
-
+// Each application is counted once, at its current status, so stages sum to the total.
+const funnelData = useMemo<FunnelStage[]>(() => {
+return funnelStatuses.map((stage) => ({
+  ...stage,
+  count: applications.filter((app) => app.status === stage.value).length,
+}));
 }, [applications]);
 
 const actionItems = useMemo(() => {
+const now = new Date();
+const listed = new Set<string>();
+
+// Each application is listed once, under its most urgent action.
+const toItems = (
+  apps: DashboardApplication[],
+  prefix: string,
+  tone: 'danger' | 'warning' | 'info' | 'neutral',
+  getReason: (app: DashboardApplication) => string
+) =>
+  apps
+    .filter((app) => !listed.has(app.id))
+    .slice(0, 3)
+    .map((app) => {
+      listed.add(app.id);
+
+      return {
+        id: `${prefix}-${app.id}`,
+        title: app.role_title || 'Untitled role',
+        reason: getReason(app),
+        href: `/applications/${app.id}`,
+        tone,
+      };
+    });
+
+const overdueByDate = [...todayStats.overdueFollowUps].sort(
+  (a, b) => new Date(a.follow_up_date || 0).getTime() - new Date(b.follow_up_date || 0).getTime()
+);
+
 return [
-...todayStats.overdueFollowUps.slice(0, 3).map((app) => ({
-id: `overdue-${app.id}`,
-title: app.role_title || 'Untitled role',
-reason: `Follow-up overdue since ${formatShortDate(app.follow_up_date)}`,
-href: '/applications',
-tone: 'danger' as const,
-})),
-...todayStats.dueTodayFollowUps.slice(0, 3).map((app) => ({
-id: `today-${app.id}`,
-title: app.role_title || 'Untitled role',
-reason: 'Follow-up due today',
-href: '/applications',
-tone: 'warning' as const,
-})),
-...todayStats.awaitingFinalResponse.slice(0, 3).map((app) => ({
-id: `final-${app.id}`,
-title: app.role_title || 'Untitled role',
-reason: 'Awaiting final response after interview',
-href: '/applications',
-tone: 'info' as const,
-})),
-...todayStats.suggestedFollowUps.slice(0, 3).map((app) => ({
-id: `suggested-${app.id}`,
-title: app.role_title || 'Untitled role',
-reason: 'Suggested follow-up based on waiting time',
-href: '/applications',
-tone: 'neutral' as const,
-})),
+  ...toItems(overdueByDate, 'overdue', 'danger', (app) =>
+    `Follow-up overdue since ${formatShortDate(app.follow_up_date)}`
+  ),
+  ...toItems(todayStats.dueTodayFollowUps, 'today', 'warning', () => 'Follow-up due today'),
+  ...toItems(todayStats.awaitingFinalResponse, 'final', 'info', () =>
+    'Awaiting final response after interview'
+  ),
+  ...toItems(todayStats.suggestedFollowUps, 'suggested', 'neutral', (app) =>
+    getWaitingReason(app, now) || 'Suggested follow-up based on waiting time'
+  ),
 ].slice(0, 6);
 }, [todayStats]);
 
@@ -659,7 +683,7 @@ helper: `${stats.active} active · ${stats.archived} archived`,
 label: 'Response Rate',
 value: `${stats.responseRate}%`,
 icon: TrendingUp,
-helper: `${stats.responses} applications received a response`,
+helper: `${stats.responses} of ${stats.submitted} submitted applications received a response`,
 },
 {
 label: 'Interviews',
@@ -892,7 +916,7 @@ Today’s job-search actions, pipeline health, follow-ups, notifications, and re
     <RateCard label="Rejection Rate" value={`${stats.rejectionRate}%`} negative />
   </div>
 
-  <PipelineFunnel data={funnelData} />
+  <PipelineFunnel data={funnelData} total={stats.total} />
 
   <div className="grid grid-cols-1 xl:grid-cols-[1fr_0.9fr] gap-6 mb-8">
     <ActionNeededPanel actionItems={actionItems} />
@@ -1091,46 +1115,124 @@ urgent?: boolean;
 
 const PipelineFunnel = ({
 data,
+total,
 }: {
-data: { value: ApplicationStatus; label: string; count: number }[];
+data: FunnelStage[];
+total: number;
 }) => {
 const maxCount = Math.max(...data.map((item) => item.count), 1);
 
-return ( <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 mb-8 overflow-hidden"> <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6"> <div> <h3 className="text-lg sm:text-xl font-semibold">Pipeline Funnel</h3> <p className="text-sm text-slate-500 mt-1">
-See where applications sit across the full status journey. </p> </div>
+const groups: { id: FunnelGroup; title: string; gridCls: string }[] = [
+  { id: 'progress', title: 'In progress', gridCls: 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-6' },
+  { id: 'outcome', title: 'Outcomes', gridCls: 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-5' },
+];
 
-    <Link
-      to="/applications"
-      className="inline-flex justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-700 transition"
-    >
-      Manage Applications
-    </Link>
-  </div>
+return (
+  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 mb-8">
+    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+      <div className="min-w-0">
+        <h3 className="text-lg sm:text-xl font-semibold">Pipeline Funnel</h3>
+        <p className="text-sm text-slate-500 mt-1 break-words">
+          Where your {total} {total === 1 ? 'application sits' : 'applications sit'} right now.
+          Each one is counted once, at its current status. Select a stage to see its applications.
+        </p>
+      </div>
 
-  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-    {data.map((item) => {
-      const width = Math.max(8, Math.round((item.count / maxCount) * 100));
+      <Link
+        to="/applications"
+        className="inline-flex justify-center shrink-0 rounded-xl bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-700 transition"
+      >
+        Manage Applications
+      </Link>
+    </div>
 
-      return (
-        <div key={item.value} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <p className="text-sm font-medium text-slate-700">{item.label}</p>
-            <p className="text-lg font-bold text-slate-900">{item.count}</p>
-          </div>
+    <div className="space-y-5">
+      {groups.map((group) => (
+        <div key={group.id}>
+          <p className="text-xs font-medium uppercase tracking-widest text-slate-400 mb-2">
+            {group.title}
+          </p>
 
-          <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-slate-900 transition-all"
-              style={{ width: `${width}%` }}
-            />
+          <div className={`grid ${group.gridCls} gap-3`}>
+            {data
+              .filter((item) => item.group === group.id)
+              .map((item) => (
+                <FunnelStageCard key={item.value} item={item} total={total} maxCount={maxCount} />
+              ))}
           </div>
         </div>
-      );
-    })}
+      ))}
+    </div>
   </div>
-</div>
+);
+};
 
+const FunnelStageCard = ({
+item,
+total,
+maxCount,
+}: {
+item: FunnelStage;
+total: number;
+maxCount: number;
+}) => {
+const isEmpty = item.count === 0;
+const share = total > 0 ? Math.round((item.count / total) * 100) : 0;
+const width = isEmpty ? 0 : Math.max(4, Math.round((item.count / maxCount) * 100));
+const tooltipId = `funnel-tip-${item.value}`;
+const tooltip = isEmpty
+  ? `No applications are at ${item.label} right now.`
+  : `${item.count} ${item.count === 1 ? 'application is' : 'applications are'} at ${item.label} (${share}% of ${total}). Select to view ${item.count === 1 ? 'it' : 'them'}.`;
 
+const body = (
+  <>
+    <div className="flex items-start justify-between gap-2 mb-3">
+      <p className={`text-sm font-medium break-words ${isEmpty ? 'text-slate-400' : 'text-slate-700'}`}>
+        {item.label}
+      </p>
+      <p className={`text-lg font-bold leading-none ${isEmpty ? 'text-slate-300' : 'text-slate-900'}`}>
+        {item.count}
+      </p>
+    </div>
+
+    <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+      <div
+        className="h-full rounded-full bg-slate-900 transition-all"
+        style={{ width: `${width}%` }}
+      />
+    </div>
+
+    <p className="text-xs text-slate-400 mt-2">{isEmpty ? 'None right now' : `${share}% of all`}</p>
+
+    <span
+      id={tooltipId}
+      role="tooltip"
+      className="pointer-events-none absolute inset-x-0 bottom-full z-20 mb-2 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white shadow-lg opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+    >
+      {tooltip}
+    </span>
+  </>
+);
+
+if (isEmpty) {
+  return (
+    <div
+      aria-describedby={tooltipId}
+      className="group relative rounded-xl border border-dashed border-slate-200 bg-white p-3 sm:p-4"
+    >
+      {body}
+    </div>
+  );
+}
+
+return (
+  <Link
+    to={`/applications?status=${item.value}`}
+    aria-describedby={tooltipId}
+    className="group relative block rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4 hover:bg-white hover:border-slate-300 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 transition"
+  >
+    {body}
+  </Link>
 );
 };
 

@@ -269,8 +269,11 @@ const [error, setError] = useState('');
 const [message, setMessage] = useState('');
 const [search, setSearch] = useState('');
 const [searchParams] = useSearchParams();
+const statusFromUrl = searchParams.get('status');
 const [statusFilter, setStatusFilter] = useState<StatusFilter>(
-searchParams.get('view') === 'awaiting_final_response' ? 'awaiting_final_response' : 'all'
+searchParams.get('view') === 'awaiting_final_response'
+  ? 'awaiting_final_response'
+  : statusOptions.find((option) => option.value === statusFromUrl)?.value || 'all'
 );
 
 const [roleTitle, setRoleTitle] = useState('');
@@ -322,8 +325,6 @@ const { data, error } = await supabase
     )
   `)
   .eq('user_id', user.id)
-  .or('archived.is.false,archived.is.null')
-  .neq('status', 'archived')
   .order('created_at', { ascending: false });
 
 if (error) {
@@ -385,6 +386,11 @@ const term = search.toLowerCase().trim();
     Boolean(app.role_title?.toLowerCase().includes(term)) ||
     Boolean(app.companies?.name?.toLowerCase().includes(term)) ||
     Boolean(app.source?.toLowerCase().includes(term));
+
+  // Archived records only appear when that exact status is selected.
+  const isArchivedApp = Boolean(app.archived) || app.status === 'archived';
+  const isExactStatus = statusFilter !== 'all' && statusFilter !== 'awaiting_final_response';
+  if (isArchivedApp && !isExactStatus) return false;
 
   const matchesStatus =
     statusFilter === 'all' ||
@@ -541,18 +547,9 @@ await supabase.from('application_events').insert({
   event_date: nowIso(),
 });
 
-setApplications((prev) => {
-  const shouldLeaveActivePage =
-    updatePayload.archived === true || updatePayload.status === 'archived';
-
-  if (shouldLeaveActivePage) {
-    return prev.filter((app) => app.id !== applicationId);
-  }
-
-  return prev.map((app) =>
-    app.id === applicationId ? { ...app, ...updatePayload } : app
-  );
-});
+setApplications((prev) =>
+  prev.map((app) => (app.id === applicationId ? { ...app, ...updatePayload } : app))
+);
 
 setMessage(successMessage);
 setStatusUpdatingId(null);
@@ -1274,7 +1271,6 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
         <option value="all">All active statuses</option>
         <option value="awaiting_final_response">Awaiting final response</option>
         {statusOptions
-          .filter((option) => option.value !== 'archived')
           .map((statusOption) => (
             <option key={statusOption.value} value={statusOption.value}>
               {statusOption.label}
