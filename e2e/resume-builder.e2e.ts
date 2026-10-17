@@ -122,6 +122,9 @@ test.describe('saving', () => {
     await saveButton(page).click();
     await expect(page.getByText('This CV version no longer exists in CV Manager.', { exact: false })).toBeVisible();
     expect(supabase.writes('cv_versions').map((w) => w.method)).toEqual(['PATCH']);
+    // The error is shown inside the editor, which stays open with "Save as new".
+    await expect(page.getByRole('button', { name: 'Save as new' })).toBeVisible();
+    await expect(page.getByText('Resume Builder Error')).toHaveCount(0);
   });
 });
 
@@ -239,4 +242,50 @@ test.describe('hand-off from the Flow page', () => {
     ).toEqual([null, null]);
     expect(await pageHasText(page, 'BI Analyst')).toBe(false);
   });
+});
+
+test.describe('exports', () => {
+  test('a failed PDF export shows an in-page error instead of a pop-up, and trying again works', async ({ page }) => {
+    const dialogs: string[] = [];
+    page.on('dialog', async (dialog) => {
+      dialogs.push(dialog.message());
+      await dialog.dismiss();
+    });
+
+    await openBuilder(page, '/resume-builder/saved/v1');
+
+    // Make saving the file fail once (the export tools themselves are already
+    // loaded with the app, so this is how a failure can be produced here).
+    await page.evaluate(() => {
+      const original = URL.createObjectURL;
+      URL.createObjectURL = () => {
+        URL.createObjectURL = original;
+        throw new Error('simulated failure');
+      };
+    });
+
+    await page.getByRole('button', { name: 'PDF', exact: true }).click();
+    await expect(page.getByText("The PDF file couldn't be created. Please try again.")).toBeVisible();
+    expect(dialogs).toEqual([]);
+    // The editor stays open.
+    await expect(page.getByRole('button', { name: 'Save changes' })).toBeVisible();
+
+    const download = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'PDF', exact: true }).click();
+    expect((await download).suggestedFilename()).toMatch(/\.pdf$/);
+    await expect(page.getByText("The PDF file couldn't be created.")).toHaveCount(0);
+  });
+
+  test('DOCX export downloads a file', async ({ page }) => {
+    await openBuilder(page, '/resume-builder/saved/v1');
+    const download = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'ATS DOCX' }).click();
+    expect((await download).suggestedFilename()).toMatch(/\.docx$/);
+  });
+});
+
+test('a CV that cannot be loaded still shows the full-page error', async ({ page }) => {
+  await page.goto('/resume-builder/saved/does-not-exist');
+  await expect(page.getByText('Resume Builder Error')).toBeVisible();
+  await expect(page.getByText('Saved builder CV was not found.')).toBeVisible();
 });

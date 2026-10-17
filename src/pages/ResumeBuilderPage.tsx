@@ -1,8 +1,7 @@
 // src/pages/ResumeBuilderPage.tsx
 // Resume Builder — integrated into JTracker design system.
 // Matches AppLayout's bg-slate-50, sidebar nav, slate-900 accents.
-// Note: requires jsPDF, docx, file-saver — install with:
-//   npm install jspdf docx file-saver @types/file-saver
+// PDF and DOCX export load jspdf, docx and file-saver (dependencies) on demand.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -53,7 +52,15 @@ import type {
 
 
 
-// ---- PDF / DOCX — lazy-loaded to avoid bundle issues if not installed ----
+// ---- PDF / DOCX — loaded on first export to keep the page bundle small ----
+// A failed load (network, or a deploy while the page is open) isn't cached,
+// so trying the export again retries it.
+
+// Shown to the user when an export tool can't be loaded.
+class ExportToolError extends Error {}
+
+const EXPORT_TOOL_MESSAGE = (kind: string) =>
+  `The ${kind} export tool couldn't be loaded. Check your connection and try again; reload the page if it keeps happening.`;
 let jsPDF: any = null;
 let docxLib: any = null;
 let fileSaverLib: any = null;
@@ -1564,10 +1571,7 @@ const exportAsPDF = async (
   if (!buildPlainTextResume(state, jobTitle).trim()) return;
 
   const PDF = await loadPdfLib();
-  if (!PDF) {
-    alert('PDF export requires jsPDF. Run: npm install jspdf');
-    return;
-  }
+  if (!PDF) throw new ExportToolError(EXPORT_TOOL_MESSAGE('PDF'));
 
   const doc = new PDF({
     unit: 'mm',
@@ -1861,7 +1865,7 @@ const exportAsDOCX = async (state: ResumeBuilderState, jobTitle?: string | null,
   if (!text.trim()) return;
   const docx = await loadDocxLib();
   const fs = await loadFileSaver();
-  if (!docx || !fs) { alert('DOCX export requires: npm install docx file-saver @types/file-saver'); return; }
+  if (!docx || !fs) throw new ExportToolError(EXPORT_TOOL_MESSAGE('DOCX'));
   const { Document, Packer, Paragraph, TextRun } = docx;
   const paragraphs = text.split('\n').map((line: string) => {
     const isHeading = line.trim() && line.trim() === line.trim().toUpperCase() && line.trim().length < 50;
@@ -1900,6 +1904,7 @@ export const ResumeBuilderPage: React.FC = () => {
   const [formatting, setFormatting] = useState<FormattingSettings>(defaultFormatting);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState<'pdf' | 'docx' | null>(null);
   // The Resume Builder CV version that Save updates. Set when a saved builder
   // CV is opened, or after the first save; null means Save creates a new one.
   const [savedVersion, setSavedVersion] = useState<SavedBuilderVersion | null>(null);
@@ -1911,6 +1916,9 @@ export const ResumeBuilderPage: React.FC = () => {
   const [pendingDraft, setPendingDraft] = useState<BuilderDraft | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
   const [error, setError] = useState('');
+  // Only a failed load replaces the editor; errors from saving, exporting or
+  // tailoring are shown inside it (in `error`) so the edits stay on screen.
+  const [loadError, setLoadError] = useState('');
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor');
   const [bulletReviewOpen, setBulletReviewOpen] = useState(false);
@@ -1958,6 +1966,7 @@ export const ResumeBuilderPage: React.FC = () => {
       try {
         setLoading(true);
         setError('');
+        setLoadError('');
         setSavedVersion(null);
         setBaseline(null);
         setPendingDraft(null);
@@ -2189,7 +2198,7 @@ export const ResumeBuilderPage: React.FC = () => {
         setOriginalResume(finalResume);
         setFormatting(defaultFormatting);
         finishLoad(finalResume, defaultFormatting);
-      } catch (err) { setError(err instanceof Error ? err.message : 'Failed to load Resume Builder.'); }
+      } catch (err) { setLoadError(err instanceof Error ? err.message : 'Failed to load Resume Builder.'); }
       finally { setLoading(false); }
     };
     load();
@@ -2276,6 +2285,23 @@ export const ResumeBuilderPage: React.FC = () => {
   };
 
   const flash = (msg: string) => { setSavedMsg(msg); setTimeout(() => setSavedMsg(''), 3000); };
+
+  // Runs a PDF/DOCX export and reports failures in the page instead of a pop-up.
+  const runExport = async (kind: 'pdf' | 'docx', task: () => Promise<void>) => {
+    setError('');
+    setExporting(kind);
+    try {
+      await task();
+    } catch (err) {
+      setError(
+        err instanceof ExportToolError
+          ? err.message
+          : `The ${kind.toUpperCase()} file couldn't be created. Please try again.`,
+      );
+    } finally {
+      setExporting(null);
+    }
+  };
 
   const handleSave = async (asNew = false) => {
     try {
@@ -2651,14 +2677,14 @@ export const ResumeBuilderPage: React.FC = () => {
     </div>
   );
 
-  if (error && !analysis && (analysisId || cvVersionId)) return (
+  if (loadError && !analysis && (analysisId || cvVersionId)) return (
     <div className="max-w-lg">
       <button onClick={() => navigate(-1)} className="mb-6 inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
         <ArrowLeft size={16} />Back
       </button>
       <div className="rounded-2xl border border-red-200 bg-red-50 p-6">
         <h2 className="font-semibold text-red-700 mb-2">Resume Builder Error</h2>
-        <p className="text-sm text-red-600">{error}</p>
+        <p className="text-sm text-red-600">{loadError}</p>
       </div>
     </div>
   );
@@ -2690,13 +2716,15 @@ export const ResumeBuilderPage: React.FC = () => {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
             <RefreshCcw size={15} />Reset
           </button>
-          <button onClick={() => exportAsPDF(resume, formatting, jobTitle, `${fileBase}.pdf`)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
-            <Download size={15} />PDF
+          <button onClick={() => runExport('pdf', () => exportAsPDF(resume, formatting, jobTitle, `${fileBase}.pdf`))}
+            disabled={exporting !== null}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition disabled:opacity-50">
+            {exporting === 'pdf' ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}PDF
           </button>
-          <button onClick={() => exportAsDOCX(resume, jobTitle, `${fileBase}.docx`)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
-            <Download size={15} />ATS DOCX
+          <button onClick={() => runExport('docx', () => exportAsDOCX(resume, jobTitle, `${fileBase}.docx`))}
+            disabled={exporting !== null}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition disabled:opacity-50">
+            {exporting === 'docx' ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}ATS DOCX
           </button>
           {isDirty && (
             <span className="self-center text-xs font-medium text-amber-600">Unsaved changes</span>
@@ -2738,9 +2766,9 @@ export const ResumeBuilderPage: React.FC = () => {
           ✓ {savedMsg}
         </div>
       )}
-      {error && (
+      {(error || loadError) && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
+          {error || loadError}
         </div>
       )}
 
