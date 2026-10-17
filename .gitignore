@@ -6,3 +6,6 @@ node_modules
 # Playwright
 test-results/
 playwright-report/
+
+# Build output (Vercel and CI build it from source)
+dist/
