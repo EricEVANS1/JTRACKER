@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
 AlertCircle,
 Bell,
@@ -42,9 +42,7 @@ preferred_work_type: string | null;
 salary_expectation: string | null;
 currency: string | null;
 ai_email_analysis_enabled: boolean;
-ai_cv_analysis_enabled: boolean;
 ai_confidence_threshold: number;
-auto_save_ai_insights: boolean;
 gmail_sync_enabled: boolean;
 gmail_max_emails_per_sync: number;
 gmail_recruitment_only: boolean;
@@ -69,9 +67,7 @@ preferred_work_type: 'hybrid',
 salary_expectation: '',
 currency: 'PLN',
 ai_email_analysis_enabled: true,
-ai_cv_analysis_enabled: true,
 ai_confidence_threshold: 80,
-auto_save_ai_insights: true,
 gmail_sync_enabled: true,
 gmail_max_emails_per_sync: 50,
 gmail_recruitment_only: true,
@@ -672,20 +668,6 @@ return ( <div className="w-full max-w-6xl"> <div className="mb-6"> <div classNam
         onChange={(v) => updateSetting('ai_email_analysis_enabled', v)}
       />
 
-      <ToggleRow
-        label="AI CV analysis"
-        hint="Allow JTracker to analyze CVs and generate improvement suggestions."
-        enabled={settings.ai_cv_analysis_enabled}
-        onChange={(v) => updateSetting('ai_cv_analysis_enabled', v)}
-      />
-
-      <ToggleRow
-        label="Auto-save AI insights"
-        hint="Store AI results so analysis does not disappear after refresh."
-        enabled={settings.auto_save_ai_insights}
-        onChange={(v) => updateSetting('auto_save_ai_insights', v)}
-      />
-
       <Field label={`Confidence Threshold: ${settings.ai_confidence_threshold}%`}>
         <input
           type="range"
@@ -771,30 +753,41 @@ updateSetting('ai_confidence_threshold', Number(value));
 
   {activeTab === 'notifications' && (
     <Card title="Notifications" icon={<Bell size={16} />}>
+      {/* Alerts aren't configurable per type yet, so this tab describes them
+          rather than showing switches that would do nothing. */}
       <p className="text-sm text-slate-500 mb-4">
-        Manage your in-app alerts, unread notifications, and reminder behavior.
+        JTracker shows these alerts on the Notifications page:
       </p>
 
-      <ToggleRow
-        label="Application reminders"
-        hint="Show reminders for follow-ups, interviews, and important application dates."
-        enabled={true}
-        onChange={() => {}}
-      />
+      <ul className="mb-4 space-y-3 text-sm">
+        <li className="rounded-xl border border-slate-200 p-4">
+          <p className="font-medium text-slate-900">Application reminders</p>
+          <p className="mt-1 text-slate-500">
+            Follow-ups that are overdue, due today or coming up, plus interviews, assessments, offers awaiting a
+            decision, and applications that have gone quiet. These come from your application dates and statuses;
+            follow-ups also appear in the dashboard's Today section.
+          </p>
+        </li>
+        <li className="rounded-xl border border-slate-200 p-4">
+          <p className="font-medium text-slate-900">Shared opportunities</p>
+          <p className="mt-1 text-slate-500">
+            When another JTracker user shares a role with you. Unread ones are counted on the dashboard.
+          </p>
+        </li>
+      </ul>
 
-      <ToggleRow
-        label="Shared opportunity alerts"
-        hint="Show alerts when another JTracker user shares an opportunity with you."
-        enabled={true}
-        onChange={() => {}}
-      />
+      <p className="text-sm text-slate-500 mb-4">
+        All alerts are always on; there are no per-type settings yet. Mark alerts as read or done on the
+        Notifications page.
+      </p>
 
-      <ToggleRow
-        label="Email event alerts"
-        hint="Show alerts when recruitment emails are linked to applications."
-        enabled={true}
-        onChange={() => {}}
-      />
+      <Link
+        to="/notifications"
+        className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 transition"
+      >
+        <Bell size={15} />
+        Open Notifications
+      </Link>
     </Card>
   )}
 
