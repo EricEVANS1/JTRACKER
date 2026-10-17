@@ -23,6 +23,13 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
 import {
+buildTimeline,
+groupTimelineByDay,
+type ActivityEventRecord,
+type ActivityKind,
+type TimelineEvent,
+} from '../lib/activityTimeline';
+import {
 NO_RESPONSE_DAYS,
 REACHED_STAGES,
 getDaysBetween,
@@ -80,19 +87,6 @@ status_updated_at?: string | null;
 reached_interview?: boolean | null;
 final_response_pending?: boolean | null;
 rejected_after_interview?: boolean | null;
-}
-
-interface RecentEvent {
-id: string;
-title: string;
-description: string | null;
-event_date: string;
-applications?: {
-role_title: string;
-companies?: {
-name: string;
-} | null;
-} | null;
 }
 
 interface NotificationItem {
@@ -262,7 +256,8 @@ dismissOnboarding,
 } = useOnboarding();
 
 const [applications, setApplications] = useState<DashboardApplication[]>([]);
-const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
+const [recentEvents, setRecentEvents] = useState<ActivityEventRecord[]>([]);
+const [activityError, setActivityError] = useState('');
 const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 const [unreadCount, setUnreadCount] = useState(0);
 const [emailEvents, setEmailEvents] = useState<EmailEvent[]>([]);
@@ -331,8 +326,11 @@ const [
       id,
       title,
       description,
+      event_type,
       event_date,
+      application_id,
       applications (
+        id,
         role_title,
         companies (
           name
@@ -341,7 +339,8 @@ const [
     `)
     .eq('user_id', user.id)
     .order('event_date', { ascending: false })
-    .limit(8),
+    // Extra rows leave room for removing duplicates and "Show more".
+    .limit(40),
 
   supabase
     .from('notifications')
@@ -399,8 +398,12 @@ if (applicationsResult.error) {
   setApplications(normalised);
 }
 
-if (eventsResult.error) setError(eventsResult.error.message);
-else setRecentEvents((eventsResult.data || []) as unknown as RecentEvent[]);
+if (eventsResult.error) {
+  setActivityError(eventsResult.error.message);
+} else {
+  setActivityError('');
+  setRecentEvents((eventsResult.data || []) as unknown as ActivityEventRecord[]);
+}
 
 if (notificationsResult.error) {
   setError(notificationsResult.error.message);
@@ -537,6 +540,8 @@ return REACHED_STAGES.map((stage) => ({
 }, [applications]);
 
 // Each application is counted once, at its current status, so stages sum to the total.
+const timeline = useMemo(() => buildTimeline(recentEvents), [recentEvents]);
+
 const funnelData = useMemo<FunnelStage[]>(() => {
 return funnelStatuses.map((stage) => ({
   ...stage,
@@ -1055,7 +1060,7 @@ Today’s job-search actions, pipeline health, follow-ups, notifications, and re
       )}
     </div>
 
-    <RecentActivityPanel recentEvents={recentEvents} />
+    <RecentActivityPanel timeline={timeline} loading={refreshing} error={activityError} />
   </div>
 </div>
 
@@ -1524,71 +1529,173 @@ total: number;
   </div>
 );
 
+const ACTIVITY_PREVIEW_COUNT = 10;
+
+const activityStyles: Record<ActivityKind, { icon: React.ElementType; className: string }> = {
+added: { icon: Briefcase, className: 'bg-blue-50 text-blue-700' },
+status: { icon: TrendingUp, className: 'bg-slate-100 text-slate-600' },
+assessment: { icon: FileText, className: 'bg-violet-50 text-violet-700' },
+interview: { icon: CalendarCheck, className: 'bg-indigo-50 text-indigo-700' },
+offer: { icon: Trophy, className: 'bg-emerald-50 text-emerald-700' },
+rejection: { icon: XCircle, className: 'bg-red-50 text-red-700' },
+follow_up: { icon: Clock, className: 'bg-amber-50 text-amber-700' },
+closed: { icon: Timer, className: 'bg-slate-100 text-slate-500' },
+note: { icon: FileText, className: 'bg-slate-100 text-slate-600' },
+email: { icon: MailCheck, className: 'bg-cyan-50 text-cyan-700' },
+other: { icon: CheckCircle2, className: 'bg-slate-100 text-slate-600' },
+};
+
+const formatTime = (date: string) =>
+new Date(date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
 const RecentActivityPanel = ({
-recentEvents,
+timeline,
+loading,
+error,
 }: {
-recentEvents: RecentEvent[];
-}) => (
+timeline: TimelineEvent[];
+loading: boolean;
+error: string;
+}) => {
+const [expanded, setExpanded] = useState(false);
+const visible = expanded ? timeline : timeline.slice(0, ACTIVITY_PREVIEW_COUNT);
+const days = groupTimelineByDay(visible);
+const hiddenCount = timeline.length - ACTIVITY_PREVIEW_COUNT;
 
-  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 min-w-0 overflow-hidden">
-    <h3 className="text-lg sm:text-xl font-semibold mb-1 break-words">
-      Recent Activity
-    </h3>
-    <p className="text-slate-500 text-sm mb-6 break-words">
-      Latest updates from your job search.
-    </p>
-
-
-{recentEvents.length === 0 ? (
-  <EmptyState
-    title="No recent activity"
-    description="Activity will appear here when applications are created, updated, or imported."
-    actionLabel="Add Application"
-    actionHref="/applications"
-  />
-) : (
-  <div className="space-y-4">
-    {recentEvents.map((event) => (
-      <div
-        key={event.id}
-        className="border border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition overflow-hidden"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <CheckCircle2 size={15} className="text-slate-500 shrink-0" />
-              <h4 className="font-semibold text-slate-900 break-words">
-                {event.title}
-              </h4>
-            </div>
-
-            {event.applications?.role_title && (
-              <p className="text-sm text-slate-500 break-words">
-                {event.applications.companies?.name
-                  ? `${event.applications.role_title} · ${event.applications.companies.name}`
-                  : event.applications.role_title}
-              </p>
-            )}
-
-            {event.description && (
-              <p className="text-sm text-slate-600 mt-2 leading-relaxed break-words">
-                {event.description}
-              </p>
-            )}
-          </div>
-
-          <span className="text-xs text-slate-400 whitespace-nowrap shrink-0">
-            {formatDateTime(event.event_date)}
-          </span>
-        </div>
+return (
+  <div
+    aria-busy={loading}
+    className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 min-w-0 overflow-hidden"
+  >
+    <div className="flex items-start justify-between gap-3 mb-5">
+      <div className="min-w-0">
+        <h3 className="text-lg sm:text-xl font-semibold mb-1 break-words">Recent Activity</h3>
+        <p className="text-slate-500 text-sm break-words">
+          Latest updates across your applications, newest first.
+        </p>
       </div>
-    ))}
-  </div>
-)}
 
+      {loading && (
+        <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 shrink-0 mt-1">
+          <RefreshCw size={12} className="animate-spin" />
+          Updating
+        </span>
+      )}
+    </div>
 
+    {error ? (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 break-words">
+        Couldn't load recent activity. {error}
+      </div>
+    ) : loading && timeline.length === 0 ? (
+      <div className="space-y-4" aria-hidden="true">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="flex items-start gap-3">
+            <div className="h-8 w-8 rounded-full bg-slate-100 animate-pulse shrink-0" />
+            <div className="flex-1 space-y-2 pt-1">
+              <div className="h-3.5 w-2/3 rounded bg-slate-100 animate-pulse" />
+              <div className="h-3 w-1/2 rounded bg-slate-100 animate-pulse" />
+            </div>
+          </div>
+        ))}
+      </div>
+    ) : timeline.length === 0 ? (
+      <EmptyState
+        title="No activity yet"
+        description="Adding applications, changing statuses and completing follow-ups will show up here."
+        actionLabel="Add Application"
+        actionHref="/applications"
+      />
+    ) : (
+      <div className="space-y-6">
+        {days.map((day) => (
+          <section key={day.key} aria-labelledby={`activity-day-${day.key}`}>
+            <h4
+              id={`activity-day-${day.key}`}
+              className="text-xs font-medium uppercase tracking-widest text-slate-400 mb-2"
+            >
+              {day.label}
+            </h4>
+
+            <ol>
+              {day.events.map((item, index) => (
+                <li key={item.id} className="relative">
+                  {index < day.events.length - 1 && (
+                    // Connects this event's icon to the next one in the same day.
+                    <span aria-hidden="true" className="absolute left-4 top-10 -bottom-2 w-px bg-slate-200" />
+                  )}
+                  <ActivityRow item={item} />
+                </li>
+              ))}
+            </ol>
+          </section>
+        ))}
+
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="w-full rounded-xl border border-slate-200 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition"
+          >
+            {expanded ? 'Show less' : `Show ${hiddenCount} more`}
+          </button>
+        )}
+      </div>
+    )}
   </div>
 );
+};
+
+const ActivityRow = ({ item }: { item: TimelineEvent }) => {
+const { icon: Icon, className } = activityStyles[item.kind];
+const subject = [item.roleTitle, item.companyName].filter(Boolean).join(' · ');
+
+const content = (
+  <div className="flex items-start gap-3">
+    <span
+      className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ring-4 ring-white ${className}`}
+    >
+      <Icon size={15} />
+    </span>
+
+    <div className="min-w-0 flex-1 pt-1">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm font-semibold text-slate-900 break-words">{item.title}</p>
+        <time
+          dateTime={item.date}
+          title={formatDateTime(item.date)}
+          className="text-xs text-slate-400 whitespace-nowrap shrink-0"
+        >
+          {formatTime(item.date)}
+        </time>
+      </div>
+
+      {subject ? (
+        <p className="text-sm text-slate-600 break-words">{subject}</p>
+      ) : item.applicationDeleted ? (
+        <p className="text-sm text-slate-400 italic">Deleted application</p>
+      ) : null}
+
+      {item.detail && (
+        <p className="text-xs text-slate-500 mt-1 break-words line-clamp-2">{item.detail}</p>
+      )}
+    </div>
+  </div>
+);
+
+if (!item.applicationId) {
+  return <div className="py-2">{content}</div>;
+}
+
+return (
+  <Link
+    to={`/applications/${item.applicationId}`}
+    className="block -mx-2 rounded-xl px-2 py-2 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 transition"
+  >
+    {content}
+  </Link>
+);
+};
 
 const ErrorMessage = ({
 error,
