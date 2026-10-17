@@ -1,0 +1,205 @@
+{
+  "src/components/AppLayout.tsx": {
+    "react-hooks/static-components": {
+      "count": 2
+    }
+  },
+  "src/components/cv-intelligence/CVIntelligenceDrawer.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 2
+    }
+  },
+  "src/components/settings/SettingsEmailSyncPanel.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/context/AuthContext.tsx": {
+    "react-refresh/only-export-components": {
+      "count": 1
+    }
+  },
+  "src/hooks/useCVAnalysis.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/hooks/useGmailToken.ts": {
+    "react-hooks/purity": {
+      "count": 1
+    }
+  },
+  "src/hooks/useOnboarding.ts": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/lib/resumeTailoring.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 3
+    }
+  },
+  "src/pages/AnalyticsPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/ApplicationDetailsPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/ApplicationsPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/ArchivedApplicationsPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/CVManagerPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/CompaniesPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/DashboardPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/EmailEventsPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/EmailSyncPage.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 5
+    },
+    "react-hooks/set-state-in-effect": {
+      "count": 2
+    }
+  },
+  "src/pages/FollowUpsPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/JobAutomationPage.tsx": {
+    "@typescript-eslint/no-unused-expressions": {
+      "count": 1
+    },
+    "no-useless-escape": {
+      "count": 2
+    },
+    "react-hooks/set-state-in-effect": {
+      "count": 2
+    }
+  },
+  "src/pages/KanbanPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/NotificationsPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/PublicSharePage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/RecruiterDetailsPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/RecruitersPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/ResumeBuilderFlowPage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 2
+    }
+  },
+  "src/pages/ResumeBuilderPage.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 11
+    },
+    "no-useless-escape": {
+      "count": 1
+    }
+  },
+  "src/pages/SettingsPage.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    },
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/SharedWithMePage.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/pages/TailoredDocumentsHistoryPage.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    },
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/types/resumeBuilder.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/utils/emailApplicationExtractor.ts": {
+    "no-useless-escape": {
+      "count": 20
+    }
+  },
+  "supabase/functions/job-pipeline/_lib/fetcher.ts": {
+    "prefer-const": {
+      "count": 1
+    }
+  },
+  "supabase/functions/smart-worker/_lib/assembler.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "supabase/functions/smart-worker/_lib/ats-matcher.ts": {
+    "no-useless-escape": {
+      "count": 5
+    }
+  },
+  "supabase/functions/smart-worker/_lib/cors.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "supabase/functions/smart-worker/_lib/learning.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "supabase/functions/smart-worker/index.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 6
+    }
+  }
+}

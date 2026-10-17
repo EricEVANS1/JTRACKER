@@ -1,0 +1,43 @@
+name: CI
+
+# Runs the same checks a contributor runs locally on every push to main and
+# on every pull request. Vercel deploys main separately; this job only reports.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # Existing errors are recorded in eslint-suppressions.json; only new
+      # ones fail the build.
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      # tsc -b type-checks the app, then Vite builds it.
+      - name: Type check and build
+        run: npm run build
