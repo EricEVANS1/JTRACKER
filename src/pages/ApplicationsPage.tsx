@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
 AlertCircle,
 Briefcase,
@@ -137,6 +137,14 @@ const statusOptions: { value: ApplicationStatus; label: string }[] = [
 { value: 'archived', label: 'Archived' },
 ];
 
+type StatusFilter = 'all' | 'awaiting_final_response' | ApplicationStatus;
+
+const closedStatuses: ApplicationStatus[] = ['offer', 'rejected', 'withdrawn', 'ghosted', 'archived'];
+
+const isAwaitingFinalResponse = (app: { status: ApplicationStatus; final_response_pending?: boolean | null }) =>
+!closedStatuses.includes(app.status) &&
+(Boolean(app.final_response_pending) || app.status === 'interview' || app.status === 'final_interview');
+
 const statusStyle: Record<ApplicationStatus, string> = {
 wishlist: 'bg-slate-100 text-slate-700',
 applied: 'bg-blue-50 text-blue-700',
@@ -260,7 +268,10 @@ const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
 const [error, setError] = useState('');
 const [message, setMessage] = useState('');
 const [search, setSearch] = useState('');
-const [statusFilter, setStatusFilter] = useState<'all' | ApplicationStatus>('all');
+const [searchParams] = useSearchParams();
+const [statusFilter, setStatusFilter] = useState<StatusFilter>(
+searchParams.get('view') === 'awaiting_final_response' ? 'awaiting_final_response' : 'all'
+);
 
 const [roleTitle, setRoleTitle] = useState('');
 const [companyName, setCompanyName] = useState('');
@@ -375,7 +386,11 @@ const term = search.toLowerCase().trim();
     Boolean(app.companies?.name?.toLowerCase().includes(term)) ||
     Boolean(app.source?.toLowerCase().includes(term));
 
-  const matchesStatus = statusFilter === 'all' || app.status === statusFilter;
+  const matchesStatus =
+    statusFilter === 'all' ||
+    (statusFilter === 'awaiting_final_response'
+      ? isAwaitingFinalResponse(app)
+      : app.status === statusFilter);
 
   return matchesSearch && matchesStatus;
 });
@@ -1253,10 +1268,11 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
 
       <select
         value={statusFilter}
-        onChange={(e) => setStatusFilter(e.target.value as 'all' | ApplicationStatus)}
+        onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
         className={inputCls}
       >
         <option value="all">All active statuses</option>
+        <option value="awaiting_final_response">Awaiting final response</option>
         {statusOptions
           .filter((option) => option.value !== 'archived')
           .map((statusOption) => (

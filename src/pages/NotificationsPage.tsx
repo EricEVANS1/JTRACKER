@@ -12,7 +12,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -130,7 +130,13 @@ export const NotificationsPage: React.FC = () => {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'unread' | 'smart' | 'shared'>('all');
+  const [searchParams] = useSearchParams();
+  const filterFromUrl = searchParams.get('filter');
+  const [filter, setFilter] = useState<'all' | 'unread' | 'smart' | 'shared'>(
+    filterFromUrl === 'unread' || filterFromUrl === 'smart' || filterFromUrl === 'shared'
+      ? filterFromUrl
+      : 'all'
+  );
 
   const fetchApplications = async () => {
     if (!user) return;

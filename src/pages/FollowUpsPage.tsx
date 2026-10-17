@@ -14,6 +14,7 @@ import {
   Send,
   X,
 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -58,6 +59,20 @@ type FollowUpGroup =
   | 'missing';
 
 type FilterValue = 'all' | FollowUpGroup;
+
+const FILTER_VALUES: FilterValue[] = [
+  'all',
+  'overdue',
+  'today',
+  'upcoming',
+  'assessment',
+  'interview',
+  'no_response',
+  'missing',
+];
+
+const isFilterValue = (value: string | null): value is FilterValue =>
+  Boolean(value && FILTER_VALUES.includes(value as FilterValue));
 
 type AlertType = 'error' | 'success';
 
@@ -239,7 +254,11 @@ export const FollowUpsPage: React.FC = () => {
   const [message, setMessage] = useState('');
 
   const [search, setSearch] = useState('');
-  const [groupFilter, setGroupFilter] = useState<FilterValue>('all');
+  const [searchParams] = useSearchParams();
+  const filterFromUrl = searchParams.get('filter');
+  const [groupFilter, setGroupFilter] = useState<FilterValue>(
+    isFilterValue(filterFromUrl) ? filterFromUrl : 'all'
+  );
   const [selectedMessageApp, setSelectedMessageApp] = useState<FollowUpItem | null>(null);
   const [followUpMessage, setFollowUpMessage] = useState('');
   const [copied, setCopied] = useState(false);

@@ -1012,7 +1012,7 @@ unreadNotifications: number;
       label="Overdue follow-ups"
       value={overdueFollowUps}
       icon={Clock}
-      href="/applications"
+      href="/follow-ups?filter=overdue"
       urgent={overdueFollowUps > 0}
     />
 
@@ -1020,7 +1020,7 @@ unreadNotifications: number;
       label="Due today"
       value={dueTodayFollowUps}
       icon={CalendarCheck}
-      href="/applications"
+      href="/follow-ups?filter=today"
       urgent={dueTodayFollowUps > 0}
     />
 
@@ -1028,14 +1028,14 @@ unreadNotifications: number;
       label="Upcoming follow-ups"
       value={upcomingFollowUps}
       icon={Timer}
-      href="/applications"
+      href="/follow-ups?filter=upcoming"
     />
 
     <TodayPill
       label="Awaiting final response"
       value={awaitingFinalResponse}
       icon={MailCheck}
-      href="/applications"
+      href="/applications?view=awaiting_final_response"
       urgent={awaitingFinalResponse > 0}
     />
 
@@ -1043,7 +1043,7 @@ unreadNotifications: number;
       label="Unread notifications"
       value={unreadNotifications}
       icon={Bell}
-      href="/notifications"
+      href="/notifications?filter=unread"
       urgent={unreadNotifications > 0}
     />
   </div>
