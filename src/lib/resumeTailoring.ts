@@ -19,6 +19,14 @@ import type {
   SkillsAwards,
 } from '../types/resumeBuilder';
 
+import {
+  classifySkills,
+  getAutoSkillsSectionItems,
+  getClaimableGapItems,
+  getReviewRequiredSkillItems,
+} from './skillClassifier';
+import { buildRoleTargetedSummary } from './roleTargetedSummary';
+
 // ============================================================
 // Public types
 // ============================================================
@@ -29,6 +37,7 @@ export type TailoringChangeType =
   | 'bullet_split'
   | 'bullet_fragments_merged'
   | 'technical_skill_added'
+  | 'summary_tailored'
   | 'skill_review_needed'
   | 'language_moved'
   | 'certification_moved'
@@ -37,7 +46,7 @@ export type TailoringChangeType =
 
 export type TailoringChange = {
   type: TailoringChangeType;
-  section: 'experience' | 'skillsAwards';
+  section: 'experience' | 'skillsAwards' | 'summary';
   before?: string;
   after?: string;
   /** Single, specific reason for this change. (#15) */
@@ -616,21 +625,78 @@ const DEVELOPER_ONLY_SKILLS = new Set([
 ]);
 
 /**
- * Skills that are relevant only to specific industry domains and must not be
- * added unless the Master CV explicitly proves them. (#10)
+ * Dynamic unsupported-claim detection. (#10 — replaces hardcoded vendor list)
+ *
+ * For any generated bullet, checks whether a JD keyword that appears in the
+ * bullet also appears somewhere in the original Master CV bullets.  If not,
+ * the keyword is flagged as unsupported — meaning the system would be adding
+ * a claim that cannot be proven from the candidate's own history.
+ *
+ * Works for ANY JD, ANY vendor, ANY industry — no code changes ever needed.
  */
-const UNSUPPORTED_INDUSTRY_SKILLS = new Set([
-  canonical('Lenel'),
-  canonical('Access Control'),
-  canonical('Video Surveillance'),
-  canonical('CCTV'),
-  canonical('Electronic Security'),
-  canonical('Genetec'),
-  canonical('Milestone'),
-  canonical('OnGuard'),
-  canonical('CCure'),
-  canonical('Avigilon'),
-]);
+const detectUnsupportedClaims = (
+  generatedBullet: string,
+  allMasterBullets: string[], // every bullet from every role in the original Master CV
+  jdKeywords: string[],
+): string[] => {
+  const bulletText = canonical(generatedBullet);
+  const masterText = allMasterBullets.map(canonical).join(' ');
+
+  return jdKeywords.filter((keyword) => {
+    const kw = canonical(keyword);
+    // Flag only when: (a) keyword appears in the generated bullet AND
+    //                 (b) keyword is absent from the entire Master CV corpus
+    return kw.length > 2 && bulletText.includes(kw) && !masterText.includes(kw);
+  });
+};
+
+/** Collect every bullet from all experience roles — the Master CV ground truth. */
+const getAllMasterBullets = (experience: ExperienceItem[]): string[] =>
+  experience.flatMap((role) => (role.bullets ?? []).map(clean).filter(Boolean));
+
+/**
+ * Final screening gate: runs after bullet optimisation, before the quality
+ * report.  Any bullet that introduces a JD keyword not present in the
+ * original Master CV is reverted to the closest matching original bullet.
+ * A `not_recommended` change entry is logged so the UI can explain what
+ * was blocked and why.
+ */
+const finalScreeningGate = (
+  experience: ExperienceItem[],
+  masterBullets: string[],
+  jdKeywords: string[],
+  changes: TailoringChange[],
+): ExperienceItem[] =>
+  experience.map((role) => ({
+    ...role,
+    bullets: (role.bullets ?? []).map((bullet) => {
+      const unsupported = detectUnsupportedClaims(bullet, masterBullets, jdKeywords);
+      if (unsupported.length === 0) return bullet;
+
+      // Revert: find the closest matching original bullet by word-overlap
+      const originalBullet =
+        masterBullets.find((mb) => {
+          const mbWords = new Set(canonical(mb).split(' ').filter((w) => w.length > 2));
+          const genWords = canonical(bullet).split(' ').filter((w) => w.length > 2);
+          const shared   = genWords.filter((w) => mbWords.has(w)).length;
+          return shared / Math.max(1, mbWords.size) > 0.4;
+        }) ?? bullet;
+
+      changes.push({
+        type:      'bullet_optimized',
+        section:   'experience',
+        roleId:    role.id,
+        roleTitle: role.jobTitle,
+        company:   role.company,
+        before:    bullet,
+        after:     originalBullet,
+        reason:    `Removed unsupported claim(s): "${unsupported.join('", "')}" — not found in Master CV. Reverted to original bullet to prevent fabrication.`,
+        riskLevel: 'not_recommended',
+      });
+
+      return originalBullet;
+    }),
+  }));
 
 const filterSkillsForJobFamily = (
   skills: string[],
@@ -644,11 +710,7 @@ const filterSkillsForJobFamily = (
     let requiresReview = false;
     let reason = '';
 
-    if (UNSUPPORTED_INDUSTRY_SKILLS.has(key)) {
-      reason =
-        `"${skill}" describes specialist industry experience not evidenced in the Master CV. Review and keep only if you actually worked with it.`;
-      requiresReview = true;
-    } else if (DEVELOPER_ONLY_SKILLS.has(key) && jobFamily === 'support') {
+    if (DEVELOPER_ONLY_SKILLS.has(key) && jobFamily === 'support') {
       reason =
         `"${skill}" is developer-focused. Keep it only if the JD asks for it or it is genuinely relevant to this support role.`;
       requiresReview = true;
@@ -814,8 +876,7 @@ const buildSkillsAwards = (
   const existing = splitSkillsAwards(current);
   const safeSkillKeywords = safeKeywords.filter(
     (keyword) =>
-      !JD_ONLY_SKILL_DENYLIST.some((blocked) => canonical(blocked) === canonical(keyword)) &&
-      !UNSUPPORTED_INDUSTRY_SKILLS.has(canonical(keyword)), // (#10)
+      !JD_ONLY_SKILL_DENYLIST.some((blocked) => canonical(blocked) === canonical(keyword)),
   );
 
   const jdBuckets = splitSkillsAwards({
@@ -831,7 +892,8 @@ const buildSkillsAwards = (
         type:           'technical_skill_added',
         section:        'skillsAwards',
         after:          keyword,
-        reason:         `Added "${keyword}" because it was explicitly matched against the job description keywords.`,
+        reason:         `Added "${keyword}" because it is supported by Master CV evidence and relevant to the job description.`,
+        riskLevel:      'safe',
         requiresReview: false,
       });
     }
@@ -1389,7 +1451,63 @@ const removeRepeatedTailoringNoise = (value: string): string => {
 // Rewrite quality validator (#12/#14)
 // ============================================================
 
+const MAX_BULLET_LENGTH = 190;
+
 const BAD_REWRITE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  {
+    pattern: /\band internal tools\b/i,
+    reason: 'Broken phrase: missing verb before internal tools.',
+  },
+  {
+    pattern: /\bresolve,\s+and\b/i,
+    reason: 'Broken phrase: resolve, and.',
+  },
+  {
+    pattern: /\bMonitored\b.+\breacting\b/i,
+    reason: 'Tense mismatch: Monitored + reacting.',
+  },
+  {
+    pattern: /\bautomation thinking\b/i,
+    reason: 'Unnatural phrase: automation thinking.',
+  },
+  {
+    pattern: /\bto escalate and resolve,\s+and\b/i,
+    reason: 'Broken escalation rewrite.',
+  },
+  {
+    pattern: /\bUsed\s+and\s+internal\s+tools\b/i,
+    reason: 'Broken phrase: Used and internal tools.',
+  },
+
+  {
+    pattern: /\b(assessment|analysis|impact|support)\s+all\s+(critical|service|metrics|issues)\b/i,
+    reason: 'Missing punctuation or preposition after assessment/analysis/impact.',
+  },
+  {
+    pattern: /\b(assessment|analysis|impact)\s+[^,.]+\s+(monitoring|reacting|responding|handling)\b/i,
+    reason: 'Awkward clause merge: missing punctuation before a second action.',
+  },
+  {
+    pattern: /\bimpact assessment all critical service metrics\b/i,
+    reason: 'Broken escalation and monitoring merge.',
+  },
+  {
+    pattern: /\bwith full context and impact assessment all\b/i,
+    reason: 'Broken appended escalation clause.',
+  },
+  {
+    pattern: /\binvestigate,\s*classify,\s*using\b/i,
+    reason: 'Broken sequence: investigate, classify, using.',
+  },
+  {
+    pattern: /\bengineering teams with full context and impact assessment all\b/i,
+    reason: 'Broken escalation and monitoring merge.',
+  },
+  {
+    pattern: /\bimpact assessment\s+(critical|service|metrics|incident)\b/i,
+    reason: 'Broken escalation clause attached to monitoring content.',
+  },
+
   { pattern: /\b(resolve|diagnose|investigate|support)\s+and\s+(and|internal|service|tools)\b/i,   reason: 'Broken verb/object structure.' },
   { pattern: /\bteams\s+service\s+metrics\b/i,                                                      reason: 'Broken phrase: cross-functional teams service metrics.' },
   { pattern: /\bteams\s+(service|metrics|tools|issues|and)\b/i,                                     reason: 'Broken phrase after cross-functional teams.' },
@@ -1419,6 +1537,13 @@ const validateRewrittenBullet = (
   if (cleaned.length > 240)
     return { valid: false, reason: 'Rewrite is too long.' };
 
+  if (isOverCombinedBullet(rewritten)) {
+    return {
+      valid: false,
+      reason: 'Rewrite combines too many JD signals into one bullet. Keep one idea per bullet.',
+    };
+  }
+
   for (const rule of BAD_REWRITE_PATTERNS) {
     if (rule.pattern.test(cleaned))
       return { valid: false, reason: rule.reason };
@@ -1440,28 +1565,125 @@ const validateRewrittenBullet = (
 // ============================================================
 
 const removeLeadingActionPhrase = (value: string): string => {
-  const cleaned  = clean(value).replace(/[.\s]+$/, '');
-  const patterns = [
-    /^Act(?:ed)? as\s+/i,   /^Served as\s+/i,    /^Delivered\s+/i,
-    /^Provided\s+/i,        /^Supported\s+/i,     /^Managed\s+/i,
-    /^Resolved\s+/i,        /^Investigated\s+/i,  /^Handled\s+/i,
-    /^Monitored\s+/i,       /^Maintained\s+/i,    /^Coordinated\s+/i,
-    /^Communicated\s+/i,    /^Enhanced\s+/i,      /^Analysed\s+/i,
-    /^Analyzed\s+/i,        /^Executed\s+/i,      /^Leveraged\s+/i,
-    /^Escalated\s+/i,       /^Collaborated\s+/i,  /^Responded\s+/i,
-    /^Tracked\s+/i,         /^Updated\s+/i,       /^Documented\s+/i,
+  const cleaned = clean(value).replace(/[.\s]+$/, '');
+
+  const fullClausePatterns = [
+    /^Monitoring\s+all\s+critical\s+service\s+metrics\s+and\s+immediately\s+reacting\s+in\s+case\s+of\s+an\s+incident/i,
+    /^Monitoring\s+all\s+critical\s+service\s+metrics/i,
+    /^Reacting\s+promptly\s+to\s+service-impacting\s+incidents/i,
+    /^Responding\s+efficiently\s+to\s+multi-channel\s+client\s+inquiries/i,
+    /^Delivering\s+top-tier\s+customer\s+support\s+across\s+multiple\s+platforms/i,
   ];
-  for (const p of patterns) {
-    if (p.test(cleaned)) return clean(cleaned.replace(p, ''));
+
+  for (const pattern of fullClausePatterns) {
+    if (pattern.test(cleaned)) {
+      const stripped = clean(cleaned.replace(pattern, ''));
+      return stripped ? `, ${stripped}` : '';
+    }
   }
+
+  const leadingVerbPatterns = [
+    /^Act(?:ed)? as\s+/i,
+    /^Served as\s+/i,
+    /^Delivered\s+/i,
+    /^Provided\s+/i,
+    /^Supported\s+/i,
+    /^Managed\s+/i,
+    /^Resolved\s+/i,
+    /^Investigated\s+/i,
+    /^Handled\s+/i,
+    /^Monitored\s+/i,
+    /^Maintained\s+/i,
+    /^Coordinated\s+/i,
+    /^Communicated\s+/i,
+    /^Enhanced\s+/i,
+    /^Analysed\s+/i,
+    /^Analyzed\s+/i,
+    /^Executed\s+/i,
+    /^Escalated\s+/i,
+    /^Collaborated\s+/i,
+    /^Responded\s+/i,
+    /^Tracked\s+/i,
+    /^Updated\s+/i,
+    /^Documented\s+/i,
+    /^Used\s+/i,
+  ];
+
+  for (const pattern of leadingVerbPatterns) {
+    if (pattern.test(cleaned)) {
+      const stripped = clean(cleaned.replace(pattern, ''));
+      return stripped ? `, ${stripped}` : '';
+    }
+  }
+
   return clean(cleaned.replace(/^[A-Z][a-z]+(?:\s+[a-z]+){0,2}\s+/i, ''));
 };
 
-// ============================================================
-// Core bullet improvement
-// ============================================================
 
-const MAX_BULLET_LENGTH = 240;
+const JD_SIGNAL_PATTERNS_FOR_BULLET: Record<string, RegExp[]> = {
+  troubleshooting: [
+    /\btroubleshoot/i,
+    /\bdiagnos/i,
+    /\binvestigat/i,
+    /\bresolve/i,
+    /\bproblem solving/i,
+  ],
+  escalation: [
+    /\bescalat/i,
+    /\bsenior support/i,
+    /\bengineering team/i,
+    /\btechnical team/i,
+    /\bproduct team/i,
+    /\bR&D\b/i,
+  ],
+  monitoring: [
+    /\bmonitor/i,
+    /\bmetrics?\b/i,
+    /\bservice-impact/i,
+    /\bincident/i,
+    /\balert/i,
+  ],
+  documentation: [
+    /\bdocument/i,
+    /\bcase notes?\b/i,
+    /\bknowledge base\b/i,
+    /\bhandover/i,
+    /\btroubleshooting history\b/i,
+  ],
+  customerCommunication: [
+    /\bcustomer/i,
+    /\bclient/i,
+    /\bphone/i,
+    /\bemail/i,
+    /\bcommunication/i,
+    /\bcomplaint/i,
+  ],
+  systems: [
+    /\bWindows\b/i,
+    /\boperating systems?\b/i,
+    /\bsoftware\b/i,
+    /\bhardware\b/i,
+    /\bconnectivity\b/i,
+    /\bIP network/i,
+  ],
+};
+
+const countBulletSignals = (bullet: string): number => {
+  const value = clean(bullet);
+
+  return Object.values(JD_SIGNAL_PATTERNS_FOR_BULLET).reduce((count, patterns) => {
+    return patterns.some((pattern) => pattern.test(value)) ? count + 1 : count;
+  }, 0);
+};
+
+const isOverCombinedBullet = (bullet: string): boolean => {
+  const signalCount = countBulletSignals(bullet);
+  const connectorCount = (bullet.match(/\b(and|while|with|using|through|by)\b/gi) ?? []).length;
+
+  return signalCount >= 3 && (bullet.length > 150 || connectorCount >= 4);
+};
+
+
 
 const improveBullet = (
   bullet: string,
@@ -1763,7 +1985,7 @@ const optimizeRoleBullets = (
       return normaliseBulletSentence(optimized.bullet);
     }
 
-    return normaliseBulletSentence(bullet);
+    return normaliseBulletSentence(fixTense(bullet, isPastRole));
   });
 
   const maxBullets = maxBulletsForRole(roleIndex, role.bullets?.length ?? 0);
@@ -1823,13 +2045,191 @@ const removeUnsafeMissingFromSkills = (
 const WEAK_BULLET_INDICATORS =
   /^(helped|worked|did|handled|assisted|was involved|participated|made sure|tried|used to|would|could)/i;
 
+
+const SUPPORT_UNSAFE_SKILLS = [
+  'TypeScript',
+  'JavaScript',
+  'React',
+  'Node',
+  'Node.js',
+  'Frontend',
+  'Backend',
+  'Full stack',
+  'Software development',
+  'Coding',
+  'Programming',
+  'GitHub',
+];
+
+const ALWAYS_UNSAFE_IF_UNPROVEN = [
+  'Lenel',
+  'Access Control',
+  'Video Surveillance',
+  'Electronic Security',
+  'Microsoft SQL Server',
+  'SQL Server',
+  'AIX',
+  'VMS',
+  'Retailer POS',
+  'FTP',
+  'SFTP',
+  'PostgreSQL',
+  'AWS',
+  'Azure',
+];
+
+const escapeRegex = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const jdMentionsTerm = (
+  term: string,
+  analysis?: AnalysisRecordLike | null,
+): boolean => {
+  const jdText = [
+    analysis?.job_title,
+    analysis?.jobTitle,
+    analysis?.job_description,
+    analysis?.jobDescription,
+    analysis?.extended_data?.job_title,
+    analysis?.extended_data?.target_role,
+    analysis?.extended_data?.role_category,
+  ].filter(Boolean).join(' ');
+
+  return new RegExp(`\\b${escapeRegex(term)}\\b`, 'i').test(jdText);
+};
+
+const getTermsToRemoveForJob = (
+  classifiedSkills: EvidenceClassifiedSkill[],
+  jobFamily: JobFamily,
+  analysis?: AnalysisRecordLike | null,
+): string[] => {
+  const blockedTerms = classifiedSkills
+    .filter((skill) => skill.bucket === 'blocked')
+    .map((skill) => skill.keyword);
+
+  const supportDeveloperTerms =
+    jobFamily === 'support'
+      ? SUPPORT_UNSAFE_SKILLS.filter((skill) => !jdMentionsTerm(skill, analysis))
+      : [];
+
+  return unique([
+    ...blockedTerms,
+    ...supportDeveloperTerms,
+    ...ALWAYS_UNSAFE_IF_UNPROVEN.filter((skill) =>
+      classifiedSkills.some(
+        (item) =>
+          canonical(item.keyword) === canonical(skill) &&
+          ['blocked', 'missing', 'suggested', 'review_required'].includes(item.bucket),
+      ),
+    ),
+  ]);
+};
+
+const removeTermsFromText = (value: string, terms: string[]): string => {
+  let output = String(value ?? '');
+
+  for (const term of terms) {
+    if (!term.trim()) continue;
+    const pattern = new RegExp(`\\b${escapeRegex(term)}\\b\\s*,?\\s*`, 'gi');
+    output = output.replace(pattern, '');
+  }
+
+  return output
+    .replace(/,\s*,/g, ', ')
+    .replace(/:\s*,/g, ': ')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s+,/g, ',')
+    .replace(/,\s*\./g, '.')
+    .replace(/\bSkilled in\s*\./i, '')
+    .replace(/\bSkilled in\s*$/i, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+};
+
+const removeTermsFromSkillsBlock = (value: string, terms: string[]): string => {
+  return splitLines(value)
+    .map((line) => removeTermsFromText(line, terms))
+    .map((line) => line.replace(/^[,;\s]+|[,;\s]+$/g, '').trim())
+    .filter((line) => line && !/^[^:]+:\s*$/.test(line))
+    .join('\n');
+};
+
+const cleanResumeEvidenceForJob = (
+  resume: ResumeBuilderState,
+  classifiedSkills: EvidenceClassifiedSkill[],
+  jobFamily: JobFamily,
+  analysis?: AnalysisRecordLike | null,
+): ResumeBuilderState => {
+  const termsToRemove = getTermsToRemoveForJob(classifiedSkills, jobFamily, analysis);
+
+  if (!termsToRemove.length) return resume;
+
+  return {
+    ...resume,
+    summary: removeTermsFromText(resume.summary ?? '', termsToRemove),
+    skillsAwards: {
+      technicalSkills: removeTermsFromSkillsBlock(resume.skillsAwards.technicalSkills, termsToRemove),
+      languages: removeTermsFromSkillsBlock(resume.skillsAwards.languages, termsToRemove),
+      trainingCertifications: removeTermsFromSkillsBlock(resume.skillsAwards.trainingCertifications, termsToRemove),
+      awards: removeTermsFromSkillsBlock(resume.skillsAwards.awards, termsToRemove),
+    },
+  };
+};
+
+const issueDeduction = (issue: QualityIssue): number => {
+  if (issue.category === 'unsupported_claim') return 15;
+  if (issue.category === 'broken_bullet') return 15;
+  if (issue.category === 'wrong_tense') return 10;
+  if (issue.category === 'irrelevant_skill') return 10;
+  if (issue.category === 'repeated_phrase') return 5;
+  if (issue.category === 'overused_jd_phrase') return 5;
+  if (issue.category === 'weak_bullet') return 3;
+  if (issue.category === 'missing_jd_keyword') return 2;
+
+  if (issue.severity === 'error') return 10;
+  if (issue.severity === 'warning') return 5;
+  return 1;
+};
+
+
 const buildQualityReport = (
   resume: ResumeBuilderState,
   safeKeywords: string[],
   trackedPhrases: string[] = [],
+  masterBullets: string[]  = [],
 ): CVQualityReport => {
   const issues: QualityIssue[] = [];
   const phraseCounts = new Map<string, number>();
+
+  const finalSkillText = canonical([
+    resume.skillsAwards?.technicalSkills,
+    resume.skillsAwards?.languages,
+    resume.skillsAwards?.trainingCertifications,
+    resume.skillsAwards?.awards,
+  ].filter(Boolean).join(' '));
+
+  for (const riskySkill of [
+    'typeScript',
+    'lenel',
+    'access control',
+    'video surveillance',
+    'electronic security',
+    'microsoft sql server',
+    'aix',
+    'vms',
+    'retailer pos',
+    'ftp',
+    'sftp',
+  ]) {
+    if (finalSkillText.includes(canonical(riskySkill))) {
+      issues.push({
+        severity: 'error',
+        category: 'unsupported_claim',
+        message: `Remove unsupported skill from this CV: ${riskySkill}.`,
+        location: 'Technical Skills & Competencies',
+      });
+    }
+  }
 
   for (const role of resume.experience ?? []) {
     const roleName = `${role.jobTitle ?? 'Role'} at ${role.company ?? 'Company'}`;
@@ -1910,13 +2310,14 @@ const buildQualityReport = (
         });
       }
 
-      // Unsupported claim check
-      for (const blocked of UNSUPPORTED_INDUSTRY_SKILLS) {
-        if (canonical(value).includes(blocked)) {
+      // Unsupported claim check — dynamic, works for any JD / vendor / industry
+      if (masterBullets.length > 0) {
+        const unsupported = detectUnsupportedClaims(value, masterBullets, safeKeywords);
+        if (unsupported.length > 0) {
           issues.push({
             severity: 'error',
             category: 'unsupported_claim',
-            message:  `Bullet may contain an unsupported industry-specific claim. Verify this is in the Master CV: "${value.slice(0, 80)}…"`,
+            message:  `Bullet contains claim(s) not evidenced in Master CV — "${unsupported.join('", "')}" — verify or remove: "${value.slice(0, 80)}…"`,
             location,
           });
         }
@@ -1948,15 +2349,18 @@ const buildQualityReport = (
     }
   }
 
-  // Score: start at 100, deduct per issue
-  const deductions = issues.reduce((sum, issue) => {
-    if (issue.severity === 'error')   return sum + 8;
-    if (issue.severity === 'warning') return sum + 3;
-    return sum + 1;
-  }, 0);
+  // Score: start at 100, deduct by business impact.
+  const deductions = issues.reduce((sum, issue) => sum + issueDeduction(issue), 0);
+
+  const hasBlockingIssue = issues.some((issue) =>
+    issue.severity === 'error' ||
+    issue.category === 'unsupported_claim' ||
+    issue.category === 'wrong_tense' ||
+    issue.category === 'broken_bullet'
+  );
 
   const score  = Math.max(0, Math.min(100, 100 - deductions));
-  const passed = score >= 70 && issues.filter((i) => i.severity === 'error').length === 0;
+  const passed = score >= 85 && !hasBlockingIssue;
 
   return { score, passed, issues };
 };
@@ -1965,24 +2369,155 @@ const buildQualityReport = (
 // Public entry point
 // ============================================================
 
+
+const JD_DEVELOPER_SKILL_PATTERNS = [
+  /\bTypeScript\b/i,
+  /\bJavaScript\b/i,
+  /\bReact\b/i,
+  /\bNode\b/i,
+  /\bfrontend\b/i,
+  /\bbackend\b/i,
+  /\bsoftware development\b/i,
+  /\bcoding\b/i,
+  /\bprogramming\b/i,
+];
+
+const filterSupportRoleKeywords = (
+  keywords: string[],
+  analysis: AnalysisRecordLike | null | undefined,
+  jobFamily: JobFamily,
+): string[] => {
+  if (jobFamily !== 'support' || !analysis) return keywords;
+
+  const jdText = [
+    analysis.job_title,
+    analysis.job_description,
+  ].filter(Boolean).join(' ');
+
+  return keywords.filter((keyword) => {
+    const isDeveloperSkill = JD_DEVELOPER_SKILL_PATTERNS.some((pattern) => pattern.test(keyword));
+    if (!isDeveloperSkill) return true;
+
+    return JD_DEVELOPER_SKILL_PATTERNS.some((pattern) => pattern.test(jdText));
+  });
+};
+
+
+
+type EvidenceClassifiedSkill = ReturnType<typeof classifySkills>[number];
+
+const addEvidenceReviewSkillChanges = (
+  classifiedSkills: EvidenceClassifiedSkill[],
+  changes: TailoringChange[],
+): void => {
+  const reviewItems = getReviewRequiredSkillItems(classifiedSkills).filter(
+    (item) => item.bucket === 'review_required',
+  );
+  const seen = new Set<string>();
+
+  for (const item of reviewItems) {
+    const key = canonical(item.keyword);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+
+    changes.push({
+      type: 'skill_review_needed',
+      section: 'skillsAwards',
+      before: item.keyword,
+      after: item.keyword,
+      reason: item.reason,
+      riskLevel: item.bucket === 'blocked' ? 'not_recommended' : 'medium',
+      evidenceSource: item.source,
+      requiresReview: true,
+    });
+  }
+};
+
+const buildEvidenceClaimableGaps = (
+  classifiedSkills: EvidenceClassifiedSkill[],
+): ClaimableGap[] => {
+  return getClaimableGapItems(classifiedSkills)
+    .filter((item) => item.bucket !== 'confirmed' && item.bucket !== 'jd_matched')
+    .map((item) => ({
+      keyword: item.keyword,
+      evidence: item.evidence ?? item.source,
+      suggestion:
+        item.suggestion ??
+        'Review this keyword manually. Add it only if the Master CV evidence is accurate and the user confirms it.',
+    }));
+};
+
+const uniqueClaimableGaps = (gaps: ClaimableGap[]): ClaimableGap[] => {
+  const seen = new Set<string>();
+  const out: ClaimableGap[] = [];
+
+  for (const gap of gaps) {
+    const key = canonical(gap.keyword);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(gap);
+  }
+
+  return out;
+};
+
+
 export const optimizeResumeForJob = ({
   resume,
   analysis,
 }: OptimizeResumeForJobInput): OptimizeResumeForJobResult => {
   const changes: TailoringChange[] = [];
 
+  // Snapshot the original Master CV bullets BEFORE any optimisation.
+  // These are the ground truth used by detectUnsupportedClaims and finalScreeningGate.
+  const masterBullets = getAllMasterBullets(resume.experience);
+
   const safeKeywordsWithStrength = getSafeJdKeywordsWithStrength(analysis);
-  const safeKeywords             = safeKeywordsWithStrength.map((k) => k.keyword);
+  const rawSafeKeywords          = safeKeywordsWithStrength.map((k) => k.keyword);
   const skippedMissingKeywords   = getSkippedMissingKeywords(analysis);
   const jobFamily                = detectJobFamily(analysis); // (#12)
+
+  const evidenceAnalysis = analysis ?? {};
+  const classifiedSkills = classifySkills(resume, evidenceAnalysis);
+
+  const summaryResult = buildRoleTargetedSummary({
+    resume,
+    analysis,
+    jobTitle: analysis?.job_title || analysis?.jobTitle || resume.personal.jobTitle,
+    classifiedSkills,
+    originalSummary: resume.summary,
+  });
+
+  if (summaryResult.summary && summaryResult.summary !== resume.summary) {
+    changes.push({
+      type: 'summary_tailored',
+      section: 'summary',
+      before: resume.summary,
+      after: summaryResult.summary,
+      reason: `Tailored professional summary for ${summaryResult.roleFamily} role using supported Master CV evidence.`,
+      riskLevel: 'safe',
+    });
+  }
+
+  const evidenceSafeSkillKeywords = getAutoSkillsSectionItems(classifiedSkills);
+
+  // Keep bullet matching broad enough for JD alignment, but keep Summary/Skills evidence-controlled.
+  const safeKeywords             = filterSupportRoleKeywords(rawSafeKeywords, analysis, jobFamily);
+  const safeSkillKeywords        = filterSupportRoleKeywords(evidenceSafeSkillKeywords, analysis, jobFamily);
   const phraseTracker            = buildPhraseTracker();     // (#13)
 
-  // (#2/#19) Surface claimable gaps before stripping them
-  const claimableGaps = buildClaimableGaps(skippedMissingKeywords, resume.experience);
+  addEvidenceReviewSkillChanges(classifiedSkills, changes);
+
+  // (#2/#19) Surface claimable gaps before stripping them.
+  // Missing / blocked / suggested JD terms are shown to the user, not inserted as facts.
+  const claimableGaps = uniqueClaimableGaps([
+    ...buildClaimableGaps(skippedMissingKeywords, resume.experience),
+    ...buildEvidenceClaimableGaps(classifiedSkills),
+  ]);
 
   const optimizedSkills = buildSkillsAwards(
     removeUnsafeMissingFromSkills(resume.skillsAwards, skippedMissingKeywords),
-    safeKeywords,
+    safeSkillKeywords,
     changes,
     jobFamily,
   );
@@ -1995,17 +2530,38 @@ export const optimizeResumeForJob = ({
     analysis,
   );
 
-  const tailoredResume: ResumeBuilderState = {
+  const preliminaryResume: ResumeBuilderState = {
     ...resume,
+    summary:      summaryResult.summary || resume.summary,
     experience:   optimizedExperience,
     skillsAwards: optimizedSkills,
   };
 
-  // (#20) Run quality checker on the final output
+  // Final gate: revert any bullet that introduces a JD keyword not present
+  // anywhere in the original Master CV, preventing fabricated claims.
+  const screenedResume: ResumeBuilderState = {
+    ...preliminaryResume,
+    experience: finalScreeningGate(
+      preliminaryResume.experience,
+      masterBullets,
+      safeKeywords,
+      changes,
+    ),
+  };
+
+  const tailoredResume = cleanResumeEvidenceForJob(
+    screenedResume,
+    classifiedSkills,
+    jobFamily,
+    analysis,
+  );
+
+  // (#20) Quality check on final output — passes masterBullets for dynamic claim detection
   const qualityReport = buildQualityReport(
     tailoredResume,
     safeKeywords,
     phraseTracker.getAll(),
+    masterBullets,
   );
 
   return {
