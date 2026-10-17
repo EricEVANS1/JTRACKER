@@ -381,6 +381,14 @@ const mergeProfileDefaultsIntoPersonal = (
   };
 };
 
+type SavedBuilderVersion = {
+  id: string;
+  name: string;
+  sourceAnalysisId: string | null;
+  sourceCvVersionId: string | null;
+  companyName: string | null;
+};
+
 const readBuilderState = (cvVersion?: CvVersionRecord | null): ResumeBuilderState | null => {
   const structured = cvVersion?.structured_cv;
   const suggestions = cvVersion?.cv_suggestions;
@@ -1869,6 +1877,9 @@ export const ResumeBuilderPage: React.FC = () => {
   const [formatting, setFormatting] = useState<FormattingSettings>(defaultFormatting);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // The Resume Builder CV version that Save updates. Set when a saved builder
+  // CV is opened, or after the first save; null means Save creates a new one.
+  const [savedVersion, setSavedVersion] = useState<SavedBuilderVersion | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
   const [error, setError] = useState('');
   const [showCustomModal, setShowCustomModal] = useState(false);
@@ -1918,6 +1929,7 @@ export const ResumeBuilderPage: React.FC = () => {
       try {
         setLoading(true);
         setError('');
+        setSavedVersion(null);
         setQualityReport(null);
         setSkillReviewItems([]);
         setClaimableGaps([]);
@@ -2036,6 +2048,19 @@ export const ResumeBuilderPage: React.FC = () => {
 
           setFormatting(readBuilderFormatting(cvRecord));
           setAnalysis(null);
+          // Only versions the builder saved are updated in place; an uploaded
+          // CV opened here is kept as is and the first save makes a copy.
+          setSavedVersion(
+            cvRecord.structured_cv?.source === 'resume_builder'
+              ? {
+                  id: cvRecord.id,
+                  name: cvRecord.name || 'Resume Builder CV',
+                  sourceAnalysisId: cvRecord.source_analysis_id ?? cvRecord.structured_cv?.source_analysis_id ?? null,
+                  sourceCvVersionId: cvRecord.parent_cv_version_id ?? cvRecord.structured_cv?.source_cv_version_id ?? null,
+                  companyName: cvRecord.structured_cv?.company_name ?? null,
+                }
+              : null,
+          );
           setResume(finalResume);
           setOriginalResume(finalResume);
           return;
@@ -2125,41 +2150,84 @@ export const ResumeBuilderPage: React.FC = () => {
 
   const flash = (msg: string) => { setSavedMsg(msg); setTimeout(() => setSavedMsg(''), 3000); };
 
-  const handleSave = async () => {
+  const handleSave = async (asNew = false) => {
     try {
       setSaving(true); setError('');
       if (!plainText.trim()) throw new Error('Resume is empty.');
       const { data: { user }, error: ue } = await supabase.auth.getUser();
       if (ue || !user) throw new Error('Not logged in.');
+
+      // A saved version opened on its own has no analysis loaded, so keep the
+      // links it already has.
+      const sourceAnalysisId = analysis?.id ?? savedVersion?.sourceAnalysisId ?? null;
+      const sourceCvVersionId = analysis?.cv_version_id ?? savedVersion?.sourceCvVersionId ?? null;
+      const companyName = analysis?.company_name ?? savedVersion?.companyName ?? null;
+      const savedAt = new Date().toISOString();
+      const targetRole = jobTitle || resume.personal.jobTitle || null;
+
       const builderPayload = {
         source: 'resume_builder',
         builder_state: resume,
         formatting,
-        source_analysis_id: analysis?.id ?? null,
-        source_cv_version_id: analysis?.cv_version_id ?? null,
-        job_title: jobTitle || resume.personal.jobTitle || null,
-        company_name: analysis?.company_name ?? null,
-        saved_at: new Date().toISOString(),
+        source_analysis_id: sourceAnalysisId,
+        source_cv_version_id: sourceCvVersionId,
+        job_title: targetRole,
+        company_name: companyName,
+        saved_at: savedAt,
       };
-
-      const { error: ie } = await supabase.from('cv_versions').insert({
-        user_id: user.id,
-        name: `${jobTitle || resume.personal.fullName || 'Optimized CV'} — Builder`,
-        target_role: jobTitle || resume.personal.jobTitle || null,
+      const contents = {
+        target_role: targetRole,
         cv_text: plainText,
-        last_score: analysis?.score || null,
-        last_analyzed_at: new Date().toISOString(),
-        source_analysis_id: analysis?.id ?? null,
-        parent_cv_version_id: analysis?.cv_version_id ?? null,
         structured_cv: builderPayload,
         cv_suggestions: {
           builder_state: resume,
           formatting,
-          source_analysis_id: analysis?.id ?? null,
-          source_cv_version_id: analysis?.cv_version_id ?? null,
+          source_analysis_id: sourceAnalysisId,
+          source_cv_version_id: sourceCvVersionId,
         },
-      });
+      };
+
+      if (savedVersion && !asNew) {
+        const { data: updated, error: updateError } = await supabase
+          .from('cv_versions')
+          .update({
+            ...contents,
+            ...(analysis ? { last_score: analysis.score || null, last_analyzed_at: savedAt } : {}),
+          })
+          .eq('id', savedVersion.id)
+          .eq('user_id', user.id)
+          .select('id');
+        if (updateError) throw updateError;
+        if (!updated?.length) {
+          throw new Error('This CV version no longer exists in CV Manager. Use "Save as new" to keep your changes.');
+        }
+        flash(`Saved changes to "${savedVersion.name}".`);
+        return;
+      }
+
+      const name = `${jobTitle || resume.personal.fullName || 'Optimized CV'} — Builder`;
+      const { data: created, error: ie } = await supabase
+        .from('cv_versions')
+        .insert({
+          user_id: user.id,
+          name,
+          ...contents,
+          last_score: analysis?.score || null,
+          last_analyzed_at: savedAt,
+          source_analysis_id: sourceAnalysisId,
+          parent_cv_version_id: sourceCvVersionId,
+        })
+        .select('id, name')
+        .single();
       if (ie) throw ie;
+
+      setSavedVersion({
+        id: created.id,
+        name: created.name || name,
+        sourceAnalysisId,
+        sourceCvVersionId,
+        companyName,
+      });
       flash('Saved as a new CV version in CV Manager.');
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to save.'); }
     finally { setSaving(false); }
@@ -2472,6 +2540,11 @@ export const ResumeBuilderPage: React.FC = () => {
             <ArrowLeft size={15} />Back to CV Manager
           </button>
           <h1 className="text-2xl font-bold text-slate-900">Resume Builder</h1>
+          {savedVersion && (
+            <p className="text-sm text-slate-500 mt-1">
+              Editing <span className="font-medium text-slate-700">{savedVersion.name}</span>
+            </p>
+          )}
           {analysis && (
             <p className="text-sm text-slate-500 mt-1">
               Based on analysis for{' '}
@@ -2493,10 +2566,16 @@ export const ResumeBuilderPage: React.FC = () => {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
             <Download size={15} />ATS DOCX
           </button>
-          <button onClick={handleSave} disabled={saving}
+          {savedVersion && (
+            <button onClick={() => handleSave(true)} disabled={saving}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition disabled:opacity-50">
+              <Plus size={15} />Save as new
+            </button>
+          )}
+          <button onClick={() => handleSave()} disabled={saving}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-700 transition disabled:opacity-50">
             {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-            {saving ? 'Saving...' : 'Save to CV Manager'}
+            {saving ? 'Saving...' : savedVersion ? 'Save changes' : 'Save to CV Manager'}
           </button>
         </div>
       </div>
