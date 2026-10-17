@@ -7,7 +7,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 import { errorResponse, getCorsHeaders, jsonResponse } from './_lib/cors.ts';
 import { fetchJobsForPreferences } from './_lib/fetcher.ts';
-import { parseMaxCalls } from './_lib/queryPlan.ts';
+import { cleanTerms, parseMaxCalls } from './_lib/queryPlan.ts';
 import { scoreJobAgainstCV } from './_lib/scorer.ts';
 import type {
   CVProfile,
@@ -17,26 +17,25 @@ import type {
   UserJobPreferences,
 } from './_lib/types.ts';
 
+// Settings used only where the user has none. Titles, locations, keywords and
+// goals are never assumed: a search runs on what the user set.
 const DEFAULT_PREFERENCES: UserJobPreferences = {
   user_id: '',
   default_cv_version_id: null,
-  target_titles: [
-    'Technical Support Engineer',
-    'IT Support Specialist',
-    'Application Support Analyst',
-    'Cloud Support Engineer',
-    'Junior Software Engineer',
-  ],
-  preferred_locations: ['Warsaw, Poland', 'Poland', 'Remote Poland'],
+  target_titles: [],
+  preferred_locations: [],
   work_model: 'any',
   min_match_score: 60,
-  excluded_keywords: ['senior', 'lead', 'manager', '7+ years', '10+ years'],
-  career_goal:
-    'Find a strong technical support, cloud support, QA, or junior software engineering role in Poland.',
-  enabled_sources: ['google_jobs', 'indeed'],
+  excluded_keywords: [],
+  career_goal: null,
+  // Empty means every supported job board (see getSearchSources).
+  enabled_sources: [],
   max_job_age_days: 7,
   automation_enabled: false,
 };
+
+const MISSING_SEARCH_TERMS_MESSAGE =
+  'Add at least one target job title and one preferred location in your Job Automation preferences, then run the search again.';
 
 const LLM_CONFIG: LLMConfig = {
   apiKey: Deno.env.get('LLAMA_API_KEY') || Deno.env.get('GROQ_API_KEY') || '',
@@ -89,7 +88,9 @@ async function loadPreferences(
     .eq('user_id', userId)
     .maybeSingle();
 
-  if (!data) {
+  let row = data as Partial<UserJobPreferences> | null;
+
+  if (!row) {
     await supabase.rpc('ensure_user_job_preferences', {
       target_user_id: userId,
     });
@@ -100,30 +101,20 @@ async function loadPreferences(
       .eq('user_id', userId)
       .maybeSingle();
 
-    return {
-      ...DEFAULT_PREFERENCES,
-      ...(created || {}),
-      user_id: userId,
-    };
+    row = created as Partial<UserJobPreferences> | null;
   }
 
+  // The user's own settings as saved, cleaned up; nothing is filled in for them.
   return {
     ...DEFAULT_PREFERENCES,
-    ...data,
+    ...(row || {}),
     user_id: userId,
-    target_titles:
-      data.target_titles?.length > 0
-        ? data.target_titles
-        : DEFAULT_PREFERENCES.target_titles,
-    preferred_locations:
-      data.preferred_locations?.length > 0
-        ? data.preferred_locations
-        : DEFAULT_PREFERENCES.preferred_locations,
-    enabled_sources:
-      data.enabled_sources?.includes('google_jobs') ||
-      data.enabled_sources?.includes('indeed')
-        ? data.enabled_sources
-        : ['google_jobs', 'indeed'],
+    target_titles: cleanTerms(row?.target_titles),
+    preferred_locations: cleanTerms(row?.preferred_locations),
+    enabled_sources: cleanTerms(row?.enabled_sources),
+    excluded_keywords: cleanTerms(row?.excluded_keywords),
+    min_match_score: row?.min_match_score ?? DEFAULT_PREFERENCES.min_match_score,
+    max_job_age_days: row?.max_job_age_days ?? DEFAULT_PREFERENCES.max_job_age_days,
   };
 }
 
@@ -372,6 +363,12 @@ Deno.serve(async (req) => {
 
   try {
     const preferences = await loadPreferences(supabase, user.id);
+
+    // Without titles and locations there is nothing to search; stop before
+    // recording a run or spending any SerpAPI calls.
+    if (!preferences.target_titles.length || !preferences.preferred_locations.length) {
+      return errorResponse(MISSING_SEARCH_TERMS_MESSAGE, 400);
+    }
 
     const { data: run, error: runError } = await supabase
       .from('job_search_runs')

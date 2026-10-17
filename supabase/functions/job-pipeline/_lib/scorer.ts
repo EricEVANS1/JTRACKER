@@ -252,13 +252,13 @@ async function callLLM(
   }
 
   const prompt = `
-You are scoring a real job for a job seeker in Poland.
+You are scoring a real job for a job seeker.
 
 Candidate CV/Profile:
 ${buildCvText(cvProfile).slice(0, 5000)}
 
 Career goal:
-${preferences.career_goal || 'Move into stronger technical support, cloud support, QA, or junior software engineering roles.'}
+${preferences.career_goal || 'Not specified.'}
 
 Target roles:
 ${(preferences.target_titles || []).join(', ')}

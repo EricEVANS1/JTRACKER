@@ -13,16 +13,6 @@ type SearchSource =
   | 'bulldogjob'
   | 'crossweb';
 
-const DEFAULT_TARGET_TITLES = [
-  'Software Engineer',
-  'IT Support',
-  'Technical Support',
-  'Data Analyst',
-  'QA Tester',
-];
-
-const DEFAULT_LOCATIONS = ['Poland', 'Warsaw', 'Remote'];
-
 const BOARD_SOURCES: Record<
   Exclude<SearchSource, 'google_jobs' | 'indeed'>,
   {
@@ -1092,10 +1082,9 @@ export async function fetchJobsForPreferences(
   const maxRuntimeMs = 120_000;
 
   const hasTimeBudget = () => Date.now() - startedAt < maxRuntimeMs;
-  const preferredTitles = cleanTerms(preferences.target_titles);
-  const preferredLocations = cleanTerms(preferences.preferred_locations);
-  const titles = preferredTitles.length > 0 ? preferredTitles : DEFAULT_TARGET_TITLES;
-  const locations = preferredLocations.length > 0 ? preferredLocations : DEFAULT_LOCATIONS;
+  // Only what the user set; with no titles or locations nothing is searched.
+  const titles = cleanTerms(preferences.target_titles);
+  const locations = cleanTerms(preferences.preferred_locations);
 
   const sources = getSearchSources(preferences);
 

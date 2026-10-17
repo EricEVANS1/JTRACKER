@@ -486,6 +486,12 @@ export const JobAutomationPage: React.FC = () => {
     if (!user) return;
     setSuccess('');
     setError('');
+
+    // Searches use only the saved titles and locations; nothing is assumed.
+    if (!preferences?.target_titles?.length || !preferences?.preferred_locations?.length) {
+      setError('Add at least one target job title and one preferred location in your preferences and save them, then run the search again.');
+      return;
+    }
     setRefreshing(true);
 
     try {
@@ -909,7 +915,7 @@ export const JobAutomationPage: React.FC = () => {
                 label="Preferred locations"
                 value={preferenceForm.preferredLocations}
                 onChange={(v) => updatePreferenceForm('preferredLocations', v)}
-                placeholder="Warsaw, Poland, Remote"
+                placeholder="Remote, London, Berlin"
               />
               <SelectInput
                 label="Work model"

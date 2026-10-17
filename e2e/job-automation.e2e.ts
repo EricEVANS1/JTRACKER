@@ -52,3 +52,20 @@ test('a run reports how many title and location combinations it searched', async
   await expect(main).toContainText('Scanned: 12.');
   expect(pipelineCalls).toBe(1);
 });
+
+test('without saved titles or locations, nothing is searched and the user is told why', async ({ page, supabase }) => {
+  supabase.seed('user_job_preferences', [
+    { id: 'prefs-1', user_id: USER_ID, target_titles: [], preferred_locations: ['Remote'], enabled_sources: [], automation_enabled: false },
+  ]);
+  let pipelineCalls = 0;
+  await page.route(`${SUPABASE_URL}/functions/v1/job-pipeline`, (route) => {
+    pipelineCalls++;
+    return route.fulfill({ status: 500, body: '{}' });
+  });
+
+  await page.goto('/job-automation');
+  await page.getByRole('button', { name: 'Run Search Now' }).click();
+
+  await expect(page.locator('main')).toContainText('Add at least one target job title and one preferred location');
+  expect(pipelineCalls).toBe(0);
+});
