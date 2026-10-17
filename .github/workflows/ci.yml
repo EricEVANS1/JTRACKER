@@ -41,3 +41,37 @@ jobs:
       # tsc -b type-checks the app, then Vite builds it.
       - name: Type check and build
         run: npm run build
+
+      - name: Type check browser tests
+        run: npm run typecheck:e2e
+
+  e2e:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Runs the app against an in-memory mock of Supabase (no secrets needed).
+      - name: Run browser tests
+        run: npm run test:e2e
+
+      # Traces show each failing test step by step (npx playwright show-trace).
+      - name: Upload traces of failed tests
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7

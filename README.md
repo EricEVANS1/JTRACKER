@@ -144,6 +144,17 @@ Secure authentication with:
 * Visual Studio Code
 * npm
 
+## Testing
+
+```bash
+npm run lint        # ESLint (existing errors are listed in eslint-suppressions.json; new ones fail)
+npm test            # Vitest unit tests
+npm run build       # Type check and production build
+npm run test:e2e    # Playwright browser tests
+```
+
+The browser tests run the real app against an in-memory mock of the Supabase API (`e2e/support/mockSupabase.ts`), so they need no Supabase project or keys. Install Chromium once with `npx playwright install chromium`. GitHub Actions runs all of these on every push to `main` and on pull requests.
+
 ---
 
 # Database Highlights
