@@ -959,7 +959,11 @@ export const JobAutomationPage: React.FC = () => {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 flex items-center justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-wide font-semibold text-slate-500">Automation</p>
-                <p className="text-sm text-slate-600 mt-1">Enable this profile for scheduled job searches later.</p>
+                {/* Nothing runs searches on a schedule yet; this only saves the preference. */}
+                <p className="text-sm text-slate-600 mt-1">
+                  Scheduled searches aren&apos;t available yet. Turning this on saves your preference for when they
+                  are; for now, use Run Search Now.
+                </p>
               </div>
               <button
                 type="button"
@@ -968,7 +972,7 @@ export const JobAutomationPage: React.FC = () => {
                   preferenceForm.automationEnabled ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700'
                 }`}
               >
-                {preferenceForm.automationEnabled ? 'Enabled' : 'Disabled'}
+                {preferenceForm.automationEnabled ? 'On (not active yet)' : 'Off'}
               </button>
             </div>
 
@@ -1005,7 +1009,7 @@ export const JobAutomationPage: React.FC = () => {
             />
             <SummaryItem label="Minimum score"  value={`${preferences?.min_match_score ?? 60}/100`} />
             <SummaryItem label="Max job age"    value={`${preferences?.max_job_age_days ?? 7} days`} />
-            <SummaryItem label="Automation"     value={preferences?.automation_enabled ? 'Enabled' : 'Disabled'} />
+            <SummaryItem label="Automation"     value={preferences?.automation_enabled ? 'On, not scheduled yet' : 'Off'} />
             <SummaryItem
               label="Enabled sources"
               value={preferences?.enabled_sources?.length ? preferences.enabled_sources.map((s) => sourceLabels[s] || s).join(', ') : 'No sources selected'}

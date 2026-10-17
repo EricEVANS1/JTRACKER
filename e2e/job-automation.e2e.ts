@@ -69,3 +69,17 @@ test('without saved titles or locations, nothing is searched and the user is tol
   await expect(page.locator('main')).toContainText('Add at least one target job title and one preferred location');
   expect(pipelineCalls).toBe(0);
 });
+
+test('the automation switch says scheduled searches are not active yet', async ({ page, supabase }) => {
+  supabase.tables.user_job_preferences[0].automation_enabled = true;
+  await page.goto('/job-automation');
+
+  // Summary card.
+  const main = page.locator('main');
+  await expect(main).toContainText('On, not scheduled yet');
+
+  // Preferences form.
+  await page.getByRole('button', { name: 'Edit Profile' }).first().click();
+  await expect(main).toContainText("Scheduled searches aren't available yet.");
+  await expect(page.getByRole('button', { name: 'On (not active yet)' })).toBeVisible();
+});
