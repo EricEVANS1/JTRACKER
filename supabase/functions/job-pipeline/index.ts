@@ -8,6 +8,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { errorResponse, getCorsHeaders, jsonResponse } from './_lib/cors.ts';
 import { fetchJobsForPreferences } from './_lib/fetcher.ts';
 import { cleanTerms, parseMaxCalls } from './_lib/queryPlan.ts';
+import { chunk, filterNewJobs, insertSkippingDuplicates } from './_lib/saveJobs.ts';
 import { scoreJobAgainstCV } from './_lib/scorer.ts';
 import type {
   CVProfile,
@@ -193,17 +194,23 @@ async function insertJobAds(
   insertedJobs: JobAd[];
   duplicateCount: number;
 }> {
-  const dedupHashes = rawJobs.map(makeDedupHash);
+  // Skip jobs this user already has, matched by dedup hash or by exact URL:
+  // the same posting often comes back under another source or listing id.
+  // Lookups are chunked to keep the request URL short.
+  const existingHashes: string[] = [];
+  const existingUrls: string[] = [];
 
-  const { data: existing } = await supabase
-    .from('job_ads')
-    .select('dedup_hash')
-    .eq('user_id', userId)
-    .in('dedup_hash', dedupHashes);
+  for (const hashes of chunk([...new Set(rawJobs.map(makeDedupHash))], 25)) {
+    const { data } = await supabase.from('job_ads').select('dedup_hash').eq('user_id', userId).in('dedup_hash', hashes);
+    existingHashes.push(...((data || []) as Array<{ dedup_hash: string }>).map((row) => row.dedup_hash));
+  }
 
-  const existingHashes = new Set((existing || []).map((item) => item.dedup_hash));
+  for (const urls of chunk([...new Set(rawJobs.map((job) => job.job_url).filter(Boolean))], 25)) {
+    const { data } = await supabase.from('job_ads').select('job_url').eq('user_id', userId).in('job_url', urls);
+    existingUrls.push(...((data || []) as Array<{ job_url: string }>).map((row) => row.job_url));
+  }
 
-  const newJobs = rawJobs.filter((job) => !existingHashes.has(makeDedupHash(job)));
+  const newJobs = filterNewJobs(rawJobs, makeDedupHash, existingHashes, existingUrls);
 
   if (newJobs.length === 0) {
     return {
@@ -237,18 +244,16 @@ async function insertJobAds(
     status: 'new',
   }));
 
-  const { data: inserted, error } = await supabase
-    .from('job_ads')
-    .insert(rows)
-    .select('*');
-
-  if (error) {
-    throw new Error(`Failed to insert job ads: ${error.message}`);
-  }
+  // A duplicate that slips past the check above (e.g. saved by another user
+  // while job_url is unique across all users) is skipped, not fatal.
+  const { saved } = await insertSkippingDuplicates(rows, async (batch) => {
+    const { data, error } = await supabase.from('job_ads').insert(batch).select('*');
+    return { data: data as JobAd[] | null, error };
+  });
 
   return {
-    insertedJobs: (inserted || []) as JobAd[],
-    duplicateCount: rawJobs.length - (inserted?.length || 0),
+    insertedJobs: saved,
+    duplicateCount: rawJobs.length - saved.length,
   };
 }
 
