@@ -22,6 +22,13 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
+import { useGmailToken } from '../hooks/useGmailToken';
+import {
+buildGmailSyncSummary,
+type EmailEventRecord,
+type GmailSyncSummary,
+type SyncSessionRecord,
+} from '../lib/gmailSyncSummary';
 import {
 buildTimeline,
 groupTimelineByDay,
@@ -96,29 +103,6 @@ message: string | null;
 type: string | null;
 read: boolean | null;
 created_at: string;
-}
-
-interface GmailSyncSession {
-id: string;
-scanned_count: number | null;
-accepted_count: number | null;
-review_count: number | null;
-rejected_count: number | null;
-processing_time_ms: number | null;
-status: string | null;
-error_message: string | null;
-created_at: string;
-}
-
-interface EmailEvent {
-id: string;
-provider_message_id: string | null;
-received_at: string | null;
-application_id: string | null;
-}
-
-interface IgnoredEmailEvent {
-id: string;
 }
 
 interface Recruiter {
@@ -260,9 +244,13 @@ const [recentEvents, setRecentEvents] = useState<ActivityEventRecord[]>([]);
 const [activityError, setActivityError] = useState('');
 const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 const [unreadCount, setUnreadCount] = useState(0);
-const [emailEvents, setEmailEvents] = useState<EmailEvent[]>([]);
-const [ignoredEmails, setIgnoredEmails] = useState<IgnoredEmailEvent[]>([]);
-const [latestSync, setLatestSync] = useState<GmailSyncSession | null>(null);
+const [gmailSessions, setGmailSessions] = useState<SyncSessionRecord[]>([]);
+const [gmailEmailEvents, setGmailEmailEvents] = useState<EmailEventRecord[]>([]);
+const [gmailImportIds, setGmailImportIds] = useState<(string | null)[]>([]);
+const [gmailDismissed, setGmailDismissed] = useState(0);
+const [gmailSyncEnabled, setGmailSyncEnabled] = useState<boolean | null>(null);
+const [gmailError, setGmailError] = useState('');
+const { gmailConnected, minutesRemaining } = useGmailToken();
 const [recruiters, setRecruiters] = useState<Recruiter[]>([]);
 const [recruiterInteractions, setRecruiterInteractions] = useState<RecruiterInteraction[]>([]);
 const [cvVersions, setCvVersions] = useState<CVVersion[]>([]);
@@ -284,6 +272,8 @@ const [
   emailEventsResult,
   ignoredEmailsResult,
   syncSessionsResult,
+  gmailImportsResult,
+  emailSettingsResult,
   recruitersResult,
   recruiterInteractionsResult,
   cvVersionsResult,
@@ -350,18 +340,21 @@ const [
     .order('created_at', { ascending: false })
     .limit(5),
 
+  // Gmail Sync: only what the Email Sync page stores for Gmail.
   supabase
     .from('email_events')
-    .select('id, provider_message_id, received_at, application_id')
-    .eq('user_id', user.id),
+    .select('id, application_id, detected_status')
+    .eq('user_id', user.id)
+    .eq('provider', 'gmail'),
 
   supabase
     .from('ignored_email_events')
-    .select('id')
-    .eq('user_id', user.id),
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('provider', 'gmail'),
 
   supabase
-    .from('gmail_sync_sessions')
+    .from('email_sync_sessions')
     .select(`
       id,
       scanned_count,
@@ -374,8 +367,22 @@ const [
       created_at
     `)
     .eq('user_id', user.id)
+    .eq('provider', 'gmail')
     .order('created_at', { ascending: false })
-    .limit(1),
+    .limit(10),
+
+  supabase
+    .from('application_events')
+    .select('application_id')
+    .eq('user_id', user.id)
+    .eq('event_type', 'email_import')
+    .ilike('title', '%gmail%'),
+
+  supabase
+    .from('user_settings')
+    .select('gmail_sync_enabled')
+    .eq('user_id', user.id)
+    .maybeSingle(),
 
   supabase.from('recruiters').select('id').eq('user_id', user.id),
 
@@ -413,14 +420,21 @@ if (notificationsResult.error) {
   setUnreadCount(notificationsResult.count ?? (notificationsResult.data || []).length);
 }
 
-if (emailEventsResult.error) setError(emailEventsResult.error.message);
-else setEmailEvents(emailEventsResult.data || []);
+// Gmail problems are shown in the Gmail Sync card rather than for the whole page.
+const gmailFailure = [emailEventsResult, ignoredEmailsResult, syncSessionsResult, gmailImportsResult, emailSettingsResult]
+  .find((result) => result.error)?.error;
 
-if (ignoredEmailsResult.error) setError(ignoredEmailsResult.error.message);
-else setIgnoredEmails(ignoredEmailsResult.data || []);
-
-if (syncSessionsResult.error) setError(syncSessionsResult.error.message);
-else setLatestSync((syncSessionsResult.data?.[0] || null) as GmailSyncSession | null);
+if (gmailFailure) {
+  setGmailError(gmailFailure.message);
+} else {
+  setGmailError('');
+  setGmailEmailEvents((emailEventsResult.data || []) as EmailEventRecord[]);
+  setGmailDismissed(ignoredEmailsResult.count ?? 0);
+  setGmailSessions((syncSessionsResult.data || []) as SyncSessionRecord[]);
+  setGmailImportIds((gmailImportsResult.data || []).map((row) => row.application_id));
+  // Email Sync treats a missing settings row as sync enabled.
+  setGmailSyncEnabled(emailSettingsResult.data?.gmail_sync_enabled ?? true);
+}
 
 if (recruitersResult.error) setError(recruitersResult.error.message);
 else setRecruiters(recruitersResult.data || []);
@@ -660,38 +674,16 @@ return {
 };
 }, [todayStats]);
 
-const gmailStats = useMemo(() => {
-const gmailEmails = emailEvents.filter((item) => item.provider_message_id);
-const linkedEmails = emailEvents.filter((item) => item.application_id);
-
-
-const scanned = latestSync?.scanned_count || 0;
-const accepted = latestSync?.accepted_count || 0;
-const review = latestSync?.review_count || 0;
-const rejected = latestSync?.rejected_count || 0;
-
-const acceptanceRate = scanned > 0 ? Math.round((accepted / scanned) * 100) : 0;
-const reviewRate = scanned > 0 ? Math.round((review / scanned) * 100) : 0;
-const rejectionRate = scanned > 0 ? Math.round((rejected / scanned) * 100) : 0;
-
-return {
-  totalEmails: gmailEmails.length,
-  linkedEmails: linkedEmails.length,
-  ignoredEmails: ignoredEmails.length,
-  scanned,
-  accepted,
-  review,
-  rejected,
-  acceptanceRate,
-  reviewRate,
-  rejectionRate,
-  latestImport: latestSync?.created_at || '',
-  latestStatus: latestSync?.status || 'No sync yet',
-  processingTime: latestSync?.processing_time_ms || 0,
-};
-
-
-}, [emailEvents, ignoredEmails, latestSync]);
+const gmailSummary = useMemo(
+() =>
+  buildGmailSyncSummary({
+    sessions: gmailSessions,
+    emailEvents: gmailEmailEvents,
+    importedApplicationIds: gmailImportIds,
+    dismissedCount: gmailDismissed,
+  }),
+[gmailSessions, gmailEmailEvents, gmailImportIds, gmailDismissed]
+);
 
 const insight = useMemo(() => {
 if (stats.total === 0) {
@@ -1006,59 +998,15 @@ Today’s job-search actions, pipeline health, follow-ups, notifications, and re
   </div>
 
   <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-6">
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-          <MailCheck size={20} className="text-slate-700" />
-        </div>
-
-        <div className="min-w-0">
-          <h3 className="text-lg sm:text-xl font-semibold break-words">
-            Gmail Sync Summary
-          </h3>
-          <p className="text-slate-500 text-sm break-words">
-            Real sync data from your Gmail sync sessions.
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
-        <SummaryCard label="Emails Processed" value={gmailStats.totalEmails} />
-        <SummaryCard label="Emails Linked" value={gmailStats.linkedEmails} />
-        <SummaryCard label="Ignored Emails" value={gmailStats.ignoredEmails} />
-        <SummaryCard label="Latest Scanned" value={gmailStats.scanned} />
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <SummaryCard label="Accepted" value={gmailStats.accepted} />
-        <SummaryCard label="Needs Review" value={gmailStats.review} />
-        <SummaryCard label="Rejected" value={gmailStats.rejected} />
-
-        <div className="border border-slate-200 rounded-xl p-4 bg-slate-50 overflow-hidden">
-          <p className="text-sm text-slate-500">Latest Sync</p>
-          <p className="text-sm font-semibold mt-2 text-slate-900 break-words">
-            {gmailStats.latestImport
-              ? formatDateTime(gmailStats.latestImport)
-              : 'No sync yet'}
-          </p>
-          <p className="text-xs text-slate-400 mt-1 break-words">
-            {gmailStats.latestStatus} · {formatDuration(gmailStats.processingTime)}
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-        <RateCard label="Accepted Rate" value={`${gmailStats.acceptanceRate}%`} positive />
-        <RateCard label="Review Rate" value={`${gmailStats.reviewRate}%`} />
-        <RateCard label="Rejected Rate" value={`${gmailStats.rejectionRate}%`} negative />
-      </div>
-
-      {latestSync?.error_message && (
-        <div className="mt-4 bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm break-words">
-          Latest sync error: {latestSync.error_message}
-        </div>
-      )}
-    </div>
+    <GmailSyncPanel
+      summary={gmailSummary}
+      connected={gmailConnected}
+      minutesRemaining={minutesRemaining}
+      syncEnabled={gmailSyncEnabled}
+      loading={refreshing}
+      error={gmailError}
+      onReload={handleRefresh}
+    />
 
     <RecentActivityPanel timeline={timeline} loading={refreshing} error={activityError} />
   </div>
@@ -1529,6 +1477,252 @@ total: number;
   </div>
 );
 
+// Retry runs the existing sync on the Email Sync page, which keeps the Gmail
+// connection and read-only permission handling in one place.
+const GMAIL_SYNC_HREF = '/email-sync?sync=gmail';
+
+const GmailStat = ({
+label,
+value,
+hint,
+}: {
+label: string;
+value: number;
+hint?: string;
+}) => (
+<div className="rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4 min-w-0">
+  <p className="text-xs sm:text-sm text-slate-500 break-words">{label}</p>
+  <p className="text-xl sm:text-2xl font-bold mt-1 text-slate-900">{value}</p>
+  {hint && <p className="text-xs text-slate-400 mt-1 break-words">{hint}</p>}
+</div>
+);
+
+const GmailSyncPanel = ({
+summary,
+connected,
+minutesRemaining,
+syncEnabled,
+loading,
+error,
+onReload,
+}: {
+summary: GmailSyncSummary;
+connected: boolean;
+minutesRemaining: number;
+syncEnabled: boolean | null;
+loading: boolean;
+error: string;
+onReload: () => void;
+}) => {
+const { lastSuccess, lastFailure, lastRun, detected } = summary;
+const neverSynced = !summary.lastAttempt;
+const syncAction = connected
+  ? { label: lastFailure ? 'Retry sync' : 'Sync now', href: GMAIL_SYNC_HREF }
+  : { label: 'Reconnect Gmail', href: '/email-sync' };
+
+const status =
+  syncEnabled === false
+    ? { label: 'Sync turned off', className: 'bg-amber-50 text-amber-700 border-amber-200' }
+    : connected
+      ? { label: `Connected · ${minutesRemaining} min left`, className: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+      : { label: 'Not connected', className: 'bg-slate-50 text-slate-600 border-slate-200' };
+
+return (
+  <div
+    aria-busy={loading}
+    className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden min-w-0"
+  >
+    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+      <div className="flex items-start gap-3 min-w-0">
+        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+          <MailCheck size={20} className="text-slate-700" />
+        </div>
+
+        <div className="min-w-0">
+          <h3 className="text-lg sm:text-xl font-semibold break-words">Gmail Sync Summary</h3>
+          <p className="text-slate-500 text-sm break-words">
+            From your Gmail sync runs and the emails you've processed.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 shrink-0">
+        {loading && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+            <RefreshCw size={12} className="animate-spin" />
+            Updating
+          </span>
+        )}
+        <span
+          title="Gmail read access lasts one hour per browser session. Reconnect on Email Sync when it expires."
+          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${status.className}`}
+        >
+          {status.label}
+        </span>
+      </div>
+    </div>
+
+    {error ? (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <p className="font-medium">Couldn't load Gmail sync data.</p>
+        <p className="mt-1 break-words">{error}</p>
+        <button
+          type="button"
+          onClick={onReload}
+          className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+        >
+          Try again
+        </button>
+      </div>
+    ) : loading && neverSynced && summary.emailsProcessed === 0 ? (
+      <div className="space-y-3" aria-hidden="true">
+        <div className="h-16 rounded-xl bg-slate-100 animate-pulse" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="h-20 rounded-xl bg-slate-100 animate-pulse" />
+          ))}
+        </div>
+      </div>
+    ) : (
+      <div className="space-y-6">
+        {syncEnabled === false && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            Gmail sync is turned off.{' '}
+            <Link to="/settings?tab=emailSync" className="font-medium underline">
+              Turn it on in Settings
+            </Link>
+          </div>
+        )}
+
+        {neverSynced ? (
+          <EmptyState
+            title="No Gmail syncs yet"
+            description="Connect Gmail on Email Sync and run a sync to see results here."
+            actionLabel="Go to Email Sync"
+            actionHref="/email-sync"
+          />
+        ) : (
+          <div
+            className={`rounded-xl border p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${
+              lastFailure ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50'
+            }`}
+          >
+            <div className="min-w-0 text-sm">
+              {lastFailure ? (
+                <>
+                  <p className="font-medium text-red-800 flex items-start gap-1.5">
+                    <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                    <span>Last sync failed · {formatDateTime(lastFailure.created_at)}</span>
+                  </p>
+                  {lastFailure.error_message && (
+                    <p className="text-red-700 mt-1 break-words">{lastFailure.error_message}</p>
+                  )}
+                  <p className="text-red-700/80 mt-1">
+                    {lastSuccess
+                      ? `Last successful sync: ${formatDateTime(lastSuccess.created_at)}`
+                      : 'No successful sync yet.'}
+                  </p>
+                </>
+              ) : (
+                <p className="font-medium text-emerald-800 flex items-start gap-1.5">
+                  <CheckCircle2 size={15} className="shrink-0 mt-0.5" />
+                  <span>
+                    Last successful sync · {formatDateTime(lastSuccess?.created_at)}
+                    {lastSuccess?.processing_time_ms ? (
+                      <span className="font-normal text-emerald-700"> · took {formatDuration(lastSuccess.processing_time_ms)}</span>
+                    ) : null}
+                  </span>
+                </p>
+              )}
+            </div>
+
+            {syncEnabled !== false && (
+              <Link
+                to={syncAction.href}
+                className={`inline-flex justify-center shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                  lastFailure
+                    ? 'bg-red-700 text-white hover:bg-red-800'
+                    : 'bg-slate-900 text-white hover:bg-slate-700'
+                }`}
+              >
+                {syncAction.label}
+              </Link>
+            )}
+          </div>
+        )}
+
+        {lastRun && (
+          <section>
+            <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 mb-2">
+              <h4 className="text-xs font-medium uppercase tracking-widest text-slate-400">Last successful sync</h4>
+              {(lastRun.needsReview > 0 || lastRun.actionable > 0) && connected && (
+                <Link to={GMAIL_SYNC_HREF} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                  Review detected emails →
+                </Link>
+              )}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <GmailStat label="Emails scanned" value={lastRun.scanned} />
+              <GmailStat label="Already processed" value={lastRun.alreadyProcessed} hint="Skipped as duplicates" />
+              <GmailStat label="Matched or new" value={lastRun.actionable} hint="Incl. rejections applied automatically" />
+              <GmailStat label="Needs review" value={lastRun.needsReview} />
+              <GmailStat label="Filtered out" value={lastRun.filteredOut} hint="Not recruitment-related" />
+            </div>
+            {lastRun.needsReview > 0 && (
+              <p className="text-xs text-slate-400 mt-2">
+                Emails flagged for review appear again on Email Sync each time the sync runs, until you handle them.
+              </p>
+            )}
+          </section>
+        )}
+
+        {!neverSynced && (
+          <section>
+            <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 mb-2">
+              <h4 className="text-xs font-medium uppercase tracking-widest text-slate-400">All time from Gmail</h4>
+              <Link to="/settings?tab=emailEvents" className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                View processed emails →
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <GmailStat
+                label="Emails processed"
+                value={summary.emailsProcessed}
+                hint={summary.emailsNotLinked > 0 ? `${summary.emailsNotLinked} not linked to an application` : undefined}
+              />
+              <GmailStat
+                label="Applications updated"
+                value={summary.applicationsUpdated}
+                hint="Unique applications"
+              />
+              <GmailStat label="New applications" value={summary.newApplications} hint="Created from an email" />
+              <GmailStat label="Existing updated" value={summary.existingApplicationsUpdated} />
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-slate-500">Detected in processed emails:</span>
+              {[
+                ['Interviews', detected.interviews],
+                ['Assessments', detected.assessments],
+                ['Offers', detected.offers],
+                ['Rejections', detected.rejections],
+              ].map(([label, value]) => (
+                <span key={label} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-700">
+                  {label} <span className="font-semibold text-slate-900">{value}</span>
+                </span>
+              ))}
+              {summary.dismissed > 0 && (
+                <span className="text-slate-400">· {summary.dismissed} dismissed by you</span>
+              )}
+            </div>
+          </section>
+        )}
+      </div>
+    )}
+  </div>
+);
+};
+
 const ACTIVITY_PREVIEW_COUNT = 10;
 
 const activityStyles: Record<ActivityKind, { icon: React.ElementType; className: string }> = {
@@ -1818,20 +2012,6 @@ helper: string;
 <p className="text-xs text-slate-400 mt-3 break-words">{helper}</p>
 
 
-  </div>
-);
-
-const SummaryCard = ({
-label,
-value,
-}: {
-label: string;
-value: number;
-}) => (
-
-  <div className="border border-slate-200 rounded-xl p-4 bg-slate-50 overflow-hidden">
-    <p className="text-sm text-slate-500 break-words">{label}</p>
-    <p className="text-2xl font-bold mt-2 text-slate-900 break-words">{value}</p>
   </div>
 );
 

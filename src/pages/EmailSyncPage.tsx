@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
+import { useSearchParams } from 'react-router-dom';
 import {
 PublicClientApplication,
 type Configuration,
@@ -1102,6 +1103,29 @@ try {
 
 
 };
+
+// The dashboard's "Sync now" / "Retry sync" opens this page with ?sync=gmail.
+// Run the normal sync once settings have loaded, then drop the parameter so a
+// reload doesn't sync again. syncGmail still checks sign-in, settings and the
+// Gmail connection itself.
+const [searchParams, setSearchParams] = useSearchParams();
+const autoSyncStarted = useRef(false);
+
+useEffect(() => {
+if (searchParams.get('sync') !== 'gmail' || settingsLoading || autoSyncStarted.current) return;
+
+autoSyncStarted.current = true;
+setSearchParams(
+  (params) => {
+    const next = new URLSearchParams(params);
+    next.delete('sync');
+    return next;
+  },
+  { replace: true },
+);
+void Promise.resolve().then(syncGmail);
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [searchParams, settingsLoading]);
 
 const updateApplicationFromEmail = async (
 applicationId: string,
