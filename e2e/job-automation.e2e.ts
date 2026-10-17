@@ -83,3 +83,36 @@ test('the automation switch says scheduled searches are not active yet', async (
   await expect(main).toContainText("Scheduled searches aren't available yet.");
   await expect(page.getByRole('button', { name: 'On (not active yet)' })).toBeVisible();
 });
+
+test.describe('excluded keywords', () => {
+  test('can be edited and saved once the database column exists', async ({ page, supabase }) => {
+    supabase.tables.user_job_preferences[0].excluded_keywords = ['Senior'];
+    await page.goto('/job-automation');
+    await expect(page.locator('main')).toContainText('Excluded keywords');
+
+    await page.getByRole('button', { name: 'Edit Profile' }).first().click();
+    const field = page.getByLabel('Exclude jobs mentioning');
+    await expect(field).toBeEnabled();
+    await expect(field).toHaveValue('Senior');
+
+    await field.fill('Senior,  Manager , ');
+    await page.getByRole('button', { name: 'Save Profile' }).first().click();
+    await expect(page.locator('main')).toContainText('Search profile saved.');
+
+    const save = supabase.writes('user_job_preferences').at(-1)!;
+    expect(save.body).toMatchObject({ excluded_keywords: ['Senior', 'Manager'] });
+  });
+
+  test('explain what is needed, and are not sent, before the column exists', async ({ page, supabase }) => {
+    await page.goto('/job-automation');
+    await expect(page.locator('main')).not.toContainText('Excluded keywords');
+
+    await page.getByRole('button', { name: 'Edit Profile' }).first().click();
+    await expect(page.getByLabel('Exclude jobs mentioning')).toBeDisabled();
+    await expect(page.locator('main')).toContainText('the database needs the excluded_keywords column');
+
+    await page.getByRole('button', { name: 'Save Profile' }).first().click();
+    await expect(page.locator('main')).toContainText('Search profile saved.');
+    expect(supabase.writes('user_job_preferences').at(-1)!.body).not.toHaveProperty('excluded_keywords');
+  });
+});

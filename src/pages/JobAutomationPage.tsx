@@ -37,6 +37,8 @@ interface JobPreferences {
   enabled_sources: string[] | null;
   max_job_age_days: number | null;
   automation_enabled: boolean | null;
+  // Missing until supabase/sql/2026-10-17_job_preferences_excluded_keywords.sql has run.
+  excluded_keywords?: string[] | null;
 }
 
 interface JobSource {
@@ -97,6 +99,7 @@ interface PreferenceForm {
   defaultCvVersionId: string;
   automationEnabled: boolean;
   enabledSources: string[];
+  excludedKeywords: string;
 }
 
 type ScoreView = 'all' | 'recommended' | 'possible' | 'stretch' | 'scored' | 'unscored';
@@ -258,7 +261,13 @@ const preferenceToForm = (
   enabledSources:     preferences?.enabled_sources?.length
     ? preferences.enabled_sources
     : sources.map((s) => s.slug),
+  excludedKeywords:   joinCsv(preferences?.excluded_keywords),
 });
+
+// The excluded_keywords column is added by a SQL migration; until it exists
+// the field can't be saved.
+const supportsExcludedKeywords = (preferences: JobPreferences | null) =>
+  Boolean(preferences && 'excluded_keywords' in preferences);
 
 const getScoreBadgeClass = (score?: number | null) => {
   if (score == null) return 'bg-slate-100 text-slate-500 border-slate-200';
@@ -349,7 +358,7 @@ export const JobAutomationPage: React.FC = () => {
 
     const { data: preferenceData, error: preferenceError } = await supabase
       .from('user_job_preferences')
-      .select('id, user_id, default_cv_version_id, target_titles, preferred_locations, work_model, min_match_score, enabled_sources, max_job_age_days, automation_enabled')
+      .select('*')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -363,7 +372,7 @@ export const JobAutomationPage: React.FC = () => {
 
       const { data: created, error: createdErr } = await supabase
         .from('user_job_preferences')
-        .select('id, user_id, default_cv_version_id, target_titles, preferred_locations, work_model, min_match_score, enabled_sources, max_job_age_days, automation_enabled')
+        .select('*')
         .eq('user_id', user.id)
         .maybeSingle();
 
@@ -466,6 +475,9 @@ export const JobAutomationPage: React.FC = () => {
       enabled_sources:       preferenceForm.enabledSources,
       max_job_age_days:      Number(preferenceForm.maxJobAgeDays) || 7,
       automation_enabled:    preferenceForm.automationEnabled,
+      ...(supportsExcludedKeywords(preferences)
+        ? { excluded_keywords: splitCsv(preferenceForm.excludedKeywords) }
+        : {}),
     };
 
     const { error: saveError } = await supabase
@@ -917,6 +929,24 @@ export const JobAutomationPage: React.FC = () => {
                 onChange={(v) => updatePreferenceForm('preferredLocations', v)}
                 placeholder="Remote, London, Berlin"
               />
+              <div className="md:col-span-2">
+                <label htmlFor="excluded-keywords" className="block text-sm font-medium text-slate-700 mb-2">
+                  Exclude jobs mentioning
+                </label>
+                <input
+                  id="excluded-keywords"
+                  value={preferenceForm.excludedKeywords}
+                  disabled={!supportsExcludedKeywords(preferences)}
+                  placeholder="Senior, Manager, 10+ years"
+                  onChange={(e) => updatePreferenceForm('excludedKeywords', e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 disabled:bg-slate-100 disabled:text-slate-400"
+                />
+                <p className="mt-1.5 text-xs text-slate-500">
+                  {supportsExcludedKeywords(preferences)
+                    ? 'Jobs that mention any of these get a lower match score and are flagged. Separate with commas.'
+                    : 'Not available yet: the database needs the excluded_keywords column (supabase/sql/2026-10-17_job_preferences_excluded_keywords.sql).'}
+                </p>
+              </div>
               <SelectInput
                 label="Work model"
                 value={preferenceForm.workModel}
@@ -1010,6 +1040,9 @@ export const JobAutomationPage: React.FC = () => {
             <SummaryItem label="Minimum score"  value={`${preferences?.min_match_score ?? 60}/100`} />
             <SummaryItem label="Max job age"    value={`${preferences?.max_job_age_days ?? 7} days`} />
             <SummaryItem label="Automation"     value={preferences?.automation_enabled ? 'On, not scheduled yet' : 'Off'} />
+            {supportsExcludedKeywords(preferences) && (
+              <SummaryItem label="Excluded keywords" value={preferences?.excluded_keywords?.length ? preferences.excluded_keywords.join(', ') : 'None'} />
+            )}
             <SummaryItem
               label="Enabled sources"
               value={preferences?.enabled_sources?.length ? preferences.enabled_sources.map((s) => sourceLabels[s] || s).join(', ') : 'No sources selected'}
