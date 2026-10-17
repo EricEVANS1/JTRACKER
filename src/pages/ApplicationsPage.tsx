@@ -17,7 +17,16 @@ X,
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { buildStatusUpdate, isAwaitingFinalResponse } from '../lib/applicationLifecycle';
+import {
+REACHED_STAGES,
+buildOfferDecision,
+buildStatusUpdate,
+getUpcomingInterviewDate,
+hasReachedStage,
+isAwaitingFinalResponse,
+isOfferAwaitingDecision,
+type ReachedStage,
+} from '../lib/applicationLifecycle';
 
 type ApplicationStatus =
 | 'wishlist'
@@ -100,6 +109,7 @@ rejected_after_interview?: boolean | null;
 final_response_pending?: boolean | null;
 interview_count?: number | null;
 outcome_reason?: OutcomeReason;
+interview_notes?: { interview_date: string | null }[] | null;
 
 analysis_id?: string | null;
 match_score?: number | null;
@@ -138,7 +148,26 @@ const statusOptions: { value: ApplicationStatus; label: string }[] = [
 { value: 'archived', label: 'Archived' },
 ];
 
-type StatusFilter = 'all' | 'awaiting_final_response' | ApplicationStatus;
+type ListView = 'awaiting_final_response' | 'offers_awaiting_decision' | 'upcoming_interviews';
+
+type StatusFilter = 'all' | ListView | `reached:${ReachedStage}` | ApplicationStatus;
+
+const listViews: { value: ListView; label: string }[] = [
+{ value: 'awaiting_final_response', label: 'Awaiting final response' },
+{ value: 'offers_awaiting_decision', label: 'Offers awaiting decision' },
+{ value: 'upcoming_interviews', label: 'Interviews in the next 7 days' },
+];
+
+// Reads ?view=, ?reached= or ?status= so dashboard links open the matching list.
+const getInitialStatusFilter = (params: URLSearchParams): StatusFilter => {
+const view = listViews.find((item) => item.value === params.get('view'));
+if (view) return view.value;
+
+const reached = REACHED_STAGES.find((stage) => stage.value === params.get('reached'));
+if (reached) return `reached:${reached.value}`;
+
+return statusOptions.find((option) => option.value === params.get('status'))?.value || 'all';
+};
 
 const statusStyle: Record<ApplicationStatus, string> = {
 wishlist: 'bg-slate-100 text-slate-700',
@@ -177,6 +206,28 @@ year: 'numeric',
 
 const nowIso = () => new Date().toISOString();
 
+const matchesStatusFilter = (app: Application, filter: StatusFilter) => {
+// Archived records only appear for an exact status or a furthest-reached stage.
+const isArchivedApp = Boolean(app.archived) || app.status === 'archived';
+
+if (filter.startsWith('reached:')) {
+  return hasReachedStage(app, filter.slice('reached:'.length) as ReachedStage);
+}
+
+switch (filter) {
+  case 'all':
+    return !isArchivedApp;
+  case 'awaiting_final_response':
+    return isAwaitingFinalResponse(app);
+  case 'offers_awaiting_decision':
+    return isOfferAwaitingDecision(app);
+  case 'upcoming_interviews':
+    return getUpcomingInterviewDate(app) !== null;
+  default:
+    return app.status === filter;
+}
+};
+
 export const ApplicationsPage: React.FC = () => {
 const { user } = useAuth();
 
@@ -192,12 +243,7 @@ const [error, setError] = useState('');
 const [message, setMessage] = useState('');
 const [search, setSearch] = useState('');
 const [searchParams] = useSearchParams();
-const statusFromUrl = searchParams.get('status');
-const [statusFilter, setStatusFilter] = useState<StatusFilter>(
-searchParams.get('view') === 'awaiting_final_response'
-  ? 'awaiting_final_response'
-  : statusOptions.find((option) => option.value === statusFromUrl)?.value || 'all'
-);
+const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => getInitialStatusFilter(searchParams));
 
 const [roleTitle, setRoleTitle] = useState('');
 const [companyName, setCompanyName] = useState('');
@@ -245,6 +291,9 @@ const { data, error } = await supabase
       id,
       name,
       email
+    ),
+    interview_notes (
+      interview_date
     )
   `)
   .eq('user_id', user.id)
@@ -310,16 +359,7 @@ const term = search.toLowerCase().trim();
     Boolean(app.companies?.name?.toLowerCase().includes(term)) ||
     Boolean(app.source?.toLowerCase().includes(term));
 
-  // Archived records only appear when that exact status is selected.
-  const isArchivedApp = Boolean(app.archived) || app.status === 'archived';
-  const isExactStatus = statusFilter !== 'all' && statusFilter !== 'awaiting_final_response';
-  if (isArchivedApp && !isExactStatus) return false;
-
-  const matchesStatus =
-    statusFilter === 'all' ||
-    (statusFilter === 'awaiting_final_response'
-      ? isAwaitingFinalResponse(app)
-      : app.status === statusFilter);
+  const matchesStatus = matchesStatusFilter(app, statusFilter);
 
   return matchesSearch && matchesStatus;
 });
@@ -484,6 +524,19 @@ await updateApplication(
 );
 
 
+};
+
+const handleOfferDecision = async (applicationId: string, decision: 'accepted' | 'declined') => {
+const app = applications.find((item) => item.id === applicationId);
+if (!app) return;
+
+await updateApplication(
+  applicationId,
+  buildOfferDecision(decision, nowIso()),
+  decision === 'accepted' ? 'Offer marked as accepted.' : 'Offer marked as declined.',
+  decision === 'accepted' ? 'Offer accepted' : 'Offer declined',
+  `The offer for ${app.role_title} was ${decision}.`
+);
 };
 
 const handleDeleteApplication = async (applicationId: string) => {
@@ -1081,13 +1134,25 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
         className={inputCls}
       >
         <option value="all">All active statuses</option>
-        <option value="awaiting_final_response">Awaiting final response</option>
-        {statusOptions
-          .map((statusOption) => (
+        {listViews.map((view) => (
+          <option key={view.value} value={view.value}>
+            {view.label}
+          </option>
+        ))}
+        <optgroup label="Current status">
+          {statusOptions.map((statusOption) => (
             <option key={statusOption.value} value={statusOption.value}>
               {statusOption.label}
             </option>
           ))}
+        </optgroup>
+        <optgroup label="Furthest stage reached">
+          {REACHED_STAGES.map((stage) => (
+            <option key={stage.value} value={`reached:${stage.value}`}>
+              Reached: {stage.label}
+            </option>
+          ))}
+        </optgroup>
       </select>
     </div>
   </div>
@@ -1122,6 +1187,7 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
           onMarkInterviewReached={handleMarkInterviewReached}
           onMarkAwaitingFinalResponse={handleMarkAwaitingFinalResponse}
           onMarkRejectedAfterInterview={handleMarkRejectedAfterInterview}
+          onOfferDecision={handleOfferDecision}
         />
       ))}
     </div>
@@ -1289,6 +1355,7 @@ onDelete,
 onMarkInterviewReached,
 onMarkAwaitingFinalResponse,
 onMarkRejectedAfterInterview,
+onOfferDecision,
 }: {
 app: Application;
 updating: boolean;
@@ -1298,6 +1365,7 @@ onDelete: (applicationId: string) => void;
 onMarkInterviewReached: (applicationId: string) => void;
 onMarkAwaitingFinalResponse: (applicationId: string) => void;
 onMarkRejectedAfterInterview: (applicationId: string) => void;
+onOfferDecision: (applicationId: string, decision: 'accepted' | 'declined') => void;
 }) => {
 const [showMore, setShowMore] = useState(false);
 
@@ -1504,6 +1572,28 @@ return ( <div className="group bg-white border border-slate-200 rounded-2xl shad
         {showMore ? 'Hide details' : 'Show details'}
       </button>
     </div>
+
+    {isOfferAwaitingDecision(app) && (
+      <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+        <p className="text-xs font-medium text-emerald-800 sm:mr-auto">Offer awaiting your decision</p>
+        <button
+          type="button"
+          disabled={updating}
+          onClick={() => onOfferDecision(app.id, 'accepted')}
+          className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+        >
+          Accept offer
+        </button>
+        <button
+          type="button"
+          disabled={updating}
+          onClick={() => onOfferDecision(app.id, 'declined')}
+          className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+        >
+          Decline offer
+        </button>
+      </div>
+    )}
 
     {showMore && (
       <div className="mt-4 border border-slate-200 rounded-xl bg-white p-4">

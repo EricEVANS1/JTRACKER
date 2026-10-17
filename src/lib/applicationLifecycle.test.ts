@@ -1,17 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildOfferDecision,
   buildStatusUpdate,
   getDaysToResponse,
   getDaysWithoutReply,
   getFollowUpBucket,
   getFurthestActiveStatus,
   getResponseDate,
+  getUpcomingInterviewDate,
   hasReachedInterview,
   hasReachedOffer,
+  hasReachedStage,
   hasResponse,
   isActive,
   isAwaitingFinalResponse,
+  isOfferAwaitingDecision,
   type LifecycleRecord,
 } from './applicationLifecycle';
 
@@ -236,6 +240,62 @@ describe('buildStatusUpdate', () => {
       interview_count: 1,
       final_response_pending: true,
     });
+  });
+});
+
+describe('offers', () => {
+  it('awaits a decision until accepted or declined', () => {
+    expect(isOfferAwaitingDecision(app({ status: 'offer', outcome_reason: 'offer_received' }))).toBe(true);
+    expect(isOfferAwaitingDecision(app({ status: 'offer', outcome_reason: null }))).toBe(true);
+    expect(isOfferAwaitingDecision(app({ status: 'offer', outcome_reason: 'offer_accepted' }))).toBe(false);
+    expect(isOfferAwaitingDecision(app({ status: 'offer', outcome_reason: 'offer_declined' }))).toBe(false);
+    expect(isOfferAwaitingDecision(app({ status: 'offer', archived: true }))).toBe(false);
+    expect(isOfferAwaitingDecision(app({ status: 'interview' }))).toBe(false);
+  });
+
+  it('records the decision', () => {
+    expect(buildOfferDecision('accepted', NOW).outcome_reason).toBe('offer_accepted');
+    expect(buildOfferDecision('declined', NOW).outcome_reason).toBe('offer_declined');
+  });
+});
+
+describe('getUpcomingInterviewDate', () => {
+  const now = new Date(2026, 9, 17, 15, 0);
+  const on = (dayOffset: number) => new Date(2026, 9, 17 + dayOffset, 10, 0).toISOString();
+
+  it('returns the earliest interview from today through the next 7 days', () => {
+    const interviewing = app({
+      status: 'interview',
+      interview_notes: [{ interview_date: on(5) }, { interview_date: on(2) }, { interview_date: on(-1) }],
+    } as Partial<LifecycleRecord>);
+
+    expect(getUpcomingInterviewDate(interviewing, now)).toBe(on(2));
+    expect(getUpcomingInterviewDate(app({ status: 'interview', interview_notes: { interview_date: on(0) } } as Partial<LifecycleRecord>), now)).toBe(on(0));
+    expect(getUpcomingInterviewDate(app({ status: 'interview', interview_notes: [{ interview_date: on(8) }] } as Partial<LifecycleRecord>), now)).toBeNull();
+  });
+
+  it('ignores closed applications and missing dates', () => {
+    expect(getUpcomingInterviewDate(app({ status: 'rejected', interview_notes: [{ interview_date: on(1) }] } as Partial<LifecycleRecord>), now)).toBeNull();
+    expect(getUpcomingInterviewDate(app({ status: 'interview', interview_notes: [{ interview_date: null }] } as Partial<LifecycleRecord>), now)).toBeNull();
+    expect(getUpcomingInterviewDate(app({ status: 'interview' }), now)).toBeNull();
+  });
+});
+
+describe('hasReachedStage', () => {
+  it('counts the furthest stage regardless of the current status', () => {
+    const rejectedAfterFinal = app({
+      status: 'rejected',
+      response_received_at: EARLIER,
+      interview_started_at: EARLIER,
+      final_interview_started_at: EARLIER,
+    });
+
+    expect(hasReachedStage(rejectedAfterFinal, 'applied')).toBe(true);
+    expect(hasReachedStage(rejectedAfterFinal, 'responded')).toBe(true);
+    expect(hasReachedStage(rejectedAfterFinal, 'interview')).toBe(true);
+    expect(hasReachedStage(rejectedAfterFinal, 'final_interview')).toBe(true);
+    expect(hasReachedStage(rejectedAfterFinal, 'offer')).toBe(false);
+    expect(hasReachedStage(app({ status: 'wishlist' }), 'applied')).toBe(false);
   });
 });
 

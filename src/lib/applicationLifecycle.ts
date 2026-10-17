@@ -163,6 +163,99 @@ export const getFollowUpBucket = (
   return 'later';
 };
 
+// Offers ---------------------------------------------------------------------
+
+const OFFER_DECISIONS = ['offer_accepted', 'offer_declined'];
+
+export const isOfferAwaitingDecision = (app: LifecycleRecord) =>
+  !isArchived(app) &&
+  app.status === 'offer' &&
+  !OFFER_DECISIONS.includes(app.outcome_reason || '');
+
+export const buildOfferDecision = (
+  decision: 'accepted' | 'declined',
+  now: string = new Date().toISOString()
+): LifecycleUpdate => ({
+  outcome_reason: decision === 'accepted' ? 'offer_accepted' : 'offer_declined',
+  last_status_changed_at: now,
+  status_updated_at: now,
+});
+
+// Upcoming interviews --------------------------------------------------------
+
+export const INTERVIEW_LOOKAHEAD_DAYS = 7;
+
+export interface InterviewNoteDate {
+  interview_date?: string | null;
+}
+
+// Earliest saved interview date from today through the next 7 days, for an
+// application that is still active.
+export const getUpcomingInterviewDate = (
+  app: LifecycleRecord & { interview_notes?: InterviewNoteDate[] | InterviewNoteDate | null },
+  now: Date = new Date()
+) => {
+  if (!isActive(app)) return null;
+
+  const notes = Array.isArray(app.interview_notes)
+    ? app.interview_notes
+    : app.interview_notes
+      ? [app.interview_notes]
+      : [];
+
+  const start = startOfDay(now);
+  const end = new Date(start);
+  end.setDate(start.getDate() + INTERVIEW_LOOKAHEAD_DAYS + 1);
+
+  const upcoming = notes
+    .map((note) => note.interview_date)
+    .filter(isValidDate)
+    .filter((date) => {
+      const time = new Date(date).getTime();
+      return time >= start.getTime() && time < end.getTime();
+    })
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
+  return upcoming[0] || null;
+};
+
+// Furthest stage reached ------------------------------------------------------
+
+export type ReachedStage =
+  | 'applied'
+  | 'responded'
+  | 'assessment'
+  | 'interview'
+  | 'final_interview'
+  | 'offer';
+
+export const REACHED_STAGES: { value: ReachedStage; label: string }[] = [
+  { value: 'applied', label: 'Applied' },
+  { value: 'responded', label: 'Got a response' },
+  { value: 'assessment', label: 'Assessment' },
+  { value: 'interview', label: 'Interview' },
+  { value: 'final_interview', label: 'Final interview' },
+  { value: 'offer', label: 'Offer' },
+];
+
+// Whether an application ever got as far as `stage`, whatever its status is now.
+export const hasReachedStage = (app: LifecycleRecord, stage: ReachedStage) => {
+  switch (stage) {
+    case 'applied':
+      return isSubmitted(app);
+    case 'responded':
+      return hasResponse(app);
+    case 'assessment':
+      return Boolean(app.assessment_received_at) || app.status === 'assessment';
+    case 'interview':
+      return hasReachedInterview(app);
+    case 'final_interview':
+      return Boolean(app.final_interview_started_at) || app.status === 'final_interview';
+    case 'offer':
+      return hasReachedOffer(app);
+  }
+};
+
 // The furthest stage a restored application had reached before it was closed.
 export const getFurthestActiveStatus = (app: LifecycleRecord): LifecycleStatus => {
   if (app.final_interview_started_at) return 'final_interview';
