@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowLeft,
@@ -224,6 +224,7 @@ export const ResumeBuilderFlowPage: React.FC = () => {
 
   const [selectedCvId, setSelectedCvId] = useState('');
   const [selectedApplicationId, setSelectedApplicationId] = useState('');
+  const [searchParams] = useSearchParams();
 
   const [search, setSearch] = useState('');
   const [applicationSearch, setApplicationSearch] = useState('');
@@ -387,6 +388,49 @@ export const ResumeBuilderFlowPage: React.FC = () => {
       setManualCvText(selectedCv.cv_text || '');
     }
   }, [selectedCv?.id]);
+
+  // Deep link from an application (/resume-builder/flow?applicationId=…):
+  // select it for attaching and fill in its saved job description.
+  const requestedApplicationId = searchParams.get('applicationId');
+
+  useEffect(() => {
+    if (!user || !requestedApplicationId) return;
+
+    let cancelled = false;
+
+    const loadRequestedApplication = async () => {
+      const { data, error } = await supabase
+        .from('applications')
+        .select('id, role_title, job_description')
+        .eq('id', requestedApplicationId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (error || !data) {
+        setPageError('That application could not be found. Choose one below, or continue without attaching.');
+        return;
+      }
+
+      const savedDescription = (data.job_description || '').trim();
+
+      setSelectedApplicationId(data.id);
+      // Keep anything already typed in the job description box.
+      setJobDescription((current) => (current.trim() ? current : savedDescription));
+      setMessage(
+        savedDescription
+          ? `Tailoring for "${data.role_title}". Its saved job description has been filled in.`
+          : `Tailoring for "${data.role_title}". It has no saved job description yet, so paste it below.`,
+      );
+    };
+
+    loadRequestedApplication();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, requestedApplicationId]);
 
   const getCompanyName = (application: ApplicationItem) => {
     if (!application.company_id) return 'No company';

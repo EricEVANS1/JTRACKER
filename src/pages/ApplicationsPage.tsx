@@ -6,6 +6,7 @@ Briefcase,
 CheckCircle2,
 Copy,
 ExternalLink,
+FileText,
 MessageCircle,
 Plus,
 RefreshCw,
@@ -1515,6 +1516,16 @@ return ( <div className="group bg-white border border-slate-200 rounded-2xl shad
           <Share2 size={14} />
           Share
         </button>
+
+        {!app.analysis_id && (
+          <Link
+            to={`/resume-builder/flow?applicationId=${app.id}`}
+            className="w-full sm:w-auto border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
+          >
+            <FileText size={14} />
+            Tailor CV
+          </Link>
+        )}
 
         {app.application_link && (
           <a

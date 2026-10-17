@@ -1063,14 +1063,13 @@ Best regards,`;
       </button>
     )}
 
-    <button
-      type="button"
-      disabled
-      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 border border-slate-300 text-slate-400 px-4 py-2 rounded-lg text-sm cursor-not-allowed"
+    <Link
+      to={`/resume-builder/flow?applicationId=${application.id}`}
+      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50"
     >
       <RefreshCw size={15} />
       Analyze this application
-    </button>
+    </Link>
   </div>
 </Section>
 
