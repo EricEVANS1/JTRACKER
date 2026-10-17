@@ -312,7 +312,15 @@ export const ResumeBuilderFlowPage: React.FC = () => {
       return;
     }
 
-    setCvVersions((data || []) as CVVersion[]);
+    const loadedCvs = (data || []) as CVVersion[];
+    setCvVersions(loadedCvs);
+
+    // Pre-select a CV passed in the link (e.g. from Job Automation), if it's one of the user's.
+    const requestedCvId = searchParams.get('cvVersionId');
+    if (requestedCvId && loadedCvs.some((cv) => cv.id === requestedCvId)) {
+      setSelectedCvId((current) => current || requestedCvId);
+    }
+
     setLoading(false);
   };
 
@@ -388,6 +396,49 @@ export const ResumeBuilderFlowPage: React.FC = () => {
       setManualCvText(selectedCv.cv_text || '');
     }
   }, [selectedCv?.id]);
+
+  // Deep link from a job found by Job Automation (/resume-builder/flow?jobAdId=…):
+  // fill in the job's description from the listing.
+  const requestedJobAdId = searchParams.get('jobAdId');
+
+  useEffect(() => {
+    if (!user || !requestedJobAdId) return;
+
+    let cancelled = false;
+
+    const loadRequestedJob = async () => {
+      const { data, error } = await supabase
+        .from('job_ads')
+        .select('id, title, company, description')
+        .eq('id', requestedJobAdId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (error || !data) {
+        setPageError('That job could not be found. Paste the job description below instead.');
+        return;
+      }
+
+      const description = (data.description || '').trim();
+      const heading = [data.title, data.company].filter(Boolean).join(' at ');
+      const filled = description ? `${heading}\n\n${description}` : '';
+
+      setJobDescription((current) => (current.trim() ? current : filled));
+      setMessage(
+        description
+          ? `Tailoring for "${heading}". The description from the job listing has been filled in; check it's complete before analysing.`
+          : `Tailoring for "${heading}". The listing has no description, so paste it below.`,
+      );
+    };
+
+    loadRequestedJob();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, requestedJobAdId]);
 
   // Deep link from an application (/resume-builder/flow?applicationId=…):
   // select it for attaching and fill in its saved job description.

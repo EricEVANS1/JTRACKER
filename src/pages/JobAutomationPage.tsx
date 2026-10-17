@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
   Briefcase,
@@ -296,6 +297,7 @@ const formatPostedAgo = (value?: string | null) => {
 
 export const JobAutomationPage: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [preferences,    setPreferences]    = useState<JobPreferences | null>(null);
   const [preferenceForm, setPreferenceForm] = useState<PreferenceForm | null>(null);
@@ -687,22 +689,17 @@ export const JobAutomationPage: React.FC = () => {
     window.location.href = `/applications/${inserted.id}`;
   };
 
+  // Opens the CV tailoring flow with this job's description filled in and the
+  // CV it was scored against (or the default CV) selected; a CV can also be
+  // picked there.
   const handleTailorCv = (job: JobAd) => {
     const match = matchesByJobId[job.id];
     const cvVersionId = match?.cv_version_id || preferences?.default_cv_version_id;
 
-    if (!cvVersionId) {
-      setError('Set a default CV in the search profile before tailoring a CV.');
-      return;
-    }
+    const params = new URLSearchParams({ jobAdId: job.id });
+    if (cvVersionId) params.set('cvVersionId', cvVersionId);
 
-    const params = new URLSearchParams({
-      cvVersionId,
-      jobTitle:    job.title,
-      companyName: job.company || '',
-    });
-
-    window.location.href = `/cv-manager?${params.toString()}`;
+    navigate(`/resume-builder/flow?${params.toString()}`);
   };
 
   const toggleDescription = (jobId: string) => {
