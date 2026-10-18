@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { canonicalLinkedInJobUrl, findLinkedInJobLink, linkedInJobId, linkedInSearchQuery } from './linkedin.ts';
+import { canonicalLinkedInJobUrl, findLinkedInJobLink, linkedInJobId, linkedInSearchQuery, linkedInSearchUrl } from './linkedin.ts';
 
 // Shaped like SerpAPI google_jobs results.
 const viaLinkedIn = {
@@ -52,5 +52,47 @@ describe('linkedInSearchQuery', () => {
     expect(linkedInSearchQuery('Data Analyst', 'Warsaw', 'onsite')).toBe('Data Analyst Warsaw');
     expect(linkedInSearchQuery('Data Analyst', 'Warsaw', 'hybrid')).toBe('Data Analyst Warsaw hybrid');
     expect(linkedInSearchQuery('Data Analyst', 'Remote', 'remote')).toBe('Data Analyst remote');
+  });
+});
+
+describe('linkedInSearchUrl', () => {
+  const params = (url: string) => Object.fromEntries(new URL(url).searchParams);
+
+  it('applies Date posted, work model and experience level, newest first', () => {
+    const url = linkedInSearchUrl({
+      title: 'Support Specialist',
+      location: 'Warsaw',
+      maxAgeDays: 1,
+      workModel: 'onsite',
+      experienceLevels: ['entry', 'associate'],
+    });
+
+    expect(url.startsWith('https://www.linkedin.com/jobs/search/?')).toBe(true);
+    expect(params(url)).toEqual({
+      keywords: 'Support Specialist',
+      location: 'Warsaw',
+      f_TPR: 'r86400',
+      f_WT: '1',
+      f_E: '2,3',
+      sortBy: 'DD',
+    });
+  });
+
+  it('maps each Date posted option and leaves out "Any time" and "Any"', () => {
+    expect(params(linkedInSearchUrl({ title: 'A', location: 'B', maxAgeDays: 7 })).f_TPR).toBe('r604800');
+    expect(params(linkedInSearchUrl({ title: 'A', location: 'B', maxAgeDays: 30 })).f_TPR).toBe('r2592000');
+    expect(params(linkedInSearchUrl({ title: 'A', location: 'B', maxAgeDays: 0, workModel: 'any' }))).toEqual({
+      keywords: 'A',
+      location: 'B',
+      sortBy: 'DD',
+    });
+  });
+
+  it('turns a "Remote" location into the Remote filter', () => {
+    expect(params(linkedInSearchUrl({ title: 'A', location: 'Remote', workModel: 'onsite' }))).toEqual({
+      keywords: 'A',
+      f_WT: '2',
+      sortBy: 'DD',
+    });
   });
 });

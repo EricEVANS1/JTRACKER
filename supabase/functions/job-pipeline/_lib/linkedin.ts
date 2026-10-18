@@ -61,3 +61,52 @@ export const linkedInSearchQuery = (title: string, location: string, workModel?:
   if (workModel === 'hybrid') words.push('hybrid');
   return words.join(' ').replace(/\s+/g, ' ').trim();
 };
+
+// ── Searching LinkedIn directly ──────────────────────────────────────────
+// A LinkedIn jobs search URL with the user's filters applied, opened in their
+// own browser session (so LinkedIn-only filters such as "Under 10 applicants"
+// stay one click away). Uses LinkedIn's public search URL parameters.
+
+const LINKEDIN_TIME_POSTED: Record<number, string> = { 1: 'r86400', 7: 'r604800', 30: 'r2592000' };
+const LINKEDIN_WORKPLACE: Record<string, string> = { onsite: '1', remote: '2', hybrid: '3' };
+const LINKEDIN_EXPERIENCE: Record<string, string> = {
+  internship: '1',
+  entry: '2',
+  associate: '3',
+  mid_senior: '4',
+  director: '5',
+  executive: '6',
+};
+
+export const linkedInSearchUrl = ({
+  title,
+  location,
+  maxAgeDays,
+  workModel,
+  experienceLevels,
+}: {
+  title: string;
+  location: string;
+  maxAgeDays?: number | null;
+  workModel?: string | null;
+  experienceLevels?: readonly string[] | null;
+}) => {
+  const remoteLocation = /^\s*remote\s*$/i.test(location);
+  const params = new URLSearchParams({ keywords: title.trim() });
+
+  if (!remoteLocation && location.trim()) params.set('location', location.trim());
+
+  const timePosted = maxAgeDays ? LINKEDIN_TIME_POSTED[maxAgeDays] : undefined;
+  if (timePosted) params.set('f_TPR', timePosted);
+
+  const workplace = remoteLocation ? LINKEDIN_WORKPLACE.remote : LINKEDIN_WORKPLACE[workModel || ''];
+  if (workplace) params.set('f_WT', workplace);
+
+  const levels = (experienceLevels || []).map((level) => LINKEDIN_EXPERIENCE[level]).filter(Boolean);
+  if (levels.length) params.set('f_E', levels.join(','));
+
+  // Most recent first, to be among the first applicants.
+  params.set('sortBy', 'DD');
+
+  return `https://www.linkedin.com/jobs/search/?${params.toString()}`;
+};

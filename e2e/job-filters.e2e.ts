@@ -155,3 +155,21 @@ test('a run with nothing found says why', async ({ page }) => {
     'LinkedIn search for "Software engineer" in Warsaw: Google Jobs had 10 listings, none posted on LinkedIn.',
   );
 });
+
+test('"Search LinkedIn directly" opens LinkedIn with the same filters', async ({ page }) => {
+  await page.goto('/job-automation');
+
+  const link = page.getByRole('link', { name: 'Support Specialist · Warsaw' });
+  await expect(link).toHaveAttribute('target', '_blank');
+  const url = new URL((await link.getAttribute('href'))!);
+  expect(url.origin + url.pathname).toBe('https://www.linkedin.com/jobs/search/');
+  expect(Object.fromEntries(url.searchParams)).toEqual({
+    keywords: 'Support Specialist',
+    location: 'Warsaw',
+    f_TPR: 'r86400',
+    f_WT: '1',
+    f_E: '2,3',
+    sortBy: 'DD',
+  });
+  await expect(page.locator('main')).toContainText('Opens LinkedIn with your Date posted (past 24 hours)');
+});

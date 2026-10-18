@@ -13,6 +13,8 @@ import {
   type FilterReason,
 } from '../../supabase/functions/job-pipeline/_lib/jobFilters.ts';
 import { describeSearchReports, type SearchReport } from '../../supabase/functions/job-pipeline/_lib/searchReport.ts';
+import { linkedInSearchUrl } from '../../supabase/functions/job-pipeline/_lib/linkedin.ts';
+import { cleanTerms, orderCombinations } from '../../supabase/functions/job-pipeline/_lib/queryPlan.ts';
 import {
   AlertCircle,
   Briefcase,
@@ -825,6 +827,25 @@ export const JobAutomationPage: React.FC = () => {
   }, [jobs, keyword, scoreView, sourceFilter, matchesByJobId]);
 
   const visibleJobs = filteredJobs.slice(0, visibleCount);
+
+  // One LinkedIn search link per saved title and location (free, so not capped
+  // like paid searches; at most 12 shown).
+  const linkedInSearches = orderCombinations(
+    cleanTerms(preferences?.target_titles),
+    cleanTerms(preferences?.preferred_locations),
+  )
+    .slice(0, 12)
+    .map(({ title, location }) => ({
+      title,
+      location,
+      url: linkedInSearchUrl({
+        title,
+        location,
+        maxAgeDays: preferences?.max_job_age_days,
+        workModel: preferences?.work_model,
+        experienceLevels: preferences?.experience_levels,
+      }),
+    }));
   const hasMore     = visibleCount < filteredJobs.length;
 
   const clearSearch = () => {
@@ -1138,6 +1159,31 @@ export const JobAutomationPage: React.FC = () => {
           </div>
         )}
       </section>
+
+      {/* ── Search LinkedIn directly ─────────────────────────────────────────── */}
+      {preferences && !editingProfile && linkedInSearches.length > 0 && (
+        <section className="mb-6 rounded-3xl border border-slate-200 bg-white shadow-sm p-5">
+          <h2 className="font-semibold text-slate-900">Search LinkedIn directly</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            Opens LinkedIn with your Date posted ({datePostedLabel(preferences.max_job_age_days).toLowerCase()}), work model
+            and experience level, newest first. Add LinkedIn-only filters such as &ldquo;Under 10 applicants&rdquo; there.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {linkedInSearches.map((search) => (
+              <a
+                key={search.url}
+                href={search.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <ExternalLink size={13} />
+                {search.title} · {search.location}
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── Matched Jobs ──────────────────────────────────────────────────────── */}
       <section className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
