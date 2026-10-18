@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   AlertCircle,
@@ -25,6 +25,8 @@ import { useAuth } from '../context/AuthContext';
 import { buildStatusUpdate } from '../lib/applicationLifecycle';
 import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
 import { pickPrepInterview, toDateTimeLocalValue } from '../lib/interviewSchedule';
+import type { Milestone } from '../lib/recruitmentTimeline';
+import { RecruitmentTimeline } from '../components/RecruitmentTimeline';
 import type { Application } from '../types/application';
 
 type ApplicationStatus =
@@ -185,6 +187,8 @@ export const ApplicationDetailsPage: React.FC = () => {
   const [recruiters, setRecruiters] = useState<RecruiterOption[]>([]);
   const [interviewNote, setInterviewNote] = useState<InterviewNote | null>(null);
   const [interviewCount, setInterviewCount] = useState(0);
+  // All of this application's interview records, for the recruitment timeline.
+  const [interviews, setInterviews] = useState<InterviewNote[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -342,6 +346,7 @@ export const ApplicationDetailsPage: React.FC = () => {
 
     const interviewRows = (interviewResult.data || []) as InterviewNote[];
     setInterviewCount(interviewRows.length);
+    setInterviews(interviewRows);
     const prepInterview = pickPrepInterview(interviewRows);
     if (prepInterview) {
       const data = prepInterview;
@@ -368,21 +373,6 @@ export const ApplicationDetailsPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, id]);
 
-  const lifecycleItems = useMemo(() => {
-    if (!application) return [];
-
-    return [
-      { label: 'Applied', value: application.date_applied || application.created_at },
-      { label: 'Response', value: application.response_received_at },
-      { label: 'Assessment', value: application.assessment_received_at },
-      { label: 'Interview', value: application.interview_started_at },
-      { label: 'Final Interview', value: application.final_interview_started_at },
-      { label: 'Offer', value: application.offer_received_at },
-      { label: 'Rejected', value: application.rejected_at },
-      { label: 'Withdrawn', value: application.withdrawn_at },
-      { label: 'Ghosted', value: application.ghosted_at },
-    ];
-  }, [application]);
 
   const handleUpdateStatus = async () => {
     if (!user || !id || !application) return;
@@ -474,6 +464,34 @@ export const ApplicationDetailsPage: React.FC = () => {
     await fetchApplicationDetails();
     setEditingDetails(false);
     setSavingDetails(false);
+  };
+
+  // A recruitment timeline edit: one lifecycle date on the application itself.
+  const handleSaveMilestone = async (milestone: Milestone, value: string | null): Promise<string | null> => {
+    if (!user || !id || !application) return 'You are signed out.';
+
+    const previous = (application as unknown as Record<string, string | null | undefined>)[milestone.column] ?? null;
+    const { error: updateError } = await supabase
+      .from('applications')
+      .update({ [milestone.column]: value })
+      .eq('id', id)
+      .eq('user_id', user.id);
+
+    if (updateError) return updateError.message;
+
+    const describe = (date: string | null) => (date ? formatDateTime(date) : 'no date');
+    await supabase.from('application_events').insert({
+      user_id: user.id,
+      application_id: id,
+      event_type: 'timeline_updated',
+      title: `${milestone.label} date ${value === null ? 'removed' : previous ? 'corrected' : 'added'}`,
+      description: `Changed from ${describe(previous)} to ${describe(value)}.`,
+      event_date: new Date().toISOString(),
+    });
+
+    setMessage(`${milestone.label} date ${value === null ? 'removed' : 'saved'}.`);
+    await fetchApplicationDetails();
+    return null;
   };
 
   const handleSaveInterviewPrep = async () => {
@@ -835,20 +853,12 @@ ${signOff(signatureName)}`;
           />
         </div>
 
-        <div className="mt-8 border border-slate-200 rounded-2xl p-4 sm:p-5 bg-slate-50">
-          <h2 className="text-lg font-semibold mb-4">Lifecycle Timeline</h2>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-            {lifecycleItems.map((item) => (
-              <LifecycleItem
-                key={item.label}
-                label={item.label}
-                value={formatDateTime(item.value)}
-                complete={Boolean(item.value)}
-              />
-            ))}
-          </div>
-        </div>
+        <RecruitmentTimeline
+          application={application}
+          events={events}
+          interviews={interviews}
+          onSaveDate={handleSaveMilestone}
+        />
 
         {application.notes && (
           <div className="mt-8">
@@ -1357,28 +1367,6 @@ const InfoCard = ({
       <span className="text-sm">{label}</span>
     </div>
     <p className="font-medium break-words">{value}</p>
-  </div>
-);
-
-const LifecycleItem = ({
-  label,
-  value,
-  complete,
-}: {
-  label: string;
-  value: string;
-  complete: boolean;
-}) => (
-  <div className="bg-white border border-slate-200 rounded-xl p-3 min-w-0">
-    <div className="flex items-center gap-2 mb-1">
-      <span
-        className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-          complete ? 'bg-slate-900' : 'bg-slate-300'
-        }`}
-      />
-      <p className="text-xs text-slate-500">{label}</p>
-    </div>
-    <p className="text-sm font-medium text-slate-700 break-words">{value}</p>
   </div>
 );
 

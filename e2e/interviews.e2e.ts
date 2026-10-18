@@ -147,6 +147,7 @@ test.describe('with interviews', () => {
     await expect(dialog(page)).toContainText('Choose a new date and save to reschedule.');
     await dialog(page).getByLabel('Date').fill('2026-10-24');
     await dialog(page).getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.locator('main')).toContainText('Interview rescheduled.');
     expect(supabase.writes('interview_notes').at(-1)!.body).toMatchObject({ status: 'scheduled', cancelled_at: null });
   });
 
