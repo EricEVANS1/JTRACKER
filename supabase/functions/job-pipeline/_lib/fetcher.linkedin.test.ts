@@ -34,13 +34,12 @@ const googleJob = (n: number, applyLink: string, extra: Record<string, unknown> 
 
 const respond = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 
-const stubSerpApi = (handlers: { google_jobs: () => unknown; google?: () => unknown }) => {
+const stubSerpApi = (handlers: { google_jobs: () => unknown }) => {
   const requests: URLSearchParams[] = [];
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
     const params = new URL(String(input)).searchParams;
     requests.push(params);
-    const engine = params.get('engine') as 'google_jobs' | 'google';
-    return respond(handlers[engine]?.() ?? {});
+    return respond(params.get('engine') === 'google_jobs' ? handlers.google_jobs() : {});
   }));
   return requests;
 };
@@ -65,8 +64,7 @@ describe('LinkedIn search', () => {
 
     const { jobs } = await fetchJobsForPreferences(preferences(), 'test-key', 10);
 
-    // One Google Jobs call, location in the query, no fixed country; enough
-    // LinkedIn results, so no fallback search.
+    // One Google Jobs call (no further page), location in the query, no fixed country.
     expect(requests).toHaveLength(1);
     expect(requests[0].get('engine')).toBe('google_jobs');
     expect(requests[0].get('q')).toBe('Data Analyst London');
@@ -89,53 +87,59 @@ describe('LinkedIn search', () => {
     expect(jobs[0].source_posted_at).toBeTruthy();
   }, 20_000);
 
-  it('tops up from a LinkedIn site search when Google Jobs has few LinkedIn postings', async () => {
+  it('reads a second Google Jobs page when there is one, and never searches LinkedIn pages directly', async () => {
+    let page = 0;
     const requests = stubSerpApi({
-      google_jobs: () => ({ jobs_results: [googleJob(1, 'https://www.linkedin.com/jobs/view/3800000001')] }),
-      google: () => ({
-        organic_results: [
-          {
-            title: 'Company 7 hiring Data Analyst in London, England, United Kingdom | LinkedIn',
-            link: 'https://uk.linkedin.com/jobs/view/data-analyst-at-company-7-3800000007?refId=x',
-            snippet: 'Posted 1 day ago. Company 7 is hiring a Data Analyst in London.',
-          },
-          // The same posting Google Jobs already found.
-          {
-            title: 'Company 1 hiring Data Analyst 1 in London | LinkedIn',
-            link: 'https://www.linkedin.com/jobs/view/data-analyst-1-at-company-1-3800000001',
-            snippet: 'Company 1 is hiring.',
-          },
+      google_jobs: () => {
+        page++;
+        return page === 1
+          ? { jobs_results: [googleJob(1, 'https://www.linkedin.com/jobs/view/3800000001')], serpapi_pagination: { next_page_token: 'token-2' } }
+          : { jobs_results: [googleJob(2, 'https://www.linkedin.com/jobs/view/3800000002')] };
+      },
+    });
+
+    const { jobs } = await fetchJobsForPreferences(preferences(), 'test-key', 10);
+
+    expect(requests.map((r) => r.get('engine'))).toEqual(['google_jobs', 'google_jobs']);
+    expect(requests[1].get('next_page_token')).toBe('token-2');
+    expect(jobs.map((j) => j.external_id)).toEqual(['3800000001', '3800000002']);
+  }, 20_000);
+
+  it('stops, without a fallback search, when Google Jobs has nothing', async () => {
+    const requests = stubSerpApi({
+      google_jobs: () => ({ error: "Google hasn't returned any results for this query." }),
+    });
+
+    const { jobs } = await fetchJobsForPreferences(preferences(), 'test-key', 10);
+    expect(requests.map((r) => r.get('engine'))).toEqual(['google_jobs']);
+    expect(jobs).toEqual([]);
+  }, 20_000);
+
+  it('adds a remote or hybrid preference to the search', async () => {
+    const requests = stubSerpApi({ google_jobs: () => ({ jobs_results: [] }) });
+
+    await fetchJobsForPreferences(preferences({ work_model: 'remote' }), 'test-key', 10);
+    expect(requests[0].get('q')).toBe('Data Analyst London remote');
+  }, 20_000);
+
+  it('reads "Just posted" and Google\'s work-from-home flag', async () => {
+    stubSerpApi({
+      google_jobs: () => ({
+        jobs_results: [
+          googleJob(1, 'https://www.linkedin.com/jobs/view/3800000001', {
+            detected_extensions: { posted_at: 'Just posted', work_from_home: true },
+          }),
         ],
       }),
     });
 
     const { jobs } = await fetchJobsForPreferences(preferences(), 'test-key', 10);
-
-    expect(requests.map((r) => r.get('engine'))).toEqual(['google_jobs', 'google']);
-    expect(requests[1].get('q')).toBe('site:linkedin.com/jobs/view Data Analyst London job');
-    expect(requests[1].has('gl')).toBe(false);
-
-    // The repeat of 3800000001 collapses into one job.
-    expect(jobs.map((j) => j.job_url).sort()).toEqual([
-      'https://www.linkedin.com/jobs/view/3800000001/',
-      'https://www.linkedin.com/jobs/view/3800000007/',
-    ]);
-    expect(jobs.every((j) => j.source === 'linkedin')).toBe(true);
-  }, 20_000);
-
-  it('still runs the fallback search when Google Jobs fails', async () => {
-    const requests = stubSerpApi({
-      google_jobs: () => ({ error: "Google hasn't returned any results for this query." }),
-      google: () => ({ organic_results: [] }),
-    });
-
-    const { jobs } = await fetchJobsForPreferences(preferences(), 'test-key', 10);
-    expect(requests.map((r) => r.get('engine'))).toEqual(['google_jobs', 'google']);
-    expect(jobs).toEqual([]);
+    expect(jobs[0].source_posted_at).toBeTruthy();
+    expect(jobs[0].work_model).toBe('remote');
   }, 20_000);
 
   it('counts both possible LinkedIn calls against the per-run cap', async () => {
-    stubSerpApi({ google_jobs: () => ({ jobs_results: [] }), google: () => ({ organic_results: [] }) });
+    stubSerpApi({ google_jobs: () => ({ jobs_results: [] }) });
 
     const { combinationsSearched, combinationsSkipped } = await fetchJobsForPreferences(
       preferences({ target_titles: ['A', 'B', 'C'], preferred_locations: ['London'] }),

@@ -1,10 +1,10 @@
+import { classifyWorkModel } from './jobFilters.ts';
 import {
   canonicalLinkedInJobUrl,
   findLinkedInJobLink,
   LINKEDIN_MAX_CALLS,
   linkedInJobId,
   linkedInSearchQuery,
-  MIN_LINKEDIN_RESULTS_BEFORE_FALLBACK,
 } from './linkedin.ts';
 import { cleanTerms, DEFAULT_MAX_SEARCH_CALLS, planSearchQueries, type SearchCombination } from './queryPlan.ts';
 import type { RawJob, UserJobPreferences } from './types.ts';
@@ -28,11 +28,10 @@ const BOARD_SOURCES: Record<
     siteQueries: string[];
   }
 > = {
-  // Only used as a fallback; LinkedIn postings come from Google Jobs first
-  // (see fetchLinkedInJobs).
+  // Not searched: LinkedIn postings come from Google Jobs (fetchLinkedInJobs).
   linkedin: {
     label: 'LinkedIn',
-    siteQueries: ['site:linkedin.com/jobs/view'],
+    siteQueries: [],
   },
   justjoinit: {
     label: 'JustJoinIT',
@@ -163,6 +162,15 @@ function parsePostedAt(raw: unknown): string | null {
 
   const lower = value.toLowerCase();
   const now = new Date();
+
+  if (/just (now|posted)|today|minute|moments? ago|\bnow\b/.test(lower)) {
+    return now.toISOString();
+  }
+
+  if (lower.includes('yesterday')) {
+    now.setDate(now.getDate() - 1);
+    return now.toISOString();
+  }
 
   if (lower.includes('hour')) {
     const hours = Number(lower.match(/\d+/)?.[0] || 1);
@@ -642,7 +650,8 @@ function buildGoogleJob(job: Record<string, unknown>, fallbackLocation: string):
     description: description || null,
     salary_range: extractSalary(job),
     employment_type: employmentType || null,
-    work_model: detectWorkModel(`${title} ${location} ${description} ${employmentType}`),
+    work_model:
+      classifyWorkModel({ title, location, description }, detected?.work_from_home === true) ?? 'any',
     source_posted_at: parsePostedAt(
       detected?.posted_at || detected?.posted || detected?.date || job.date || job.posted_at,
     ),
@@ -933,8 +942,6 @@ async function fetchOrganicBoardJobs(
   location: string,
   serpApiKey: string,
   limit: number,
-  // Google country to search from; null searches without one (location is in the query).
-  googleCountry: string | null = 'pl',
 ): Promise<RawJob[]> {
   const board = BOARD_SOURCES[source];
 
@@ -950,7 +957,7 @@ async function fetchOrganicBoardJobs(
       engine: 'google',
       q: searchQuery,
       hl: 'en',
-      ...(googleCountry ? { gl: googleCountry } : {}),
+      gl: 'pl',
       num: String(limit),
       api_key: serpApiKey,
     });
@@ -1026,58 +1033,64 @@ function buildLinkedInJob(job: Record<string, unknown>, fallbackLocation: string
   };
 }
 
-// LinkedIn postings: Google Jobs results posted on LinkedIn (structured title,
-// company, location, description and date), topped up from a Google search of
-// LinkedIn job pages when Google Jobs has few. No fixed country.
+// LinkedIn postings: Google Jobs results posted on LinkedIn, with their
+// title, company, location, description and posting date. Reads up to
+// LINKEDIN_MAX_CALLS pages. A plain Google search of LinkedIn pages is not used:
+// it mostly returned old, closed postings without dates.
 async function fetchLinkedInJobs(
   query: string,
   location: string,
+  workModel: string | null | undefined,
   serpApiKey: string,
   limit: number,
 ): Promise<RawJob[]> {
   const jobs: RawJob[] = [];
+  let pageToken: string | null = null;
 
-  const params = new URLSearchParams({
-    engine: 'google_jobs',
-    q: linkedInSearchQuery(query, location),
-    hl: 'en',
-    api_key: serpApiKey,
-  });
+  console.log('[fetcher] LinkedIn (Google Jobs) query:', { query, location, workModel });
 
-  console.log('[fetcher] LinkedIn (Google Jobs) query:', { query, location });
+  for (let page = 0; page < LINKEDIN_MAX_CALLS && jobs.length < limit; page++) {
+    const params = new URLSearchParams({
+      engine: 'google_jobs',
+      q: linkedInSearchQuery(query, location, workModel),
+      hl: 'en',
+      api_key: serpApiKey,
+      ...(pageToken ? { next_page_token: pageToken } : {}),
+    });
 
-  try {
-    const response = await fetchWithTimeout(`https://serpapi.com/search.json?${params}`);
-    const text = await response.text();
-    const data = response.ok ? (JSON.parse(text) as Record<string, unknown>) : null;
+    let data: Record<string, unknown>;
 
-    if (!response.ok) {
-      console.error('[fetcher] LinkedIn (Google Jobs) HTTP failed:', response.status);
-    } else if (data?.error) {
-      console.warn('[fetcher] LinkedIn (Google Jobs) SerpAPI message:', String(data.error));
-    } else if (data) {
-      const results = getResultsArray(data);
-      const linkedIn = results.map((job) => buildLinkedInJob(job, location)).filter(Boolean) as RawJob[];
-      console.log('[fetcher] LinkedIn postings in Google Jobs:', linkedIn.length, 'of', results.length);
-      jobs.push(...linkedIn.slice(0, limit));
+    try {
+      const response = await fetchWithTimeout(`https://serpapi.com/search.json?${params}`);
+      const text = await response.text();
+
+      if (!response.ok) {
+        console.error('[fetcher] LinkedIn (Google Jobs) HTTP failed:', response.status);
+        break;
+      }
+
+      data = JSON.parse(text) as Record<string, unknown>;
+    } catch (error) {
+      console.error('[fetcher] LinkedIn (Google Jobs) failed:', error instanceof Error ? error.message : error);
+      break;
     }
-  } catch (error) {
-    // Still try the fallback search below.
-    console.error('[fetcher] LinkedIn (Google Jobs) failed:', error instanceof Error ? error.message : error);
+
+    if (data.error) {
+      console.warn('[fetcher] LinkedIn (Google Jobs) SerpAPI message:', String(data.error));
+      break;
+    }
+
+    const results = getResultsArray(data);
+    const linkedIn = results.map((job) => buildLinkedInJob(job, location)).filter(Boolean) as RawJob[];
+    console.log(`[fetcher] LinkedIn postings in Google Jobs page ${page + 1}:`, linkedIn.length, 'of', results.length);
+    jobs.push(...linkedIn);
+
+    const pagination = data.serpapi_pagination as Record<string, unknown> | undefined;
+    pageToken = typeof pagination?.next_page_token === 'string' ? pagination.next_page_token : null;
+    if (!pageToken) break;
   }
 
-  if (jobs.length < MIN_LINKEDIN_RESULTS_BEFORE_FALLBACK) {
-    const found = await fetchOrganicBoardJobs('linkedin', query, location, serpApiKey, limit, null);
-    jobs.push(
-      ...found.map((job) => ({
-        ...job,
-        external_id: linkedInJobId(job.job_url) || job.external_id,
-        job_url: canonicalLinkedInJobUrl(job.job_url),
-      })),
-    );
-  }
-
-  return jobs;
+  return jobs.slice(0, limit);
 }
 
 // The most paid SerpAPI calls one title/location pair can cost on a source.
@@ -1232,6 +1245,7 @@ for (const [index, query] of queries.entries()) {
         const found = await fetchLinkedInJobs(
           query.title,
           query.location,
+          preferences.work_model,
           serpApiKey,
           perQueryLimit,
         );

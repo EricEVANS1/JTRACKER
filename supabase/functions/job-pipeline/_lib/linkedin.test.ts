@@ -46,8 +46,11 @@ describe('linkedInJobId and canonicalLinkedInJobUrl', () => {
 });
 
 describe('linkedInSearchQuery', () => {
-  it('puts the location in the query', () => {
+  it('puts the location, and a remote or hybrid preference, in the query', () => {
     expect(linkedInSearchQuery('Data Analyst', 'London')).toBe('Data Analyst London');
     expect(linkedInSearchQuery('Data Analyst', ' Remote ')).toBe('Data Analyst remote');
+    expect(linkedInSearchQuery('Data Analyst', 'Warsaw', 'onsite')).toBe('Data Analyst Warsaw');
+    expect(linkedInSearchQuery('Data Analyst', 'Warsaw', 'hybrid')).toBe('Data Analyst Warsaw hybrid');
+    expect(linkedInSearchQuery('Data Analyst', 'Remote', 'remote')).toBe('Data Analyst remote');
   });
 });

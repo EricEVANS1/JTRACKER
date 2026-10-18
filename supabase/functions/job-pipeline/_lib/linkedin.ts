@@ -3,11 +3,7 @@
 // scraped: its terms forbid it and its jobs API is partner-only.
 // Kept free of Deno imports so it can be unit tested.
 
-// Below this many LinkedIn postings from Google Jobs, also run a plain Google
-// search of linkedin.com/jobs/view pages.
-export const MIN_LINKEDIN_RESULTS_BEFORE_FALLBACK = 3;
-
-// Paid calls a LinkedIn search can make: Google Jobs, plus the fallback search.
+// Google Jobs result pages read per LinkedIn search (each is a paid call).
 export const LINKEDIN_MAX_CALLS = 2;
 
 const asString = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
@@ -56,7 +52,12 @@ export const canonicalLinkedInJobUrl = (url: string): string => {
 };
 
 // Google Jobs query for a LinkedIn search. The location goes in the query
-// (Google Jobs understands "… in London" and "… remote"), so no fixed country
-// or SerpAPI location name is needed.
-export const linkedInSearchQuery = (title: string, location: string) =>
-  /^\s*remote\s*$/i.test(location) ? `${title} remote` : `${title} ${location}`.trim();
+// (Google Jobs understands "… London" and "… remote"), so no fixed country or
+// SerpAPI location name is needed; a remote or hybrid preference is added too.
+export const linkedInSearchQuery = (title: string, location: string, workModel?: string | null) => {
+  const remoteLocation = /^\s*remote\s*$/i.test(location);
+  const words = [title, remoteLocation ? 'remote' : location];
+  if (workModel === 'remote' && !remoteLocation) words.push('remote');
+  if (workModel === 'hybrid') words.push('hybrid');
+  return words.join(' ').replace(/\s+/g, ' ').trim();
+};

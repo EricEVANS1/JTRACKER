@@ -9,6 +9,7 @@ import { errorResponse, getCorsHeaders, jsonResponse } from './_lib/cors.ts';
 import { fetchJobsForPreferences } from './_lib/fetcher.ts';
 import { cleanTerms, parseMaxCalls } from './_lib/queryPlan.ts';
 import { chunk, filterNewJobs, insertSkippingDuplicates } from './_lib/saveJobs.ts';
+import { applyJobFilters } from './_lib/jobFilters.ts';
 import { scoreJobAgainstCV } from './_lib/scorer.ts';
 import type {
   CVProfile,
@@ -69,16 +70,6 @@ function getRecommendedBucket(score: number) {
   return 'not_recommended';
 }
 
-function isFreshEnough(job: RawJob, maxAgeDays: number) {
-  if (!job.source_posted_at) return true;
-
-  const posted = new Date(job.source_posted_at).getTime();
-  if (Number.isNaN(posted)) return true;
-
-  const ageDays = (Date.now() - posted) / (1000 * 60 * 60 * 24);
-  return ageDays <= maxAgeDays;
-}
-
 async function loadPreferences(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -114,6 +105,8 @@ async function loadPreferences(
     preferred_locations: cleanTerms(row?.preferred_locations),
     enabled_sources: cleanTerms(row?.enabled_sources),
     excluded_keywords: cleanTerms(row?.excluded_keywords),
+    // Missing until supabase/sql/2026-10-18_job_search_filters.sql has run; empty means any level.
+    experience_levels: cleanTerms(row?.experience_levels),
     min_match_score: row?.min_match_score ?? DEFAULT_PREFERENCES.min_match_score,
     max_job_age_days: row?.max_job_age_days ?? DEFAULT_PREFERENCES.max_job_age_days,
   };
@@ -414,9 +407,12 @@ Deno.serve(async (req) => {
       combinationsSkipped,
     } = await fetchJobsForPreferences(preferences, SERPAPI_KEY, 10, MAX_SEARCH_CALLS);
 
-    const freshJobs = fetchedJobs.filter((job) =>
-      isFreshEnough(job, preferences.max_job_age_days),
-    );
+    // LinkedIn-style filters: date posted (undated jobs are dropped), closed
+    // postings, work model and experience level. Same rules as the job list.
+    const { kept: freshJobs, removed: filteredOut } = applyJobFilters(fetchedJobs, preferences, {
+      workFromHome: (job) =>
+        (job.raw_data?.detected_extensions as Record<string, unknown> | undefined)?.work_from_home === true,
+    });
 
     const { insertedJobs, duplicateCount } = await insertJobAds(
       supabase,
@@ -500,6 +496,7 @@ Deno.serve(async (req) => {
           max_search_calls: MAX_SEARCH_CALLS,
           fetched_count: fetchedJobs.length,
           fresh_count: freshJobs.length,
+          filtered_out: filteredOut,
           inserted_count: insertedJobs.length,
           scored_count: scoredCount,
           processing_time_ms: Date.now() - startedAt,
@@ -513,6 +510,7 @@ Deno.serve(async (req) => {
       run_id: runId,
       scanned_count: fetchedJobs.length,
       fresh_count: freshJobs.length,
+      filtered_out: filteredOut,
       saved_count: insertedJobs.length,
       duplicate_count: duplicateCount,
       scored_count: scoredCount,

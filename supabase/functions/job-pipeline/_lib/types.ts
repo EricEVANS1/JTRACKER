@@ -20,6 +20,7 @@ export interface UserJobPreferences {
   work_model: 'any' | 'remote' | 'hybrid' | 'onsite';
   min_match_score: number;
   excluded_keywords?: string[];
+  experience_levels?: string[];
   career_goal?: string | null;
   enabled_sources: string[];
   max_job_age_days: number;

@@ -1,6 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  applyJobFilters,
+  DATE_POSTED_OPTIONS,
+  datePostedFromMaxAge,
+  datePostedLabel,
+  EXPERIENCE_LEVEL_OPTIONS,
+  experienceLevelLabel,
+  maxAgeFromDatePosted,
+  WORK_MODEL_OPTIONS,
+  type DatePosted,
+  type FilterReason,
+} from '../../supabase/functions/job-pipeline/_lib/jobFilters.ts';
+import {
   AlertCircle,
   Briefcase,
   CalendarClock,
@@ -40,6 +52,8 @@ interface JobPreferences {
   automation_enabled: boolean | null;
   // Missing until supabase/sql/2026-10-17_job_preferences_excluded_keywords.sql has run.
   excluded_keywords?: string[] | null;
+  // Missing until supabase/sql/2026-10-18_job_search_filters.sql has run.
+  experience_levels?: string[] | null;
 }
 
 interface JobSource {
@@ -96,11 +110,12 @@ interface PreferenceForm {
   preferredLocations: string;
   workModel: string;
   minMatchScore: number;
-  maxJobAgeDays: number;
+  datePosted: DatePosted;
   defaultCvVersionId: string;
   automationEnabled: boolean;
   enabledSources: string[];
   excludedKeywords: string;
+  experienceLevels: string[];
 }
 
 type ScoreView = 'all' | 'recommended' | 'possible' | 'stretch' | 'scored' | 'unscored';
@@ -256,14 +271,34 @@ const preferenceToForm = (
   preferredLocations: joinCsv(preferences?.preferred_locations),
   workModel:          preferences?.work_model || 'any',
   minMatchScore:      preferences?.min_match_score ?? 60,
-  maxJobAgeDays:      preferences?.max_job_age_days ?? 7,
+  datePosted:         datePostedFromMaxAge(preferences?.max_job_age_days),
   defaultCvVersionId: preferences?.default_cv_version_id || '',
   automationEnabled:  Boolean(preferences?.automation_enabled),
   enabledSources:     preferences?.enabled_sources?.length
     ? preferences.enabled_sources
     : sources.map((s) => s.slug),
   excludedKeywords:   joinCsv(preferences?.excluded_keywords),
+  experienceLevels:   preferences?.experience_levels || [],
 });
+
+const supportsExperienceLevels = (preferences: JobPreferences | null) =>
+  Boolean(preferences && 'experience_levels' in preferences);
+
+const WORK_MODEL_LABELS: Record<string, string> = Object.fromEntries(WORK_MODEL_OPTIONS.map((o) => [o.value, o.label]));
+
+// "3 older than Past 24 hours or undated, 1 no longer accepting applications"
+const describeFilteredOut = (removed: Partial<Record<FilterReason, number>> | null | undefined, maxAgeDays: number | null | undefined) => {
+  const labels: Record<FilterReason, string> = {
+    date: `older than ${datePostedLabel(maxAgeDays).toLowerCase()} or undated`,
+    closed: 'no longer accepting applications',
+    work_model: 'other work model',
+    experience_level: 'other experience level',
+  };
+  return (Object.keys(labels) as FilterReason[])
+    .filter((reason) => (removed?.[reason] ?? 0) > 0)
+    .map((reason) => `${removed?.[reason]} ${labels[reason]}`)
+    .join(', ');
+};
 
 // The excluded_keywords column is added by a SQL migration; until it exists
 // the field can't be saved.
@@ -304,6 +339,8 @@ export const JobAutomationPage: React.FC = () => {
 
   const [jobSources,     setJobSources]     = useState<JobSource[]>([]);
   const [jobs,           setJobs]           = useState<JobAd[]>([]);
+  // Saved jobs the date / work model / experience filters hide from the list.
+  const [hiddenByFilters, setHiddenByFilters] = useState(0);
   const [matchesByJobId, setMatchesByJobId] = useState<Record<string, JobMatchResult>>({});
   const [cvVersions,     setCvVersions]     = useState<CVVersion[]>([]);
   const [defaultCv,      setDefaultCv]      = useState<CVVersion | null>(null);
@@ -391,23 +428,33 @@ export const JobAutomationPage: React.FC = () => {
         : null,
     );
 
-    const maxAgeDays = safePreferences?.max_job_age_days || 7;
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - Math.max(maxAgeDays, 30));
-
-    const { data: jobData, error: jobError } = await supabase
+    // List only jobs with a posting date inside "Date posted", then apply the
+    // same filters as the search (closed, work model, experience level).
+    const maxAgeDays = safePreferences?.max_job_age_days ?? 7;
+    let jobQuery = supabase
       .from('job_ads')
       .select('id, title, company, location, work_model, salary_range, job_url, source, source_slug, source_posted_at, discovered_at, description, ignored, best_match_score, best_fit_label, recommendation, parsed_required_skills')
       .eq('user_id', user.id)
       .eq('ignored', false)
-      .gte('discovered_at', cutoffDate.toISOString())
-      .order('discovered_at', { ascending: false })
+      .not('source_posted_at', 'is', null);
+
+    if (maxAgeDays > 0) {
+      const cutoffDate = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000 - 60 * 60 * 1000);
+      jobQuery = jobQuery.gte('source_posted_at', cutoffDate.toISOString());
+    }
+
+    const { data: jobData, error: jobError } = await jobQuery
+      .order('source_posted_at', { ascending: false })
       .limit(200);
 
     if (jobError) { setError(jobError.message); setLoading(false); setRefreshing(false); return; }
 
-    const safeJobs = ((jobData || []) as JobAd[]).filter(isValidJob);
+    const { kept: safeJobs, removed } = applyJobFilters(
+      ((jobData || []) as JobAd[]).filter(isValidJob),
+      safePreferences || {},
+    );
     setJobs(safeJobs);
+    setHiddenByFilters(Object.values(removed).reduce((total, count) => total + count, 0));
 
     const jobIds = safeJobs.map((j) => j.id);
 
@@ -475,10 +522,13 @@ export const JobAutomationPage: React.FC = () => {
       work_model:            preferenceForm.workModel || 'any',
       min_match_score:       Number(preferenceForm.minMatchScore) || 60,
       enabled_sources:       preferenceForm.enabledSources,
-      max_job_age_days:      Number(preferenceForm.maxJobAgeDays) || 7,
+      max_job_age_days:      maxAgeFromDatePosted(preferenceForm.datePosted),
       automation_enabled:    preferenceForm.automationEnabled,
       ...(supportsExcludedKeywords(preferences)
         ? { excluded_keywords: splitCsv(preferenceForm.excludedKeywords) }
+        : {}),
+      ...(supportsExperienceLevels(preferences)
+        ? { experience_levels: preferenceForm.experienceLevels }
         : {}),
     };
 
@@ -554,6 +604,9 @@ export const JobAutomationPage: React.FC = () => {
           `Saved: ${payload.saved_count ?? 0}.`,
           `Scored: ${payload.scored_count ?? 0}.`,
           `Duplicates: ${payload.duplicate_count ?? 0}.`,
+          describeFilteredOut(payload.filtered_out as Partial<Record<FilterReason, number>> | undefined, preferences?.max_job_age_days)
+            ? `Filtered out: ${describeFilteredOut(payload.filtered_out as Partial<Record<FilterReason, number>> | undefined, preferences?.max_job_age_days)}.`
+            : '',
           payload.no_cv_warning ? 'No CV was found, so jobs were saved without full CV scoring.' : '',
         ].filter(Boolean).join(' '),
       );
@@ -948,12 +1001,7 @@ export const JobAutomationPage: React.FC = () => {
                 label="Work model"
                 value={preferenceForm.workModel}
                 onChange={(v) => updatePreferenceForm('workModel', v)}
-                options={[
-                  { value: 'any',    label: 'Any' },
-                  { value: 'remote', label: 'Remote' },
-                  { value: 'hybrid', label: 'Hybrid' },
-                  { value: 'onsite', label: 'On-site' },
-                ]}
+                options={WORK_MODEL_OPTIONS}
               />
               <SelectInput
                 label="Default CV"
@@ -974,12 +1022,11 @@ export const JobAutomationPage: React.FC = () => {
                 max={100}
                 onChange={(v) => updatePreferenceForm('minMatchScore', v)}
               />
-              <NumberInput
-                label="Max job age days"
-                value={preferenceForm.maxJobAgeDays}
-                min={1}
-                max={30}
-                onChange={(v) => updatePreferenceForm('maxJobAgeDays', v)}
+              <SelectInput
+                label="Date posted"
+                value={preferenceForm.datePosted}
+                onChange={(v) => updatePreferenceForm('datePosted', v as DatePosted)}
+                options={DATE_POSTED_OPTIONS}
               />
             </div>
 
@@ -1001,6 +1048,41 @@ export const JobAutomationPage: React.FC = () => {
               >
                 {preferenceForm.automationEnabled ? 'On (not active yet)' : 'Off'}
               </button>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-slate-700 mb-2">Experience level</p>
+              <div className="flex flex-wrap gap-2">
+                {EXPERIENCE_LEVEL_OPTIONS.map((level) => {
+                  const active = preferenceForm.experienceLevels.includes(level.value);
+                  return (
+                    <button
+                      key={level.value}
+                      type="button"
+                      aria-pressed={active}
+                      disabled={!supportsExperienceLevels(preferences)}
+                      onClick={() =>
+                        updatePreferenceForm(
+                          'experienceLevels',
+                          active
+                            ? preferenceForm.experienceLevels.filter((value) => value !== level.value)
+                            : [...preferenceForm.experienceLevels, level.value],
+                        )
+                      }
+                      className={`rounded-full px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+                        active ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      }`}
+                    >
+                      {level.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1.5 text-xs text-slate-500">
+                {supportsExperienceLevels(preferences)
+                  ? 'None selected means any level. Estimated from the title and description; roles that give no sign of their level count as Associate.'
+                  : 'Not available yet: the database needs the experience_levels column (supabase/sql/2026-10-18_job_search_filters.sql).'}
+              </p>
             </div>
 
             <div>
@@ -1028,14 +1110,20 @@ export const JobAutomationPage: React.FC = () => {
           <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
             <SummaryItem label="Target roles"   value={preferences?.target_titles?.length ? preferences.target_titles.join(', ') : 'Not set'} />
             <SummaryItem label="Locations"      value={preferences?.preferred_locations?.length ? preferences.preferred_locations.join(', ') : 'Not set'} />
-            <SummaryItem label="Work model"     value={preferences?.work_model || 'Any'} />
+            <SummaryItem label="Work model"     value={WORK_MODEL_LABELS[preferences?.work_model || 'any'] || 'Any'} />
             <SummaryItem
               label="Default CV"
               value={defaultCv ? `${defaultCv.name || 'Untitled CV'}${defaultCv.target_role ? ` — ${defaultCv.target_role}` : ''}` : 'Not selected'}
               highlight={missingDefaultCv}
             />
             <SummaryItem label="Minimum score"  value={`${preferences?.min_match_score ?? 60}/100`} />
-            <SummaryItem label="Max job age"    value={`${preferences?.max_job_age_days ?? 7} days`} />
+            <SummaryItem label="Date posted"    value={datePostedLabel(preferences?.max_job_age_days)} />
+            {supportsExperienceLevels(preferences) && (
+              <SummaryItem
+                label="Experience level"
+                value={preferences?.experience_levels?.length ? preferences.experience_levels.map(experienceLevelLabel).join(', ') : 'Any'}
+              />
+            )}
             <SummaryItem label="Automation"     value={preferences?.automation_enabled ? 'On, not scheduled yet' : 'Off'} />
             {supportsExcludedKeywords(preferences) && (
               <SummaryItem label="Excluded keywords" value={preferences?.excluded_keywords?.length ? preferences.excluded_keywords.join(', ') : 'None'} />
@@ -1065,6 +1153,8 @@ export const JobAutomationPage: React.FC = () => {
                 <p className="text-xs text-slate-500 mt-0.5">
                   {filteredJobs.length} result{filteredJobs.length === 1 ? '' : 's'}
                   {jobs.length !== filteredJobs.length ? ` of ${jobs.length}` : ''}
+                  {` · posted ${datePostedLabel(preferences?.max_job_age_days).toLowerCase()}`}
+                  {hiddenByFilters > 0 ? ` · ${hiddenByFilters} hidden by your filters` : ''}
                 </p>
               </div>
 
@@ -1151,7 +1241,7 @@ export const JobAutomationPage: React.FC = () => {
             <Briefcase size={38} className="mx-auto text-slate-300 mb-3" />
             <h3 className="font-semibold text-slate-800">No matched jobs yet</h3>
             <p className="text-sm text-slate-500 mt-2 max-w-md mx-auto">
-              Set your search profile, make sure Google Jobs or Indeed is enabled, then click Run Search Now.
+              Nothing posted {datePostedLabel(preferences?.max_job_age_days).toLowerCase()} matches your search profile. Run Search Now, or widen Date posted, work model or experience level.
             </p>
           </div>
         ) : (
@@ -1189,7 +1279,7 @@ export const JobAutomationPage: React.FC = () => {
                           </span>
 
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
-                            {formatPostedAgo(job.source_posted_at || job.discovered_at)}
+                            {formatPostedAgo(job.source_posted_at)}
                           </span>
                         </div>
 

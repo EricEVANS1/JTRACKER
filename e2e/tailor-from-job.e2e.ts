@@ -16,7 +16,7 @@ test.beforeEach(({ supabase }) => {
   supabase.seed('job_ads', [
     {
       id: 'job1', user_id: USER_ID, title: 'BI Analyst', company: 'Globex', location: 'Remote', job_url: 'https://jobs.example/1',
-      source: 'LinkedIn', source_slug: 'linkedin', discovered_at: daysFromNow(-1), description: DESCRIPTION, ignored: false,
+      source: 'LinkedIn', source_slug: 'linkedin', discovered_at: daysFromNow(-1), source_posted_at: daysFromNow(-1), description: DESCRIPTION, ignored: false,
       best_match_score: 82, recommendation: 'apply',
     },
     { id: 'someone-elses-job', user_id: 'someone-else', title: 'Hidden', company: 'Other', job_url: 'https://jobs.example/2', description: 'secret', ignored: false },
