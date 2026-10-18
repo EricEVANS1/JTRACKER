@@ -1,3 +1,4 @@
+import { fetchAdzunaJobs, type AdzunaConfig } from './adzuna.ts';
 import { classifyWorkModel } from './jobFilters.ts';
 import { cleanSearchError, type SearchReport } from './searchReport.ts';
 import {
@@ -20,10 +21,12 @@ type SearchSource =
   | 'pracuj_it'
   | 'theprotocol'
   | 'bulldogjob'
-  | 'crossweb';
+  | 'crossweb'
+  // Official API with exact posting times (see adzuna.ts); not a SerpAPI search.
+  | 'adzuna';
 
 const BOARD_SOURCES: Record<
-  Exclude<SearchSource, 'google_jobs' | 'indeed'>,
+  Exclude<SearchSource, 'google_jobs' | 'indeed' | 'adzuna'>,
   {
     label: string;
     siteQueries: string[];
@@ -569,7 +572,7 @@ function parseGenericBoard(rawTitle: string): { title: string; company: string |
 }
 
 const SOURCE_TITLE_PARSERS: Record<
-  Exclude<SearchSource, 'google_jobs' | 'indeed'>,
+  Exclude<SearchSource, 'google_jobs' | 'indeed' | 'adzuna'>,
   (rawTitle: string) => { title: string; company: string | null }
 > = {
   theprotocol: parseTheProtocol,
@@ -706,7 +709,7 @@ function buildIndeedJob(job: Record<string, unknown>, fallbackLocation: string):
 
 function buildOrganicBoardJob(
   job: Record<string, unknown>,
-  source: Exclude<SearchSource, 'google_jobs' | 'indeed'>,
+  source: Exclude<SearchSource, 'google_jobs' | 'indeed' | 'adzuna'>,
   fallbackLocation: string,
 ): RawJob | null {
   const rawTitle = collapseWhitespace(safeString(job.title));
@@ -938,7 +941,7 @@ async function fetchIndeedJobs(
 }
 
 async function fetchOrganicBoardJobs(
-  source: Exclude<SearchSource, 'google_jobs' | 'indeed'>,
+  source: Exclude<SearchSource, 'google_jobs' | 'indeed' | 'adzuna'>,
   query: string,
   location: string,
   serpApiKey: string,
@@ -1111,7 +1114,7 @@ async function fetchLinkedInJobs(
 
 // The most paid SerpAPI calls one title/location pair can cost on a source.
 function maxCallsForSource(source: SearchSource): number {
-  if (source === 'google_jobs' || source === 'indeed') return 1;
+  if (source === 'google_jobs' || source === 'indeed' || source === 'adzuna') return 1;
   if (source === 'linkedin') return LINKEDIN_MAX_CALLS;
   return BOARD_SOURCES[source]?.siteQueries.length || 1;
 }
@@ -1136,7 +1139,8 @@ function getSearchSources(preferences: UserJobPreferences): SearchSource[] {
     return defaultSources;
   }
 
-  const allowed = new Set<SearchSource>(defaultSources);
+  // Adzuna is only used when chosen (it needs its own API keys).
+  const allowed = new Set<SearchSource>([...defaultSources, 'adzuna']);
 
   const selected = enabled.filter((source): source is SearchSource =>
     allowed.has(source as SearchSource),
@@ -1187,6 +1191,7 @@ export async function fetchJobsForPreferences(
   serpApiKey: string,
   perQueryLimit = 2,
   maxSearchCalls = DEFAULT_MAX_SEARCH_CALLS,
+  options: { adzuna?: AdzunaConfig | null } = {},
 ): Promise<{
   jobs: RawJob[];
   queriesRun: Array<{ source: string; query: string; location: string }>;
@@ -1268,6 +1273,17 @@ for (const [index, query] of queries.entries()) {
           serpApiKey,
           perQueryLimit,
         );
+
+        jobs.push(...found);
+        searchReports.push(report);
+      } else if (source === 'adzuna') {
+        const { jobs: found, report } = await fetchAdzunaJobs(options.adzuna ?? null, {
+          title: query.title,
+          location: query.location,
+          maxAgeDays: preferences.max_job_age_days,
+          workModel: preferences.work_model,
+          limit: perQueryLimit,
+        });
 
         jobs.push(...found);
         searchReports.push(report);

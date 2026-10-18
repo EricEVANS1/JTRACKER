@@ -10,6 +10,7 @@ import { fetchJobsForPreferences } from './_lib/fetcher.ts';
 import { cleanTerms, parseMaxCalls } from './_lib/queryPlan.ts';
 import { chunk, filterNewJobs, insertSkippingDuplicates } from './_lib/saveJobs.ts';
 import { applyJobFilters } from './_lib/jobFilters.ts';
+import { readAdzunaConfig } from './_lib/adzuna.ts';
 import { scoreJobAgainstCV } from './_lib/scorer.ts';
 import type {
   CVProfile,
@@ -51,6 +52,9 @@ const LLM_CONFIG: LLMConfig = {
 
 const SERPAPI_KEY =
   Deno.env.get('SERPAPI_KEY') || Deno.env.get('SERP_API_KEY') || '';
+
+// Adzuna (optional): ADZUNA_APP_ID, ADZUNA_APP_KEY and ADZUNA_COUNTRY secrets.
+const ADZUNA = readAdzunaConfig((name) => Deno.env.get(name));
 
 // Paid SerpAPI searches allowed per run (each title/location pair costs one per
 // source). Defaults to 18; set JOB_SEARCH_MAX_CALLS to change it.
@@ -173,6 +177,7 @@ function getSourceLabel(source: string) {
     theprotocol: 'TheProtocol.it',
     bulldogjob: 'Bulldogjob',
     crossweb: 'Crossweb',
+    adzuna: 'Adzuna',
   };
 
   return labels[source] || source;
@@ -333,13 +338,6 @@ Deno.serve(async (req) => {
     return errorResponse('Supabase environment variables are missing.', 500);
   }
 
-  if (!SERPAPI_KEY) {
-    return errorResponse(
-      'SERPAPI_KEY is missing. Add it in Supabase Edge Function secrets.',
-      500,
-    );
-  }
-
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
     return errorResponse('Missing Authorization header.', 401);
@@ -366,6 +364,15 @@ Deno.serve(async (req) => {
     // recording a run or spending any SerpAPI calls.
     if (!preferences.target_titles.length || !preferences.preferred_locations.length) {
       return errorResponse(MISSING_SEARCH_TERMS_MESSAGE, 400);
+    }
+
+    // Every source except Adzuna searches through SerpAPI.
+    const needsSerpApi =
+      preferences.enabled_sources.length === 0 ||
+      preferences.enabled_sources.some((source) => source !== 'adzuna');
+
+    if (needsSerpApi && !SERPAPI_KEY) {
+      return errorResponse('SERPAPI_KEY is missing. Add it in Supabase Edge Function secrets.', 500);
     }
 
     const { data: run, error: runError } = await supabase
@@ -406,7 +413,7 @@ Deno.serve(async (req) => {
       combinationsSearched,
       combinationsSkipped,
       searchReports,
-    } = await fetchJobsForPreferences(preferences, SERPAPI_KEY, 10, MAX_SEARCH_CALLS);
+    } = await fetchJobsForPreferences(preferences, SERPAPI_KEY, 10, MAX_SEARCH_CALLS, { adzuna: ADZUNA });
 
     // LinkedIn-style filters: date posted (undated jobs are dropped), closed
     // postings, work model and experience level. Same rules as the job list.

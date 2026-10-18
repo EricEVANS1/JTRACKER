@@ -31,3 +31,15 @@ describe('cleanSearchError', () => {
     expect(cleanSearchError(`bad key ${key}`)).toBe('bad key ***');
   });
 });
+
+describe('describeSearchReports for Adzuna', () => {
+  it('names the source and its problem', () => {
+    expect(describeSearchReports([
+      { source: 'adzuna', title: 'Support Specialist', location: 'Warsaw', listings: 0, viaLinkedIn: 0, matched: 0, error: null },
+      { source: 'adzuna', title: 'Support Specialist', location: 'Warsaw', listings: 0, viaLinkedIn: 0, matched: 0, error: 'Authorisation failed' },
+    ])).toEqual([
+      'Adzuna search for "Support Specialist" in Warsaw: no listings.',
+      'Adzuna search for "Support Specialist" in Warsaw failed: Authorisation failed',
+    ]);
+  });
+});

@@ -171,3 +171,41 @@ describe('LinkedIn search', () => {
     expect(combinationsSkipped).toHaveLength(1);
   }, 20_000);
 });
+
+describe('LinkedIn and Adzuna together', () => {
+  it('runs both, each with its own report, and counts both against the cap', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.startsWith('https://api.adzuna.com/')) {
+        return respond({
+          results: [{
+            id: '77', title: 'Data Analyst', company: { display_name: 'Beta' }, location: { display_name: 'London' },
+            created: new Date().toISOString(), redirect_url: 'https://www.adzuna.co.uk/land/ad/77', description: 'SQL.',
+          }],
+        });
+      }
+      return respond({ jobs_results: [googleJob(1, 'https://www.linkedin.com/jobs/view/3800000001')] });
+    }));
+
+    const { jobs, searchReports, combinationsSearched } = await fetchJobsForPreferences(
+      preferences({ enabled_sources: ['linkedin', 'adzuna'] }),
+      'test-key',
+      10,
+      18,
+      { adzuna: { appId: 'id', appKey: 'key', country: 'gb' } },
+    );
+
+    expect(jobs.map((j) => j.source).sort()).toEqual(['adzuna', 'linkedin']);
+    expect(searchReports.map((r) => r.source)).toEqual(['linkedin', 'adzuna']);
+    expect(urls.some((u) => u.startsWith('https://api.adzuna.com/v1/api/jobs/gb/search/1?'))).toBe(true);
+    expect(combinationsSearched).toHaveLength(1);
+  }, 20_000);
+
+  it('says Adzuna is not set up when its keys are missing', async () => {
+    stubSerpApi({ google_jobs: () => ({ jobs_results: [] }) });
+    const { searchReports } = await fetchJobsForPreferences(preferences({ enabled_sources: ['adzuna'] }), '', 10);
+    expect(searchReports[0].error).toContain('ADZUNA_APP_ID');
+  }, 20_000);
+});

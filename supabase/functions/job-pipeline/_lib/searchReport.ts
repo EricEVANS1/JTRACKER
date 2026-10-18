@@ -23,7 +23,7 @@ export const cleanSearchError = (message: unknown) =>
     .replace(/\b[a-f0-9]{40,}\b/gi, '***')
     .slice(0, 300);
 
-const SOURCE_LABELS: Record<string, string> = { linkedin: 'LinkedIn' };
+const SOURCE_LABELS: Record<string, string> = { linkedin: 'LinkedIn', adzuna: 'Adzuna' };
 
 // One sentence per search that found nothing to keep.
 export const describeSearchReports = (reports: SearchReport[] | null | undefined) =>
@@ -32,6 +32,7 @@ export const describeSearchReports = (reports: SearchReport[] | null | undefined
     .map((report) => {
       const what = `${SOURCE_LABELS[report.source] || report.source} search for "${report.title}" in ${report.location}`;
       if (report.error) return `${what} failed: ${report.error}`;
+      if (report.source !== 'linkedin') return `${what}: no listings.`;
       if (report.listings === 0) return `${what}: Google Jobs had no listings.`;
       if (report.viaLinkedIn === 0) return `${what}: Google Jobs had ${report.listings} listings, none posted on LinkedIn.`;
       return `${what}: ${report.viaLinkedIn} of ${report.listings} listings were posted on LinkedIn, but none had a LinkedIn link.`;

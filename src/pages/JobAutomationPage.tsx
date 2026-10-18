@@ -138,6 +138,7 @@ const sourceLabels: Record<string, string> = {
   bulldogjob:   'Bulldogjob',
   theprotocol:  'TheProtocol.it',
   crossweb:     'Crossweb.pl',
+  adzuna:       'Adzuna',
   manual:       'Manual',
 };
 
