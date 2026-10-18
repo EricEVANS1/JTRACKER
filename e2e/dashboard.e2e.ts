@@ -56,3 +56,22 @@ for (const shortcut of shortcuts) {
     for (const text of shortcut.hides) await expect(main).not.toContainText(text);
   });
 }
+
+test('a load error is shown as an alert that can be dismissed', async ({ page }) => {
+  await page.route('**/rest/v1/recruiters**', (route) =>
+    route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Could not load recruiters.' }) }));
+  await page.goto('/dashboard');
+
+  const alert = page.getByRole('alert').filter({ hasText: 'Could not load recruiters.' });
+  await expect(alert).toBeVisible();
+  await alert.getByRole('button', { name: 'Dismiss error' }).click();
+  await expect(alert).toBeHidden();
+});
+
+test('Refresh says when the dashboard was last updated', async ({ page }) => {
+  await page.goto('/dashboard');
+  await expect(page.getByRole('status').filter({ hasText: /^Updated \d{2}:\d{2}$/ })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.getByRole('status').filter({ hasText: /^Updated \d{2}:\d{2}$/ })).toBeVisible();
+});

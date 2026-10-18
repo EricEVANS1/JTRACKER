@@ -5,8 +5,10 @@ Bell,
 Briefcase,
 CalendarCheck,
 CheckCircle2,
+ChevronRight,
 Clock,
 FileText,
+Inbox,
 MailCheck,
 RefreshCw,
 Target,
@@ -227,6 +229,31 @@ count: number;
 href: string;
 }
 
+// Shared look for the dashboard's cards, buttons and focus states.
+const CARD = 'bg-white border border-slate-200 rounded-2xl shadow-sm';
+const FOCUS_RING = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2';
+const BUTTON_PRIMARY = `inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 active:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${FOCUS_RING}`;
+const BUTTON_SECONDARY = `inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors ${FOCUS_RING}`;
+
+// Title, one line of description and an optional icon or action.
+const PanelHeader = ({
+title,
+description,
+aside,
+}: {
+title: string;
+description?: React.ReactNode;
+aside?: React.ReactNode;
+}) => (
+  <div className="flex items-start justify-between gap-3 mb-4">
+    <div className="min-w-0">
+      <h3 className="text-base sm:text-lg font-semibold text-slate-900 break-words">{title}</h3>
+      {description && <p className="text-sm text-slate-500 mt-0.5 break-words">{description}</p>}
+    </div>
+    {aside && <div className="shrink-0 flex items-center gap-2">{aside}</div>}
+  </div>
+);
+
 export const DashboardPage: React.FC = () => {
 const { user } = useAuth();
 
@@ -258,6 +285,7 @@ const [cvVersions, setCvVersions] = useState<CVVersion[]>([]);
 const [loading, setLoading] = useState(true);
 const [refreshing, setRefreshing] = useState(false);
 const [error, setError] = useState('');
+const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
 const fetchDashboardData = async () => {
 if (!user) return;
@@ -450,12 +478,14 @@ else setCvVersions(cvVersionsResult.data || []);
 const loadDashboard = async () => {
 setLoading(true);
 await fetchDashboardData();
+setLastUpdated(new Date());
 setLoading(false);
 };
 
 const handleRefresh = async () => {
 setRefreshing(true);
 await fetchDashboardData();
+setLastUpdated(new Date());
 setRefreshing(false);
 };
 
@@ -845,21 +875,21 @@ return ( <div className="w-full max-w-full overflow-hidden"> <div className="max
         <div className="flex flex-col sm:flex-row gap-3 mt-8">
           <Link
             to="/applications"
-            className="inline-flex justify-center items-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-700 transition"
+            className={`${BUTTON_PRIMARY} py-2.5`}
           >
             Add First Application
           </Link>
 
           <Link
             to="/cv-manager"
-            className="inline-flex justify-center items-center rounded-xl border border-slate-300 px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+            className={`${BUTTON_SECONDARY} py-2.5`}
           >
             Upload CV Version
           </Link>
 
           <Link
             to="/recruiters"
-            className="inline-flex justify-center items-center rounded-xl border border-slate-300 px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+            className={`${BUTTON_SECONDARY} py-2.5`}
           >
             Add Recruiter
           </Link>
@@ -868,7 +898,7 @@ return ( <div className="w-full max-w-full overflow-hidden"> <div className="max
         <button
           type="button"
           onClick={dismissOnboarding}
-          className="mt-5 text-sm text-slate-500 hover:text-slate-700 transition"
+          className={`mt-5 rounded-md text-sm text-slate-500 hover:text-slate-700 transition-colors ${FOCUS_RING}`}
         >
           Dismiss onboarding
         </button>
@@ -880,139 +910,157 @@ return ( <div className="w-full max-w-full overflow-hidden"> <div className="max
 
 }
 
-return ( <div className="w-full max-w-full overflow-hidden"> <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6"> <div className="min-w-0"> <h2 className="text-2xl sm:text-3xl font-bold mb-1 break-words">Dashboard</h2> <p className="text-slate-500 text-sm sm:text-base break-words">
-Today’s job-search actions, pipeline health, follow-ups, notifications, and recent activity. </p> </div>
-
-
-    <button
-      type="button"
-      onClick={handleRefresh}
-      disabled={refreshing}
-      className="w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
-    >
-      <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
-      {refreshing ? 'Refreshing...' : 'Refresh'}
-    </button>
-  </div>
-
-  {error && <ErrorMessage error={error} onClear={() => setError('')} />}
-
-  <TodayStrip
-    overdueFollowUps={todayStats.overdueFollowUps.length}
-    dueTodayFollowUps={todayStats.dueTodayFollowUps.length}
-    upcomingFollowUps={todayStats.upcomingFollowUps.length}
-    awaitingFinalResponse={todayStats.awaitingFinalResponse.length}
-    unreadNotifications={todayStats.unreadNotifications}
-  />
-
-  <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-6 shadow-sm mb-6 overflow-hidden">
-    <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-      <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
-        <Target size={22} />
+return (
+  <div className="w-full max-w-full overflow-hidden">
+    <div className="flex items-start justify-between gap-3 mb-5">
+      <div className="min-w-0">
+        <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 break-words">Dashboard</h2>
+        <p className="text-slate-500 text-sm mt-1 break-words">
+          Today’s actions, pipeline health and recent activity.
+        </p>
       </div>
 
-      <div className="min-w-0">
-        <p className="text-xs uppercase tracking-widest text-slate-400 mb-1">
-          Command centre insight
-        </p>
-        <h3 className="text-base sm:text-lg font-semibold mb-1 break-words">
-          {stats.active} active applications from {stats.total} total
-        </h3>
-        <p className="text-sm text-slate-300 leading-relaxed break-words">
-          {insight}
-        </p>
+      <div className="flex flex-col items-end gap-1 shrink-0">
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          aria-busy={refreshing}
+          className={BUTTON_SECONDARY}
+        >
+          <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
+        {lastUpdated && !refreshing && (
+          <span role="status" className="text-xs text-slate-400 inline-flex items-center gap-1">
+            <CheckCircle2 size={12} className="text-emerald-500" />
+            Updated {formatTime(lastUpdated.toISOString())}
+          </span>
+        )}
       </div>
     </div>
-  </div>
 
-  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-    {metricCards.map((card) => {
-      const Icon = card.icon;
+    {error && <ErrorMessage error={error} onClear={() => setError('')} />}
 
-      return (
-        <div
-          key={card.label}
-          className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md transition overflow-hidden"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm text-slate-500 break-words">{card.label}</p>
-              <p className="text-2xl sm:text-3xl font-bold mt-3 break-words">
-                {card.value}
-              </p>
-            </div>
+    <TodayStrip
+      overdueFollowUps={todayStats.overdueFollowUps.length}
+      dueTodayFollowUps={todayStats.dueTodayFollowUps.length}
+      upcomingFollowUps={todayStats.upcomingFollowUps.length}
+      awaitingFinalResponse={todayStats.awaitingFinalResponse.length}
+      unreadNotifications={todayStats.unreadNotifications}
+    />
 
-            <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-              <Icon size={19} className="text-slate-600" />
-            </div>
-          </div>
-
-          <p className="text-xs text-slate-400 mt-3 break-words">{card.helper}</p>
+    <div className="bg-slate-900 text-white rounded-2xl px-4 py-4 sm:px-5 shadow-sm mb-5 overflow-hidden">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
+          <Target size={18} />
         </div>
-      );
-    })}
-  </div>
 
-  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
-    <RateCard label="Average Time to Response" value={`${stats.avgTimeToResponse} days`} />
-    <RateCard label="Interview Conversion" value={`${stats.interviewRate}%`} />
-    <RateCard label="Offer Conversion" value={`${stats.offerRate}%`} positive />
-    <RateCard label="Rejection Rate" value={`${stats.rejectionRate}%`} negative />
-  </div>
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400">
+            Command centre insight
+          </p>
+          <h3 className="text-sm sm:text-base font-semibold mt-0.5 break-words">
+            {stats.active} active applications from {stats.total} total
+          </h3>
+          <p className="text-sm text-slate-300 mt-1 leading-relaxed break-words">
+            {insight}
+          </p>
+        </div>
+      </div>
+    </div>
 
-  <PipelineFunnel
-    data={funnelData}
-    reachedData={reachedData}
-    total={stats.total}
-    submitted={stats.submitted}
-  />
+    <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4 mb-4">
+      {metricCards.map((card) => (
+        <StatCard key={card.label} label={card.label} value={card.value} icon={card.icon} helper={card.helper} />
+      ))}
+    </div>
 
-  <div className="grid grid-cols-1 xl:grid-cols-[1fr_0.9fr] gap-6 mb-8">
-    <ActionNeededPanel
-      actionItems={actionNeeded.items}
-      categories={actionNeeded.categories}
-      totalApplications={actionNeeded.totalApplications}
+    <section aria-labelledby="conversion-heading" className={`${CARD} p-4 sm:p-5 mb-5`}>
+      <h3 id="conversion-heading" className="text-sm font-semibold text-slate-900 mb-3">Conversion</h3>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-4">
+        <RateCard
+          label="Average Time to Response"
+          value={stats.responses > 0 ? `${stats.avgTimeToResponse} ${stats.avgTimeToResponse === 1 ? 'day' : 'days'}` : '—'}
+          helper={stats.responses > 0 ? `Across ${stats.responses} ${stats.responses === 1 ? 'response' : 'responses'}` : 'No responses yet'}
+        />
+        <RateCard
+          label="Interview Conversion"
+          value={`${stats.interviewRate}%`}
+          percent={stats.interviewRate}
+          helper={`${stats.interviews} of ${stats.responses} responses`}
+        />
+        <RateCard
+          label="Offer Conversion"
+          value={`${stats.offerRate}%`}
+          percent={stats.offerRate}
+          helper={`${stats.offers} of ${stats.interviews} interviews`}
+          tone="positive"
+        />
+        <RateCard
+          label="Rejection Rate"
+          value={`${stats.rejectionRate}%`}
+          percent={stats.rejectionRate}
+          helper={`${stats.rejections} of ${stats.submitted} submitted`}
+          tone="negative"
+        />
+      </div>
+    </section>
+
+    <PipelineFunnel
+      data={funnelData}
+      reachedData={reachedData}
+      total={stats.total}
+      submitted={stats.submitted}
     />
-    <NotificationsPanel notifications={notifications} total={unreadCount} />
+
+    <div className="grid grid-cols-1 xl:grid-cols-[1fr_0.9fr] gap-5 mb-5 items-start">
+      <ActionNeededPanel
+        actionItems={actionNeeded.items}
+        categories={actionNeeded.categories}
+        totalApplications={actionNeeded.totalApplications}
+      />
+      <NotificationsPanel notifications={notifications} total={unreadCount} />
+    </div>
+
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+      <MiniCard
+        label="CV Versions"
+        value={cvVersions.length}
+        icon={FileText}
+        helper="Stored CVs for tracking"
+        href="/cv-manager"
+      />
+      <MiniCard
+        label="Recruiters"
+        value={recruiters.length}
+        icon={UserRound}
+        helper="Saved recruiter contacts"
+        href="/recruiters"
+      />
+      <MiniCard
+        label="Recruiter Interactions"
+        value={recruiterInteractions.length}
+        icon={CheckCircle2}
+        helper="Logged communication history"
+        href="/recruiters"
+      />
+    </div>
+
+    <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-5 items-start">
+      <GmailSyncPanel
+        summary={gmailSummary}
+        connected={gmailConnected}
+        minutesRemaining={minutesRemaining}
+        syncEnabled={gmailSyncEnabled}
+        loading={refreshing}
+        error={gmailError}
+        onReload={handleRefresh}
+      />
+
+      <RecentActivityPanel timeline={timeline} loading={refreshing} error={activityError} />
+    </div>
   </div>
-
-  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-    <MiniCard
-      label="CV Versions"
-      value={cvVersions.length}
-      icon={FileText}
-      helper="Stored CVs for tracking"
-    />
-    <MiniCard
-      label="Recruiters"
-      value={recruiters.length}
-      icon={UserRound}
-      helper="Saved recruiter contacts"
-    />
-    <MiniCard
-      label="Recruiter Interactions"
-      value={recruiterInteractions.length}
-      icon={CheckCircle2}
-      helper="Logged communication history"
-    />
-  </div>
-
-  <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-6">
-    <GmailSyncPanel
-      summary={gmailSummary}
-      connected={gmailConnected}
-      minutesRemaining={minutesRemaining}
-      syncEnabled={gmailSyncEnabled}
-      loading={refreshing}
-      error={gmailError}
-      onReload={handleRefresh}
-    />
-
-    <RecentActivityPanel timeline={timeline} loading={refreshing} error={activityError} />
-  </div>
-</div>
-
-
 );
 };
 
@@ -1029,96 +1077,85 @@ upcomingFollowUps: number;
 awaitingFinalResponse: number;
 unreadNotifications: number;
 }) => (
+  <section aria-labelledby="today-heading" className={`${CARD} p-4 sm:p-5 mb-5`}>
+    <div className="flex items-baseline justify-between gap-3 mb-3">
+      <h3 id="today-heading" className="text-base font-semibold text-slate-900">
+        What needs attention now
+      </h3>
+      <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400">Today</p>
+    </div>
 
-  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-5 mb-6 overflow-hidden">
-    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-      <div>
-        <p className="text-xs uppercase tracking-widest text-slate-400 mb-1">Today</p>
-        <h3 className="text-lg font-semibold text-slate-900">
-          What needs attention now
-        </h3>
-      </div>
-
-
-  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full lg:w-auto">
-    <TodayPill
-      label="Overdue follow-ups"
-      value={overdueFollowUps}
-      icon={Clock}
-      href="/follow-ups?filter=overdue"
-      urgent={overdueFollowUps > 0}
-    />
-
-    <TodayPill
-      label="Due today"
-      value={dueTodayFollowUps}
-      icon={CalendarCheck}
-      href="/follow-ups?filter=today"
-      urgent={dueTodayFollowUps > 0}
-    />
-
-    <TodayPill
-      label="Upcoming follow-ups"
-      value={upcomingFollowUps}
-      icon={Timer}
-      href="/follow-ups?filter=upcoming"
-    />
-
-    <TodayPill
-      label="Awaiting final response"
-      value={awaitingFinalResponse}
-      icon={MailCheck}
-      href="/applications?view=awaiting_final_response"
-      urgent={awaitingFinalResponse > 0}
-    />
-
-    <TodayPill
-      label="Unread notifications"
-      value={unreadNotifications}
-      icon={Bell}
-      href="/notifications?filter=unread"
-      urgent={unreadNotifications > 0}
-    />
-  </div>
-</div>
-
-
-  </div>
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3 [&>*:last-child]:col-span-2 sm:[&>*:last-child]:col-span-1">
+      <TodayPill
+        label="Overdue follow-ups"
+        value={overdueFollowUps}
+        icon={Clock}
+        href="/follow-ups?filter=overdue"
+        tone="danger"
+      />
+      <TodayPill
+        label="Due today"
+        value={dueTodayFollowUps}
+        icon={CalendarCheck}
+        href="/follow-ups?filter=today"
+        tone="warning"
+      />
+      <TodayPill
+        label="Upcoming follow-ups"
+        value={upcomingFollowUps}
+        icon={Timer}
+        href="/follow-ups?filter=upcoming"
+      />
+      <TodayPill
+        label="Awaiting final response"
+        value={awaitingFinalResponse}
+        icon={MailCheck}
+        href="/applications?view=awaiting_final_response"
+        tone="warning"
+      />
+      <TodayPill
+        label="Unread notifications"
+        value={unreadNotifications}
+        icon={Bell}
+        href="/notifications?filter=unread"
+        tone="info"
+      />
+    </div>
+  </section>
 );
+
+// Only a non-zero count takes the tile's colour, so red means "act on this".
+const TODAY_TONES: Record<'danger' | 'warning' | 'info' | 'neutral', string> = {
+  danger: 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100/70',
+  warning: 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100/70',
+  info: 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100/70',
+  neutral: 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-white hover:border-slate-300',
+};
 
 const TodayPill = ({
 label,
 value,
 icon: Icon,
 href,
-urgent,
+tone = 'neutral',
 }: {
 label: string;
 value: number;
 icon: React.ElementType;
 href: string;
-urgent?: boolean;
+tone?: 'danger' | 'warning' | 'info' | 'neutral';
 }) => (
-
   <Link
     to={href}
-    className={`rounded-xl border px-3 py-3 transition hover:shadow-sm overflow-hidden ${
-      urgent
-        ? 'bg-red-50 border-red-200 text-red-700'
-        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-white'
+    className={`group rounded-xl border px-3 py-2.5 transition-colors ${FOCUS_RING} ${
+      value > 0 ? TODAY_TONES[tone] : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-slate-600'
     }`}
   >
-    <div className="flex items-center justify-between gap-3">
-      <div className="min-w-0">
-        <p className="text-xl font-bold">{value}</p>
-        <p className="text-xs break-words">{label}</p>
-      </div>
-
-
-  <Icon size={18} className="shrink-0 opacity-70" />
-</div>
-
-
+    <div className="flex items-center justify-between gap-2">
+      <p className="text-xl font-semibold tabular-nums leading-tight">{value}</p>
+      <Icon size={16} className="shrink-0 opacity-70" />
+    </div>
+    <p className="text-xs mt-0.5 leading-snug">{label}</p>
   </Link>
 );
 
@@ -1146,11 +1183,11 @@ const currentMax = Math.max(...data.map((item) => item.count), 1);
 const reachedMax = Math.max(...reachedData.map((item) => item.count), 1);
 
 return (
-  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 mb-8">
-    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+  <section className={`${CARD} p-4 sm:p-5 mb-5`}>
+    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
       <div className="min-w-0">
-        <h3 className="text-lg sm:text-xl font-semibold">Pipeline Funnel</h3>
-        <p className="text-sm text-slate-500 mt-1 break-words">
+        <h3 className="text-base sm:text-lg font-semibold text-slate-900">Pipeline Funnel</h3>
+        <p className="text-sm text-slate-500 mt-0.5 break-words">
           {mode === 'current'
             ? `Where your ${total} ${total === 1 ? 'application sits' : 'applications sit'} right now. Each one is counted once, at its current status.`
             : `How far your ${submitted} submitted ${submitted === 1 ? 'application' : 'applications'} got, including ones that have since closed.`}{' '}
@@ -1158,15 +1195,15 @@ return (
         </p>
       </div>
 
-      <div className="flex flex-col sm:items-end gap-3 shrink-0">
-        <div role="group" aria-label="Funnel view" className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 sm:flex-col sm:items-end shrink-0">
+        <div role="group" aria-label="Funnel view" className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm">
           {(['current', 'reached'] as FunnelMode[]).map((option) => (
             <button
               key={option}
               type="button"
               aria-pressed={mode === option}
               onClick={() => setMode(option)}
-              className={`flex-1 whitespace-nowrap rounded-lg px-3 py-1.5 transition ${
+              className={`flex-1 whitespace-nowrap rounded-md px-3 py-1 transition-colors ${FOCUS_RING} ${
                 mode === option ? 'bg-white text-slate-900 shadow-sm font-medium' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
@@ -1177,22 +1214,23 @@ return (
 
         <Link
           to="/applications"
-          className="inline-flex justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-700 transition"
+          className={`inline-flex items-center gap-1 whitespace-nowrap rounded-md text-sm font-medium text-slate-600 hover:text-slate-900 ${FOCUS_RING}`}
         >
           Manage Applications
+          <ChevronRight size={15} />
         </Link>
       </div>
     </div>
 
     {mode === 'current' ? (
-      <div className="space-y-5">
+      <div className="space-y-4">
         {groups.map((group) => (
           <div key={group.id}>
-            <p className="text-xs font-medium uppercase tracking-widest text-slate-400 mb-2">
+            <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400 mb-2">
               {group.title}
             </p>
 
-            <div className={`grid ${group.gridCls} gap-3`}>
+            <div className={`grid ${group.gridCls} gap-2 sm:gap-3`}>
               {data
                 .filter((item) => item.group === group.id)
                 .map((item) => (
@@ -1205,6 +1243,7 @@ return (
                     base={total}
                     baseLabel="all"
                     href={`/applications?status=${item.value}`}
+                    barClass={STAGE_BAR_COLOURS[item.value] || 'bg-slate-900'}
                     describe={(count, share) =>
                       `${count} ${count === 1 ? 'application is' : 'applications are'} at ${item.label} (${share}% of ${total}).`
                     }
@@ -1217,11 +1256,11 @@ return (
       </div>
     ) : (
       <div>
-        <p className="text-xs font-medium uppercase tracking-widest text-slate-400 mb-2">
+        <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400 mb-2">
           Furthest stage reached
         </p>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2 sm:gap-3">
           {reachedData.map((item) => (
             <FunnelStageCard
               key={item.value}
@@ -1232,6 +1271,7 @@ return (
               base={submitted}
               baseLabel="applied"
               href={`/applications?reached=${item.value}`}
+              barClass={STAGE_BAR_COLOURS[item.value] || 'bg-slate-900'}
               describe={(count, share) =>
                 `${count} of ${submitted} submitted ${submitted === 1 ? 'application' : 'applications'} reached ${item.label} (${share}%).`
               }
@@ -1241,8 +1281,17 @@ return (
         </div>
       </div>
     )}
-  </div>
+  </section>
 );
+};
+
+// Outcomes get their meaning's colour; stages in progress stay in the brand's slate.
+const STAGE_BAR_COLOURS: Record<string, string> = {
+  offer: 'bg-emerald-500',
+  rejected: 'bg-rose-400',
+  withdrawn: 'bg-slate-400',
+  ghosted: 'bg-slate-400',
+  archived: 'bg-slate-300',
 };
 
 const FunnelStageCard = ({
@@ -1255,6 +1304,7 @@ baseLabel,
 href,
 describe,
 emptyText,
+barClass,
 }: {
 id: string;
 label: string;
@@ -1265,6 +1315,7 @@ baseLabel: string;
 href: string;
 describe: (count: number, share: number) => string;
 emptyText: string;
+barClass: string;
 }) => {
 const isEmpty = count === 0;
 const share = base > 0 ? Math.round((count / base) * 100) : 0;
@@ -1276,23 +1327,23 @@ const tooltip = isEmpty
 
 const body = (
   <>
-    <div className="flex items-start justify-between gap-2 mb-3">
+    <div className="flex items-start justify-between gap-2 mb-2.5">
       <p className={`text-sm font-medium break-words ${isEmpty ? 'text-slate-400' : 'text-slate-700'}`}>
         {label}
       </p>
-      <p className={`text-lg font-bold leading-none ${isEmpty ? 'text-slate-300' : 'text-slate-900'}`}>
+      <p className={`text-lg font-semibold leading-none tabular-nums ${isEmpty ? 'text-slate-300' : 'text-slate-900'}`}>
         {count}
       </p>
     </div>
 
-    <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+    <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
       <div
-        className="h-full rounded-full bg-slate-900 transition-all"
+        className={`h-full rounded-full transition-all duration-500 ${barClass}`}
         style={{ width: `${width}%` }}
       />
     </div>
 
-    <p className="text-xs text-slate-400 mt-2">{isEmpty ? 'None yet' : `${share}% of ${baseLabel}`}</p>
+    <p className="text-xs text-slate-400 mt-1.5">{isEmpty ? 'None yet' : `${share}% of ${baseLabel}`}</p>
 
     <span
       id={tooltipId}
@@ -1308,7 +1359,7 @@ if (isEmpty) {
   return (
     <div
       aria-describedby={tooltipId}
-      className="group relative rounded-xl border border-dashed border-slate-200 bg-white p-3 sm:p-4"
+      className="group relative rounded-xl border border-dashed border-slate-200 bg-white p-3"
     >
       {body}
     </div>
@@ -1319,7 +1370,7 @@ return (
   <Link
     to={href}
     aria-describedby={tooltipId}
-    className="group relative block rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4 hover:bg-white hover:border-slate-300 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 transition"
+    className={`group relative block rounded-xl border border-slate-200 bg-slate-50 p-3 hover:bg-white hover:border-slate-300 hover:shadow-sm transition ${FOCUS_RING}`}
   >
     {body}
   </Link>
@@ -1336,68 +1387,69 @@ categories: ActionCategory[];
 totalApplications: number;
 }) => (
 
-  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden">
-    <h3 className="text-lg sm:text-xl font-semibold mb-1">Action Needed</h3>
-    <p className="text-sm text-slate-500 mb-5 break-words">
-      {totalApplications > actionItems.length
-        ? `The ${actionItems.length} most urgent of ${totalApplications} applications that need action.`
-        : 'Follow-ups, interviews, offers and replies that should not be missed.'}
-    </p>
+  <section className={`${CARD} p-4 sm:p-5 overflow-hidden`}>
+    <PanelHeader
+      title="Action Needed"
+      description={
+        totalApplications > actionItems.length
+          ? `The ${actionItems.length} most urgent of ${totalApplications} applications that need action.`
+          : 'Follow-ups, interviews, offers and replies that should not be missed.'
+      }
+    />
 
 
 {actionItems.length === 0 ? (
   <EmptyState
+    icon={CheckCircle2}
     title="No urgent actions"
     description="Nothing needs a follow-up, decision or reply right now."
     actionLabel="View Applications"
     actionHref="/applications"
   />
 ) : (
-  <div className="space-y-3">
+  <ul className="space-y-2">
     {actionItems.map((item) => (
-      <Link
-        key={item.id}
-        to={item.href}
-        className="block border border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition"
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="font-semibold text-slate-900 break-words">{item.title}</p>
-            <p className="text-sm text-slate-500 mt-1 break-words">{item.reason}</p>
-          </div>
-
+      <li key={item.id}>
+        <Link
+          to={item.href}
+          className={`group flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5 hover:bg-slate-50 hover:border-slate-300 transition-colors ${FOCUS_RING}`}
+        >
           <span
-            className={`text-xs rounded-full px-2.5 py-1 shrink-0 ${
+            aria-hidden="true"
+            className={`h-2 w-2 rounded-full shrink-0 ${
               item.tone === 'danger'
-                ? 'bg-red-50 text-red-700'
+                ? 'bg-red-500'
                 : item.tone === 'warning'
-                  ? 'bg-amber-50 text-amber-700'
+                  ? 'bg-amber-500'
                   : item.tone === 'info'
-                    ? 'bg-indigo-50 text-indigo-700'
-                    : 'bg-slate-100 text-slate-600'
+                    ? 'bg-indigo-500'
+                    : 'bg-slate-400'
             }`}
-          >
-            Open
-          </span>
-        </div>
-      </Link>
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-slate-900 break-words">{item.title}</p>
+            <p className="text-sm text-slate-500 break-words">{item.reason}</p>
+          </div>
+          <ChevronRight size={16} className="shrink-0 text-slate-300 group-hover:text-slate-600" />
+        </Link>
+      </li>
     ))}
-  </div>
+  </ul>
 )}
 
 {categories.length > 0 && (
-  <div className="mt-5 border-t border-slate-100 pt-4">
-    <p className="text-xs font-medium uppercase tracking-widest text-slate-400 mb-1">By category</p>
+  <div className="mt-4 border-t border-slate-100 pt-3">
+    <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400 mb-1">By category</p>
     <ul className="divide-y divide-slate-100">
       {categories.map((category) => (
         <li key={category.key}>
           <Link
             to={category.href}
-            className="group flex items-center justify-between gap-3 py-2 text-sm text-slate-600 hover:text-slate-900"
+            className={`group flex items-center justify-between gap-3 rounded-md py-2 text-sm text-slate-600 hover:text-slate-900 ${FOCUS_RING}`}
           >
             <span className="min-w-0 break-words">{category.label}</span>
             <span className="flex items-center gap-3 shrink-0">
-              <span className="font-semibold text-slate-900">{category.count}</span>
+              <span className="font-semibold text-slate-900 tabular-nums">{category.count}</span>
               <span className="text-xs text-slate-400 group-hover:text-slate-700">View all →</span>
             </span>
           </Link>
@@ -1408,7 +1460,7 @@ totalApplications: number;
 )}
 
 
-  </div>
+  </section>
 );
 
 const NotificationsPanel = ({
@@ -1419,33 +1471,36 @@ notifications: NotificationItem[];
 total: number;
 }) => (
 
-  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden">
-    <div className="flex items-start justify-between gap-3 mb-5">
-      <div>
-        <h3 className="text-lg sm:text-xl font-semibold">Unread Notifications</h3>
-        <p className="text-sm text-slate-500 mt-1">
-          Important alerts should be visible, not hidden behind a bell.
-        </p>
-      </div>
-
-  <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-    <Bell size={18} className="text-slate-700" />
-  </div>
-</div>
+  <section className={`${CARD} p-4 sm:p-5 overflow-hidden`}>
+    <PanelHeader
+      title="Unread Notifications"
+      description="Important alerts should be visible, not hidden behind a bell."
+      aside={
+        <span className="relative w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center">
+          <Bell size={17} className="text-slate-700" />
+          {total > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-indigo-600 px-1 text-[10px] font-semibold leading-[18px] text-white text-center tabular-nums">
+              {total}
+            </span>
+          )}
+        </span>
+      }
+    />
 
 {notifications.length === 0 ? (
   <EmptyState
+    icon={Bell}
     title="No unread notifications"
     description="New shared opportunities and system alerts will appear here."
   />
 ) : (
-  <div className="space-y-3">
+  <div className="space-y-2">
     {notifications.map((notification) => (
       <div
         key={notification.id}
-        className="border border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition"
+        className="border border-slate-200 rounded-xl px-3 py-2.5"
       >
-        <p className="font-semibold text-slate-900 break-words">
+        <p className="text-sm font-semibold text-slate-900 break-words">
           {notification.title || 'Notification'}
         </p>
 
@@ -1455,7 +1510,7 @@ total: number;
           </p>
         )}
 
-        <p className="text-xs text-slate-400 mt-2">
+        <p className="text-xs text-slate-400 mt-1">
           {formatDateTime(notification.created_at)}
         </p>
       </div>
@@ -1466,7 +1521,7 @@ total: number;
 {total > notifications.length && (
   <Link
     to="/notifications?filter=unread"
-    className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3 text-sm text-slate-600 hover:text-slate-900"
+    className={`mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3 text-sm text-slate-600 hover:text-slate-900 ${FOCUS_RING}`}
   >
     <span>Showing {notifications.length} of {total} unread</span>
     <span className="text-xs text-slate-400">View all →</span>
@@ -1474,7 +1529,7 @@ total: number;
 )}
 
 
-  </div>
+  </section>
 );
 
 // Retry runs the existing sync on the Email Sync page, which keeps the Gmail
@@ -1490,9 +1545,9 @@ label: string;
 value: number;
 hint?: string;
 }) => (
-<div className="rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4 min-w-0">
-  <p className="text-xs sm:text-sm text-slate-500 break-words">{label}</p>
-  <p className="text-xl sm:text-2xl font-bold mt-1 text-slate-900">{value}</p>
+<div className="rounded-xl border border-slate-200 bg-slate-50 p-3 min-w-0">
+  <p className="text-xs text-slate-500 break-words">{label}</p>
+  <p className="text-xl font-semibold mt-0.5 text-slate-900 tabular-nums">{value}</p>
   {hint && <p className="text-xs text-slate-400 mt-1 break-words">{hint}</p>}
 </div>
 );
@@ -1530,16 +1585,16 @@ const status =
 return (
   <div
     aria-busy={loading}
-    className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 overflow-hidden min-w-0"
+    className={`${CARD} p-4 sm:p-5 overflow-hidden min-w-0`}
   >
-    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
       <div className="flex items-start gap-3 min-w-0">
-        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-          <MailCheck size={20} className="text-slate-700" />
+        <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+          <MailCheck size={18} className="text-slate-700" />
         </div>
 
         <div className="min-w-0">
-          <h3 className="text-lg sm:text-xl font-semibold break-words">Gmail Sync Summary</h3>
+          <h3 className="text-base sm:text-lg font-semibold text-slate-900 break-words">Gmail Sync Summary</h3>
           <p className="text-slate-500 text-sm break-words">
             From your Gmail sync runs and the emails you've processed.
           </p>
@@ -1569,8 +1624,9 @@ return (
         <button
           type="button"
           onClick={onReload}
-          className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+          className={`mt-3 inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 transition-colors ${FOCUS_RING}`}
         >
+          <RefreshCw size={12} />
           Try again
         </button>
       </div>
@@ -1584,7 +1640,7 @@ return (
         </div>
       </div>
     ) : (
-      <div className="space-y-6">
+      <div className="space-y-5">
         {syncEnabled === false && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             Gmail sync is turned off.{' '}
@@ -1596,6 +1652,7 @@ return (
 
         {neverSynced ? (
           <EmptyState
+            icon={MailCheck}
             title="No Gmail syncs yet"
             description="Connect Gmail on Email Sync and run a sync to see results here."
             actionLabel="Go to Email Sync"
@@ -1639,7 +1696,7 @@ return (
             {syncEnabled !== false && (
               <Link
                 to={syncAction.href}
-                className={`inline-flex justify-center shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                className={`inline-flex justify-center shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${FOCUS_RING} ${
                   lastFailure
                     ? 'bg-red-700 text-white hover:bg-red-800'
                     : 'bg-slate-900 text-white hover:bg-slate-700'
@@ -1759,27 +1816,25 @@ const hiddenCount = timeline.length - ACTIVITY_PREVIEW_COUNT;
 return (
   <div
     aria-busy={loading}
-    className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 min-w-0 overflow-hidden"
+    className={`${CARD} p-4 sm:p-5 min-w-0 overflow-hidden`}
   >
-    <div className="flex items-start justify-between gap-3 mb-5">
-      <div className="min-w-0">
-        <h3 className="text-lg sm:text-xl font-semibold mb-1 break-words">Recent Activity</h3>
-        <p className="text-slate-500 text-sm break-words">
-          Latest updates across your applications, newest first.
-        </p>
-      </div>
-
-      {loading && (
-        <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 shrink-0 mt-1">
-          <RefreshCw size={12} className="animate-spin" />
-          Updating
-        </span>
-      )}
-    </div>
+    <PanelHeader
+      title="Recent Activity"
+      description="Latest updates across your applications, newest first."
+      aside={
+        loading ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+            <RefreshCw size={12} className="animate-spin" />
+            Updating
+          </span>
+        ) : undefined
+      }
+    />
 
     {error ? (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 break-words">
-        Couldn't load recent activity. {error}
+      <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 break-words flex items-start gap-2">
+        <AlertCircle size={15} className="shrink-0 mt-0.5" />
+        <span>Couldn't load recent activity. {error}</span>
       </div>
     ) : loading && timeline.length === 0 ? (
       <div className="space-y-4" aria-hidden="true">
@@ -1795,13 +1850,14 @@ return (
       </div>
     ) : timeline.length === 0 ? (
       <EmptyState
+        icon={Clock}
         title="No activity yet"
         description="Adding applications, changing statuses and completing follow-ups will show up here."
         actionLabel="Add Application"
         actionHref="/applications"
       />
     ) : (
-      <div className="space-y-6">
+      <div className="space-y-5">
         {days.map((day) => (
           <section key={day.key} aria-labelledby={`activity-day-${day.key}`}>
             <h4
@@ -1829,7 +1885,7 @@ return (
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
-            className="w-full rounded-xl border border-slate-200 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition"
+            className={`w-full rounded-lg border border-slate-200 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors ${FOCUS_RING}`}
           >
             {expanded ? 'Show less' : `Show ${hiddenCount} more`}
           </button>
@@ -1884,7 +1940,7 @@ if (!item.applicationId) {
 return (
   <Link
     to={`/applications/${item.applicationId}`}
-    className="block -mx-2 rounded-xl px-2 py-2 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 transition"
+    className={`block -mx-2 rounded-xl px-2 py-2 hover:bg-slate-50 transition-colors ${FOCUS_RING}`}
   >
     {content}
   </Link>
@@ -1898,11 +1954,18 @@ onClear,
 error: string;
 onClear: () => void;
 }) => (
-
-  <div className="bg-red-50 text-red-700 border border-red-200 rounded-xl p-4 mb-6 flex items-start gap-3 overflow-hidden">
+  <div
+    role="alert"
+    className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 mb-5 flex items-start gap-3 overflow-hidden"
+  >
     <AlertCircle size={16} className="shrink-0 mt-0.5" />
     <span className="text-sm flex-1 break-words">{error}</span>
-    <button onClick={onClear} className="text-red-400 hover:text-red-600 shrink-0">
+    <button
+      type="button"
+      onClick={onClear}
+      aria-label="Dismiss error"
+      className={`rounded-md text-red-400 hover:text-red-700 shrink-0 ${FOCUS_RING}`}
+    >
       <X size={16} />
     </button>
   </div>
@@ -1962,25 +2025,66 @@ completed?: boolean;
   </div>
 );
 
+// A headline number: label, value and one line of context.
+const StatCard = ({
+label,
+value,
+icon: Icon,
+helper,
+}: {
+label: string;
+value: number | string;
+icon: React.ElementType;
+helper: string;
+}) => (
+  <div className={`${CARD} p-4 sm:p-5 overflow-hidden`}>
+    <div className="flex items-center justify-between gap-2">
+      <p className="text-xs sm:text-sm font-medium text-slate-500 break-words">{label}</p>
+      <Icon size={16} className="text-slate-400 shrink-0" />
+    </div>
+    <p className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 mt-2 tabular-nums">{value}</p>
+    <p className="text-xs text-slate-500 mt-1.5 leading-snug break-words">{helper}</p>
+  </div>
+);
+
+// One rate in the Conversion card, with a bar for percentages.
 const RateCard = ({
 label,
 value,
-positive,
-negative,
+helper,
+percent,
+tone = 'neutral',
 }: {
 label: string;
 value: string;
-positive?: boolean;
-negative?: boolean;
+helper: string;
+percent?: number;
+tone?: 'positive' | 'negative' | 'neutral';
 }) => (
-
-  <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm overflow-hidden">
-    <p className="text-sm text-slate-500 break-words">{label}</p>
-    <div className="flex items-end justify-between gap-3 mt-3">
-      <p className="text-2xl sm:text-3xl font-bold break-words">{value}</p>
-      {positive && <Trophy size={18} className="text-slate-400 shrink-0" />}
-      {negative && <XCircle size={18} className="text-slate-400 shrink-0" />}
-    </div>
+  <div className="min-w-0">
+    <p className="text-xs font-medium text-slate-500 break-words">{label}</p>
+    <p className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900 mt-1 tabular-nums">{value}</p>
+    {percent === undefined ? (
+      // Keeps the helper text level with the rates that have a bar.
+      <div aria-hidden="true" className="mt-2 h-1.5" />
+    ) : (
+      <div
+        className="mt-2 h-1.5 rounded-full bg-slate-100 overflow-hidden"
+        role="meter"
+        aria-label={label}
+        aria-valuenow={percent}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${
+            tone === 'positive' ? 'bg-emerald-500' : tone === 'negative' ? 'bg-rose-400' : 'bg-slate-900'
+          }`}
+          style={{ width: `${Math.min(Math.max(percent, 0), 100)}%` }}
+        />
+      </div>
+    )}
+    <p className="text-xs text-slate-400 mt-1.5 break-words">{helper}</p>
   </div>
 );
 
@@ -1989,30 +2093,28 @@ label,
 value,
 icon: Icon,
 helper,
+href,
 }: {
 label: string;
 value: number;
 icon: React.ElementType;
 helper: string;
+href: string;
 }) => (
-
-  <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm overflow-hidden">
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <p className="text-sm text-slate-500 break-words">{label}</p>
-        <p className="text-2xl sm:text-3xl font-bold mt-3 break-words">{value}</p>
-      </div>
-
-
-  <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-    <Icon size={19} className="text-slate-600" />
-  </div>
-</div>
-
-<p className="text-xs text-slate-400 mt-3 break-words">{helper}</p>
-
-
-  </div>
+  <Link
+    to={href}
+    className={`${CARD} group flex items-center gap-3 px-4 py-3 hover:border-slate-300 hover:shadow transition ${FOCUS_RING}`}
+  >
+    <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+      <Icon size={17} className="text-slate-600" />
+    </div>
+    <div className="min-w-0 flex-1">
+      <p className="text-sm font-medium text-slate-700 break-words">{label}</p>
+      <p className="text-xs text-slate-400 break-words">{helper}</p>
+    </div>
+    <p className="text-xl font-semibold text-slate-900 tabular-nums">{value}</p>
+    <ChevronRight size={16} className="text-slate-300 group-hover:text-slate-500 shrink-0" />
+  </Link>
 );
 
 const EmptyState = ({
@@ -2020,56 +2122,87 @@ title,
 description,
 actionLabel,
 actionHref,
+icon: Icon = Inbox,
 }: {
 title: string;
 description: string;
 actionLabel?: string;
 actionHref?: string;
+icon?: React.ElementType;
 }) => (
+  <div className="border border-dashed border-slate-200 rounded-xl px-4 py-6 sm:py-8 text-center bg-slate-50/60 overflow-hidden">
+    <div className="mx-auto mb-2 w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center">
+      <Icon size={16} className="text-slate-400" />
+    </div>
+    <p className="text-sm font-semibold text-slate-700 break-words">{title}</p>
+    <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto break-words">{description}</p>
 
-  <div className="border border-dashed border-slate-200 rounded-xl p-6 sm:p-8 text-center bg-slate-50 overflow-hidden">
-    <p className="font-semibold text-slate-700 break-words">{title}</p>
-
-
-<p className="text-sm text-slate-500 mt-1 break-words">
-  {description}
-</p>
-
-{actionLabel && actionHref && (
-  <Link
-    to={actionHref}
-    className="inline-flex mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-700 transition"
-  >
-    {actionLabel}
-  </Link>
-)}
-
-
+    {actionLabel && actionHref && (
+      <Link to={actionHref} className={`${BUTTON_PRIMARY} mt-4`}>
+        {actionLabel}
+      </Link>
+    )}
   </div>
 );
 
+const SkeletonBlock = ({ className }: { className: string }) => (
+  <div className={`rounded-lg bg-slate-100 animate-pulse ${className}`} />
+);
+
+// Mirrors the dashboard's layout so nothing jumps when the data arrives.
 const DashboardSkeleton = () => (
+  <div className="w-full max-w-full overflow-hidden" aria-busy="true">
+    <span className="sr-only" role="status">Loading dashboard…</span>
 
-  <div className="w-full max-w-full overflow-hidden">
-    <div className="mb-8">
-      <div className="h-8 w-44 bg-slate-200 rounded-lg animate-pulse mb-2" />
-      <div className="h-4 w-full max-w-96 bg-slate-100 rounded-lg animate-pulse" />
+    <div className="flex items-start justify-between gap-3 mb-5" aria-hidden="true">
+      <div className="space-y-2">
+        <SkeletonBlock className="h-8 w-40 bg-slate-200" />
+        <SkeletonBlock className="h-4 w-64 max-w-full" />
+      </div>
+      <SkeletonBlock className="h-9 w-24" />
     </div>
 
-
-<div className="h-28 bg-slate-200 rounded-2xl animate-pulse mb-6" />
-
-<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-  {Array.from({ length: 4 }).map((_, index) => (
-    <div
-      key={index}
-      className="h-32 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm"
-    >
-      <div className="h-4 w-24 bg-slate-100 rounded animate-pulse mb-5" />
-      <div className="h-8 w-12 bg-slate-200 rounded animate-pulse" />
+    <div className={`${CARD} p-4 sm:p-5 mb-5`} aria-hidden="true">
+      <SkeletonBlock className="h-5 w-48 mb-3" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <SkeletonBlock key={index} className="h-16 rounded-xl" />
+        ))}
+      </div>
     </div>
-  ))}
-</div>
 
+    <SkeletonBlock className="h-24 rounded-2xl bg-slate-200 mb-5" />
+
+    <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4 mb-4" aria-hidden="true">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div key={index} className={`${CARD} p-4 sm:p-5`}>
+          <SkeletonBlock className="h-4 w-24 mb-3" />
+          <SkeletonBlock className="h-8 w-14 bg-slate-200 mb-2" />
+          <SkeletonBlock className="h-3 w-32 max-w-full" />
+        </div>
+      ))}
+    </div>
+
+    <div className={`${CARD} p-4 sm:p-5 mb-5`} aria-hidden="true">
+      <SkeletonBlock className="h-4 w-24 mb-4" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="space-y-2">
+            <SkeletonBlock className="h-3 w-28 max-w-full" />
+            <SkeletonBlock className="h-7 w-16 bg-slate-200" />
+            <SkeletonBlock className="h-1.5 w-full" />
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <div className={`${CARD} p-4 sm:p-5`} aria-hidden="true">
+      <SkeletonBlock className="h-5 w-36 mb-4" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <SkeletonBlock key={index} className="h-20 rounded-xl" />
+        ))}
+      </div>
+    </div>
   </div>
 );
