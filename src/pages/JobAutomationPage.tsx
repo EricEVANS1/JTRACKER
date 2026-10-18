@@ -12,6 +12,7 @@ import {
   type DatePosted,
   type FilterReason,
 } from '../../supabase/functions/job-pipeline/_lib/jobFilters.ts';
+import { describeSearchReports, type SearchReport } from '../../supabase/functions/job-pipeline/_lib/searchReport.ts';
 import {
   AlertCircle,
   Briefcase,
@@ -608,6 +609,8 @@ export const JobAutomationPage: React.FC = () => {
             ? `Filtered out: ${describeFilteredOut(payload.filtered_out as Partial<Record<FilterReason, number>> | undefined, preferences?.max_job_age_days)}.`
             : '',
           payload.no_cv_warning ? 'No CV was found, so jobs were saved without full CV scoring.' : '',
+          // Why a search found nothing (no LinkedIn listings, or a search service error).
+          ...describeSearchReports(payload.search_reports as SearchReport[] | undefined),
         ].filter(Boolean).join(' '),
       );
     } catch (err) {

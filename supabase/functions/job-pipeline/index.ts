@@ -405,6 +405,7 @@ Deno.serve(async (req) => {
       sourcesUsed,
       combinationsSearched,
       combinationsSkipped,
+      searchReports,
     } = await fetchJobsForPreferences(preferences, SERPAPI_KEY, 10, MAX_SEARCH_CALLS);
 
     // LinkedIn-style filters: date posted (undated jobs are dropped), closed
@@ -494,6 +495,7 @@ Deno.serve(async (req) => {
           combinations_searched: combinationsSearched,
           combinations_skipped: combinationsSkipped,
           max_search_calls: MAX_SEARCH_CALLS,
+          search_reports: searchReports,
           fetched_count: fetchedJobs.length,
           fresh_count: freshJobs.length,
           filtered_out: filteredOut,
@@ -524,6 +526,7 @@ Deno.serve(async (req) => {
       no_cv_warning: !cvProfile,
       combinations_searched: combinationsSearched,
       combinations_skipped: combinationsSkipped,
+      search_reports: searchReports,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

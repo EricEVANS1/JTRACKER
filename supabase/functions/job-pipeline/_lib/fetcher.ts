@@ -1,4 +1,5 @@
 import { classifyWorkModel } from './jobFilters.ts';
+import { cleanSearchError, type SearchReport } from './searchReport.ts';
 import {
   canonicalLinkedInJobUrl,
   findLinkedInJobLink,
@@ -1043,8 +1044,9 @@ async function fetchLinkedInJobs(
   workModel: string | null | undefined,
   serpApiKey: string,
   limit: number,
-): Promise<RawJob[]> {
+): Promise<{ jobs: RawJob[]; report: SearchReport }> {
   const jobs: RawJob[] = [];
+  const report: SearchReport = { source: 'linkedin', title: query, location, listings: 0, viaLinkedIn: 0, matched: 0, error: null };
   let pageToken: string | null = null;
 
   console.log('[fetcher] LinkedIn (Google Jobs) query:', { query, location, workModel });
@@ -1065,23 +1067,36 @@ async function fetchLinkedInJobs(
       const text = await response.text();
 
       if (!response.ok) {
-        console.error('[fetcher] LinkedIn (Google Jobs) HTTP failed:', response.status);
+        let detail = '';
+        try {
+          detail = String((JSON.parse(text) as Record<string, unknown>).error || '');
+        } catch {
+          // Not JSON.
+        }
+        console.error('[fetcher] LinkedIn (Google Jobs) HTTP failed:', response.status, cleanSearchError(detail));
+        report.error = cleanSearchError(detail || `the search service answered with HTTP ${response.status}`);
         break;
       }
 
       data = JSON.parse(text) as Record<string, unknown>;
     } catch (error) {
       console.error('[fetcher] LinkedIn (Google Jobs) failed:', error instanceof Error ? error.message : error);
+      report.error = cleanSearchError(error instanceof Error ? error.message : error);
       break;
     }
 
     if (data.error) {
-      console.warn('[fetcher] LinkedIn (Google Jobs) SerpAPI message:', String(data.error));
+      const message = String(data.error);
+      console.warn('[fetcher] LinkedIn (Google Jobs) SerpAPI message:', cleanSearchError(message));
+      // "No results" isn't a failure; anything else (quota, key, ...) is reported.
+      if (!isNoResultsMessage(message)) report.error = cleanSearchError(message);
       break;
     }
 
     const results = getResultsArray(data);
     const linkedIn = results.map((job) => buildLinkedInJob(job, location)).filter(Boolean) as RawJob[];
+    report.listings += results.length;
+    report.viaLinkedIn += results.filter((job) => /linkedin/i.test(String(job.via ?? '')) || findLinkedInJobLink(job)).length;
     console.log(`[fetcher] LinkedIn postings in Google Jobs page ${page + 1}:`, linkedIn.length, 'of', results.length);
     jobs.push(...linkedIn);
 
@@ -1090,7 +1105,8 @@ async function fetchLinkedInJobs(
     if (!pageToken) break;
   }
 
-  return jobs.slice(0, limit);
+  report.matched = Math.min(jobs.length, limit);
+  return { jobs: jobs.slice(0, limit), report };
 }
 
 // The most paid SerpAPI calls one title/location pair can cost on a source.
@@ -1179,6 +1195,8 @@ export async function fetchJobsForPreferences(
   // ones left for later (per-run call cap or time budget).
   combinationsSearched: SearchCombination[];
   combinationsSkipped: SearchCombination[];
+  // What each search returned (LinkedIn), to explain empty runs.
+  searchReports: SearchReport[];
 }> {
 
   const startedAt = Date.now();
@@ -1209,6 +1227,7 @@ export async function fetchJobsForPreferences(
 
   const jobs: RawJob[] = [];
   const queriesRun: Array<{ source: string; query: string; location: string }> = [];
+  const searchReports: SearchReport[] = [];
 
 for (const [index, query] of queries.entries()) {
   if (!hasTimeBudget()) {
@@ -1242,7 +1261,7 @@ for (const [index, query] of queries.entries()) {
 
         jobs.push(...found);
       } else if (source === 'linkedin') {
-        const found = await fetchLinkedInJobs(
+        const { jobs: found, report } = await fetchLinkedInJobs(
           query.title,
           query.location,
           preferences.work_model,
@@ -1251,6 +1270,7 @@ for (const [index, query] of queries.entries()) {
         );
 
         jobs.push(...found);
+        searchReports.push(report);
       } else if (source === 'indeed') {
         const found = await fetchIndeedJobs(
           query.title,
@@ -1298,5 +1318,6 @@ for (const [index, query] of queries.entries()) {
     sourcesUsed: sources,
     combinationsSearched,
     combinationsSkipped,
+    searchReports,
   };
 }

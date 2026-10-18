@@ -126,3 +126,32 @@ test('a run reports how many jobs each filter removed', async ({ page }) => {
     'Filtered out: 12 older than past 24 hours or undated, 1 no longer accepting applications, 2 other work model, 2 other experience level.',
   );
 });
+
+test('a run with nothing found says why', async ({ page }) => {
+  await page.route(`${SUPABASE_URL}/functions/v1/job-pipeline`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { 'access-control-allow-origin': '*' },
+      body: JSON.stringify({
+        success: true,
+        scanned_count: 0,
+        saved_count: 0,
+        scored_count: 0,
+        duplicate_count: 0,
+        combinations_searched: [{ title: 'Software engineer', location: 'Warsaw' }],
+        combinations_skipped: [],
+        filtered_out: { date: 0, closed: 0, work_model: 0, experience_level: 0 },
+        search_reports: [
+          { source: 'linkedin', title: 'Software engineer', location: 'Warsaw', listings: 10, viaLinkedIn: 0, matched: 0, error: null },
+        ],
+      }),
+    }),
+  );
+
+  await page.goto('/job-automation');
+  await page.getByRole('button', { name: 'Run Search Now' }).click();
+  await expect(page.locator('main')).toContainText(
+    'LinkedIn search for "Software engineer" in Warsaw: Google Jobs had 10 listings, none posted on LinkedIn.',
+  );
+});

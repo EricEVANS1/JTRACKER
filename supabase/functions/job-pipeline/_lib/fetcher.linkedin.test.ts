@@ -138,6 +138,25 @@ describe('LinkedIn search', () => {
     expect(jobs[0].work_model).toBe('remote');
   }, 20_000);
 
+  it('reports a search service error instead of a silent empty run', async () => {
+    stubSerpApi({ google_jobs: () => ({ error: 'Your account has run out of searches.' }) });
+
+    const { jobs, searchReports } = await fetchJobsForPreferences(preferences(), 'test-key', 10);
+    expect(jobs).toEqual([]);
+    expect(searchReports).toEqual([
+      { source: 'linkedin', title: 'Data Analyst', location: 'London', listings: 0, viaLinkedIn: 0, matched: 0, error: 'Your account has run out of searches.' },
+    ]);
+  }, 20_000);
+
+  it('reports listings that were not posted on LinkedIn', async () => {
+    stubSerpApi({
+      google_jobs: () => ({ jobs_results: [googleJob(1, 'https://careers.example/jobs/1', { via: 'Company careers' }), googleJob(2, 'https://www.indeed.com/viewjob?jk=2', { via: 'Indeed' })] }),
+    });
+
+    const { searchReports } = await fetchJobsForPreferences(preferences(), 'test-key', 10);
+    expect(searchReports[0]).toMatchObject({ listings: 2, viaLinkedIn: 0, matched: 0, error: null });
+  }, 20_000);
+
   it('counts both possible LinkedIn calls against the per-run cap', async () => {
     stubSerpApi({ google_jobs: () => ({ jobs_results: [] }) });
 
