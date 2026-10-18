@@ -31,7 +31,9 @@ const base64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toStrin
 const CONTROL_PARAMS = new Set(['select', 'order', 'limit', 'offset', 'columns', 'on_conflict']);
 
 const matches = (row: Row, column: string, condition: string): boolean => {
-  const value = row[column];
+  // JSON paths such as metadata->>trigger.
+  const [base, key] = column.split('->>');
+  const value = key ? (row[base] as Row | null | undefined)?.[key] : row[column];
   const text = value == null ? null : String(value);
   const [operator, ...rest] = condition.split('.');
   const operand = rest.join('.');

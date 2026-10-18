@@ -70,18 +70,28 @@ test('without saved titles or locations, nothing is searched and the user is tol
   expect(pipelineCalls).toBe(0);
 });
 
-test('the automation switch says scheduled searches are not active yet', async ({ page, supabase }) => {
+test('the automation switch shows whether automatic searches have run', async ({ page, supabase }) => {
   supabase.tables.user_job_preferences[0].automation_enabled = true;
   await page.goto('/job-automation');
 
-  // Summary card.
+  // No scheduled run yet.
   const main = page.locator('main');
-  await expect(main).toContainText('On, not scheduled yet');
+  await expect(main).toContainText('On · no automatic search has run yet');
 
   // Preferences form.
   await page.getByRole('button', { name: 'Edit Profile' }).first().click();
-  await expect(main).toContainText("Scheduled searches aren't available yet.");
-  await expect(page.getByRole('button', { name: 'On (not active yet)' })).toBeVisible();
+  await expect(main).toContainText('Searches automatically a few times a day');
+  await expect(page.getByRole('button', { name: 'On', exact: true })).toBeVisible();
+});
+
+test('the summary shows when the last automatic search ran', async ({ page, supabase }) => {
+  supabase.tables.user_job_preferences[0].automation_enabled = true;
+  supabase.seed('job_search_runs', [
+    { id: 'r-manual', user_id: USER_ID, created_at: new Date().toISOString(), metadata: { trigger: 'manual' } },
+    { id: 'r-auto', user_id: USER_ID, created_at: new Date(Date.now() - 3 * 3600_000).toISOString(), metadata: { trigger: 'scheduled' } },
+  ]);
+  await page.goto('/job-automation');
+  await expect(page.locator('main')).toContainText('On · last automatic search 3h ago');
 });
 
 test.describe('excluded keywords', () => {

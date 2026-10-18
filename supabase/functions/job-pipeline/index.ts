@@ -11,6 +11,13 @@ import { cleanTerms, parseMaxCalls } from './_lib/queryPlan.ts';
 import { chunk, filterNewJobs, insertSkippingDuplicates } from './_lib/saveJobs.ts';
 import { applyJobFilters } from './_lib/jobFilters.ts';
 import { readAdzunaConfig } from './_lib/adzuna.ts';
+import {
+  buildMatchAlert,
+  DEFAULT_SCHEDULED_MAX_CALLS,
+  isScheduleSecretValid,
+  SCHEDULED_RUN_BUDGET_MS,
+  usersDueForSearch,
+} from './_lib/schedule.ts';
 import { scoreJobAgainstCV } from './_lib/scorer.ts';
 import type {
   CVProfile,
@@ -59,6 +66,13 @@ const ADZUNA = readAdzunaConfig((name) => Deno.env.get(name));
 // Paid SerpAPI searches allowed per run (each title/location pair costs one per
 // source). Defaults to 18; set JOB_SEARCH_MAX_CALLS to change it.
 const MAX_SEARCH_CALLS = parseMaxCalls(Deno.env.get('JOB_SEARCH_MAX_CALLS'));
+
+// Scheduled runs repeat through the day, so they get a smaller cap by default
+// (JOB_SEARCH_SCHEDULED_MAX_CALLS to change it).
+const SCHEDULED_MAX_SEARCH_CALLS = Number.isInteger(Number(Deno.env.get('JOB_SEARCH_SCHEDULED_MAX_CALLS'))) &&
+    Number(Deno.env.get('JOB_SEARCH_SCHEDULED_MAX_CALLS')) > 0
+  ? Number(Deno.env.get('JOB_SEARCH_SCHEDULED_MAX_CALLS'))
+  : DEFAULT_SCHEDULED_MAX_CALLS;
 
 function makeDedupHash(job: RawJob) {
   return `${job.source}:${job.external_id || job.job_url}`
@@ -318,52 +332,35 @@ async function saveMatchResult(
   return matchRow?.id || null;
 }
 
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: getCorsHeaders(),
-    });
-  }
+// The service-role client, typed as createClient(url, key) returns it.
+const createServiceClient = (url: string, key: string) => createClient(url, key);
+type ServiceClient = ReturnType<typeof createServiceClient>;
 
-  if (req.method !== 'POST') {
-    return errorResponse('Method not allowed', 405);
+// A problem with the request or setup, reported with its own status before a
+// run is recorded.
+class SearchRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
   }
+}
 
+// One job search for one user: fetch, filter, save, score and record the run.
+// Manual runs come from "Run Search Now"; scheduled runs from the scheduler.
+async function runJobSearch(
+  supabase: ServiceClient,
+  userId: string,
+  { trigger, maxSearchCalls }: { trigger: 'manual' | 'scheduled'; maxSearchCalls: number },
+): Promise<Record<string, unknown>> {
   const startedAt = Date.now();
-
-  const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    return errorResponse('Supabase environment variables are missing.', 500);
-  }
-
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader) {
-    return errorResponse('Missing Authorization header.', 401);
-  }
-
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
-
-  const token = authHeader.replace('Bearer ', '');
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser(token);
-
-  if (userError || !user) {
-    return errorResponse('Unauthorized.', 401);
-  }
-
   let runId: string | null = null;
 
   try {
-    const preferences = await loadPreferences(supabase, user.id);
+    const preferences = await loadPreferences(supabase, userId);
 
     // Without titles and locations there is nothing to search; stop before
     // recording a run or spending any SerpAPI calls.
     if (!preferences.target_titles.length || !preferences.preferred_locations.length) {
-      return errorResponse(MISSING_SEARCH_TERMS_MESSAGE, 400);
+      throw new SearchRequestError(MISSING_SEARCH_TERMS_MESSAGE, 400);
     }
 
     // Every source except Adzuna searches through SerpAPI.
@@ -372,13 +369,13 @@ Deno.serve(async (req) => {
       preferences.enabled_sources.some((source) => source !== 'adzuna');
 
     if (needsSerpApi && !SERPAPI_KEY) {
-      return errorResponse('SERPAPI_KEY is missing. Add it in Supabase Edge Function secrets.', 500);
+      throw new SearchRequestError('SERPAPI_KEY is missing. Add it in Supabase Edge Function secrets.', 500);
     }
 
     const { data: run, error: runError } = await supabase
       .from('job_search_runs')
       .insert({
-        user_id: user.id,
+        user_id: userId,
         search_profile_id: preferences.id || null,
         run_type: 'manual',
         source: 'serpapi',
@@ -386,6 +383,7 @@ Deno.serve(async (req) => {
         location: preferences.preferred_locations.join(', '),
         status: 'running',
         metadata: {
+          trigger,
           target_titles: preferences.target_titles,
           preferred_locations: preferences.preferred_locations,
           enabled_sources: preferences.enabled_sources,
@@ -402,7 +400,7 @@ Deno.serve(async (req) => {
 
     const cvProfile = await loadCVProfile(
       supabase,
-      user.id,
+      userId,
       preferences.default_cv_version_id,
     );
 
@@ -413,7 +411,7 @@ Deno.serve(async (req) => {
       combinationsSearched,
       combinationsSkipped,
       searchReports,
-    } = await fetchJobsForPreferences(preferences, SERPAPI_KEY, 10, MAX_SEARCH_CALLS, { adzuna: ADZUNA });
+    } = await fetchJobsForPreferences(preferences, SERPAPI_KEY, 10, maxSearchCalls, { adzuna: ADZUNA });
 
     // LinkedIn-style filters: date posted (undated jobs are dropped), closed
     // postings, work model and experience level. Same rules as the job list.
@@ -424,7 +422,7 @@ Deno.serve(async (req) => {
 
     const { insertedJobs, duplicateCount } = await insertJobAds(
       supabase,
-      user.id,
+      userId,
       freshJobs,
       runId,
     );
@@ -454,7 +452,7 @@ Deno.serve(async (req) => {
           LLM_CONFIG,
         );
 
-        await saveMatchResult(supabase, user.id, job, cvProfile, score);
+        await saveMatchResult(supabase, userId, job, cvProfile, score);
 
         scoredCount++;
 
@@ -501,7 +499,8 @@ Deno.serve(async (req) => {
           queries_run: queriesRun,
           combinations_searched: combinationsSearched,
           combinations_skipped: combinationsSkipped,
-          max_search_calls: MAX_SEARCH_CALLS,
+          trigger,
+          max_search_calls: maxSearchCalls,
           search_reports: searchReports,
           fetched_count: fetchedJobs.length,
           fresh_count: freshJobs.length,
@@ -514,7 +513,18 @@ Deno.serve(async (req) => {
       })
       .eq('id', runId);
 
-    return jsonResponse({
+    // A scheduled run tells the user about new matches (one notification).
+    if (trigger === 'scheduled') {
+      const alert = buildMatchAlert(topJobs);
+      if (alert) {
+        const { error: alertError } = await supabase
+          .from('notifications')
+          .insert({ user_id: userId, actor_user_id: null, ...alert, read: false });
+        if (alertError) console.error('[job-pipeline] match alert failed:', alertError.message);
+      }
+    }
+
+    return {
       success: true,
       run_id: runId,
       scanned_count: fetchedJobs.length,
@@ -534,8 +544,10 @@ Deno.serve(async (req) => {
       combinations_searched: combinationsSearched,
       combinations_skipped: combinationsSkipped,
       search_reports: searchReports,
-    });
+    };
   } catch (error) {
+    if (error instanceof SearchRequestError) throw error;
+
     const message = error instanceof Error ? error.message : String(error);
 
     console.error('[job-pipeline] fatal:', message);
@@ -549,12 +561,126 @@ Deno.serve(async (req) => {
           error_count: 1,
           completed_at: new Date().toISOString(),
           metadata: {
+            trigger,
             processing_time_ms: Date.now() - startedAt,
           },
         })
         .eq('id', runId);
     }
 
-    return errorResponse(message, 500);
+    throw error;
+  }
+}
+
+// Scheduled runs (from Supabase's scheduler, see
+// supabase/sql/2026-10-18_scheduled_job_search.sql): every user with
+// automation on who hasn't been searched in the last 50 minutes, longest
+// waiting first, until the time budget is used.
+async function runScheduledSearches(supabase: ServiceClient) {
+  const startedAt = Date.now();
+
+  const { data: optedIn, error } = await supabase
+    .from('user_job_preferences')
+    .select('user_id')
+    .eq('automation_enabled', true);
+
+  if (error) throw new Error(`Failed to load scheduled users: ${error.message}`);
+
+  const userIds = ((optedIn || []) as Array<{ user_id: string }>).map((row) => row.user_id);
+  const lastRunAt: Record<string, string> = {};
+
+  if (userIds.length) {
+    const { data: runs } = await supabase
+      .from('job_search_runs')
+      .select('user_id, created_at')
+      .in('user_id', userIds)
+      .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+      .order('created_at', { ascending: false });
+
+    for (const run of (runs || []) as Array<{ user_id: string; created_at: string }>) {
+      lastRunAt[run.user_id] ??= run.created_at;
+    }
+  }
+
+  const due = usersDueForSearch(userIds, lastRunAt);
+  const summary = { opted_in: userIds.length, due: due.length, searched: 0, skipped: 0, failed: 0, deferred: 0 };
+
+  for (const userId of due) {
+    if (Date.now() - startedAt > SCHEDULED_RUN_BUDGET_MS) {
+      summary.deferred++;
+      continue;
+    }
+
+    try {
+      await runJobSearch(supabase, userId, { trigger: 'scheduled', maxSearchCalls: SCHEDULED_MAX_SEARCH_CALLS });
+      summary.searched++;
+    } catch (runError) {
+      if (runError instanceof SearchRequestError) {
+        summary.skipped++;
+      } else {
+        summary.failed++;
+        console.error('[job-pipeline] scheduled run failed:', runError instanceof Error ? runError.message : runError);
+      }
+    }
+  }
+
+  console.log('[job-pipeline] scheduled searches:', summary);
+  return { success: true, mode: 'scheduled', ...summary };
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', {
+      headers: getCorsHeaders(),
+    });
+  }
+
+  if (req.method !== 'POST') {
+    return errorResponse('Method not allowed', 405);
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return errorResponse('Supabase environment variables are missing.', 500);
+  }
+
+  const supabase = createServiceClient(supabaseUrl, serviceRoleKey);
+
+  // The scheduler identifies itself with the shared secret, not a user.
+  const scheduleSecret = req.headers.get('x-cron-secret');
+  if (scheduleSecret !== null) {
+    if (!isScheduleSecretValid(scheduleSecret, Deno.env.get('JOB_SEARCH_CRON_SECRET'))) {
+      return errorResponse('Unauthorized.', 401);
+    }
+
+    try {
+      return jsonResponse(await runScheduledSearches(supabase));
+    } catch (error) {
+      return errorResponse(error instanceof Error ? error.message : String(error), 500);
+    }
+  }
+
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    return errorResponse('Missing Authorization header.', 401);
+  }
+
+  const token = authHeader.replace('Bearer ', '');
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser(token);
+
+  if (userError || !user) {
+    return errorResponse('Unauthorized.', 401);
+  }
+
+  try {
+    return jsonResponse(await runJobSearch(supabase, user.id, { trigger: 'manual', maxSearchCalls: MAX_SEARCH_CALLS }));
+  } catch (error) {
+    if (error instanceof SearchRequestError) return errorResponse(error.message, error.status);
+    return errorResponse(error instanceof Error ? error.message : String(error), 500);
   }
 });

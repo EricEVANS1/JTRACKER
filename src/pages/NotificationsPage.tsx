@@ -108,6 +108,7 @@ const getDaysSince = (date?: string | null) => {
 
 const getDatabaseNotificationPriority = (type: string): NotificationPriority => {
   if (type === 'shared_opportunity') return 'today';
+  if (type === 'job_match') return 'today';
   if (type.includes('urgent')) return 'urgent';
   if (type.includes('follow_up')) return 'today';
   return 'insight';
@@ -488,6 +489,12 @@ export const NotificationsPage: React.FC = () => {
       return;
     }
 
+    // New matches from a scheduled job search.
+    if (notification.type === 'job_match') {
+      navigate('/job-automation');
+      return;
+    }
+
     if (notification.applicationId) {
       navigate(`/applications/${notification.applicationId}`);
     }
@@ -734,7 +741,7 @@ const NotificationCard = ({
         </div>
 
         <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 lg:justify-end w-full lg:w-auto">
-          {(notification.applicationId || notification.type === 'shared_opportunity') && (
+          {(notification.applicationId || notification.type === 'shared_opportunity' || notification.type === 'job_match') && (
             <button
               type="button"
               onClick={() => onOpen(notification)}
@@ -744,6 +751,11 @@ const NotificationCard = ({
                 <>
                   <Inbox size={15} />
                   Open Shared
+                </>
+              ) : notification.type === 'job_match' ? (
+                <>
+                  <Briefcase size={15} />
+                  Open Job Automation
                 </>
               ) : (
                 <>

@@ -345,6 +345,8 @@ export const JobAutomationPage: React.FC = () => {
   const [jobs,           setJobs]           = useState<JobAd[]>([]);
   // Saved jobs the date / work model / experience filters hide from the list.
   const [hiddenByFilters, setHiddenByFilters] = useState(0);
+  // When the scheduler last searched for this user (null: never).
+  const [lastScheduledRunAt, setLastScheduledRunAt] = useState<string | null>(null);
   const [matchesByJobId, setMatchesByJobId] = useState<Record<string, JobMatchResult>>({});
   const [cvVersions,     setCvVersions]     = useState<CVVersion[]>([]);
   const [defaultCv,      setDefaultCv]      = useState<CVVersion | null>(null);
@@ -425,6 +427,17 @@ export const JobAutomationPage: React.FC = () => {
 
     setPreferences(safePreferences);
     setPreferenceForm(preferenceToForm(safePreferences, safeSources));
+
+    // Last automatic search, to show whether the schedule is running.
+    const { data: lastScheduled } = await supabase
+      .from('job_search_runs')
+      .select('created_at')
+      .eq('user_id', user.id)
+      .eq('metadata->>trigger', 'scheduled')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setLastScheduledRunAt((lastScheduled as { created_at: string } | null)?.created_at ?? null);
 
     setDefaultCv(
       safePreferences?.default_cv_version_id
@@ -1058,10 +1071,9 @@ export const JobAutomationPage: React.FC = () => {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 flex items-center justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-wide font-semibold text-slate-500">Automation</p>
-                {/* Nothing runs searches on a schedule yet; this only saves the preference. */}
                 <p className="text-sm text-slate-600 mt-1">
-                  Scheduled searches aren&apos;t available yet. Turning this on saves your preference for when they
-                  are; for now, use Run Search Now.
+                  Searches automatically a few times a day with this profile and sends you a notification when it
+                  finds new jobs scoring at or above your minimum score.
                 </p>
               </div>
               <button
@@ -1071,7 +1083,7 @@ export const JobAutomationPage: React.FC = () => {
                   preferenceForm.automationEnabled ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700'
                 }`}
               >
-                {preferenceForm.automationEnabled ? 'On (not active yet)' : 'Off'}
+                {preferenceForm.automationEnabled ? 'On' : 'Off'}
               </button>
             </div>
 
@@ -1149,7 +1161,16 @@ export const JobAutomationPage: React.FC = () => {
                 value={preferences?.experience_levels?.length ? preferences.experience_levels.map(experienceLevelLabel).join(', ') : 'Any'}
               />
             )}
-            <SummaryItem label="Automation"     value={preferences?.automation_enabled ? 'On, not scheduled yet' : 'Off'} />
+            <SummaryItem
+              label="Automation"
+              value={
+                !preferences?.automation_enabled
+                  ? 'Off'
+                  : lastScheduledRunAt
+                    ? `On · last automatic search ${formatPostedAgo(lastScheduledRunAt).replace(/^Posted /, '').toLowerCase()}`
+                    : 'On · no automatic search has run yet'
+              }
+            />
             {supportsExcludedKeywords(preferences) && (
               <SummaryItem label="Excluded keywords" value={preferences?.excluded_keywords?.length ? preferences.excluded_keywords.join(', ') : 'None'} />
             )}
