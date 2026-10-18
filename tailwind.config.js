@@ -6,8 +6,19 @@ export default {
   ],
   theme: {
     extend: {
-      // Offer-received celebration (src/components/OfferCelebration.tsx).
+      // Dashboard loading states, and the offer-received celebration
+      // (src/components/OfferCelebration.tsx).
       keyframes: {
+        // Dashboard loading states.
+        'fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+        // A segment sliding across: work in progress, with no claim of how much is done.
+        'indeterminate': {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(250%)' },
+        },
         'offer-fade': {
           from: { opacity: '0' },
           to: { opacity: '1' },
@@ -32,6 +43,8 @@ export default {
         },
       },
       animation: {
+        'fade-in': 'fade-in 250ms ease-out both',
+        'indeterminate': 'indeterminate 1.2s ease-in-out infinite',
         'offer-fade': 'offer-fade 200ms ease-out both',
         'offer-pop': 'offer-pop 420ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both',
         'offer-glow': 'offer-glow 1.4s ease-out 2 both',

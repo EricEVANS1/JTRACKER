@@ -258,6 +258,7 @@ export const DashboardPage: React.FC = () => {
 const { user } = useAuth();
 
 const {
+loading: onboardingLoading,
 onboardingComplete,
 completedSteps,
 completedCount,
@@ -773,7 +774,9 @@ helper: `${stats.offerRate}% offer conversion from interviews`,
 },
 ];
 
-if (loading) {
+// Wait for the first-time setup check too, so the welcome screen never
+// flashes up before the dashboard (or the other way round).
+if (loading || onboardingLoading) {
 return <DashboardSkeleton />;
 }
 
@@ -816,7 +819,7 @@ return ( <div className="w-full max-w-full overflow-hidden"> <div className="max
 
               <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
                 <div
-                  className="h-full bg-slate-900 transition-all duration-500"
+                  className="h-full bg-slate-900 transition-all duration-500 motion-reduce:transition-none"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
@@ -911,7 +914,9 @@ return ( <div className="w-full max-w-full overflow-hidden"> <div className="max
 }
 
 return (
-  <div className="w-full max-w-full overflow-hidden">
+  <div className="relative w-full max-w-full overflow-hidden animate-fade-in motion-reduce:animate-none" aria-busy={refreshing}>
+    {refreshing && <RefreshBar />}
+
     <div className="flex items-start justify-between gap-3 mb-5">
       <div className="min-w-0">
         <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 break-words">Dashboard</h2>
@@ -928,7 +933,7 @@ return (
           aria-busy={refreshing}
           className={BUTTON_SECONDARY}
         >
-          <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
+          <RefreshCw size={15} className={refreshing ? 'animate-spin motion-reduce:animate-none' : ''} />
           {refreshing ? 'Refreshing…' : 'Refresh'}
         </button>
         {lastUpdated && !refreshing && (
@@ -1604,7 +1609,7 @@ return (
       <div className="flex items-center gap-2 shrink-0">
         {loading && (
           <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-            <RefreshCw size={12} className="animate-spin" />
+            <RefreshCw size={12} className="animate-spin motion-reduce:animate-none" />
             Updating
           </span>
         )}
@@ -1632,10 +1637,10 @@ return (
       </div>
     ) : loading && neverSynced && summary.emailsProcessed === 0 ? (
       <div className="space-y-3" aria-hidden="true">
-        <div className="h-16 rounded-xl bg-slate-100 animate-pulse" />
+        <div className="h-16 rounded-xl bg-slate-100 animate-pulse motion-reduce:animate-none" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="h-20 rounded-xl bg-slate-100 animate-pulse" />
+            <div key={index} className="h-20 rounded-xl bg-slate-100 animate-pulse motion-reduce:animate-none" />
           ))}
         </div>
       </div>
@@ -1824,7 +1829,7 @@ return (
       aside={
         loading ? (
           <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-            <RefreshCw size={12} className="animate-spin" />
+            <RefreshCw size={12} className="animate-spin motion-reduce:animate-none" />
             Updating
           </span>
         ) : undefined
@@ -1840,10 +1845,10 @@ return (
       <div className="space-y-4" aria-hidden="true">
         {Array.from({ length: 4 }).map((_, index) => (
           <div key={index} className="flex items-start gap-3">
-            <div className="h-8 w-8 rounded-full bg-slate-100 animate-pulse shrink-0" />
+            <div className="h-8 w-8 rounded-full bg-slate-100 animate-pulse motion-reduce:animate-none shrink-0" />
             <div className="flex-1 space-y-2 pt-1">
-              <div className="h-3.5 w-2/3 rounded bg-slate-100 animate-pulse" />
-              <div className="h-3 w-1/2 rounded bg-slate-100 animate-pulse" />
+              <div className="h-3.5 w-2/3 rounded bg-slate-100 animate-pulse motion-reduce:animate-none" />
+              <div className="h-3 w-1/2 rounded bg-slate-100 animate-pulse motion-reduce:animate-none" />
             </div>
           </div>
         ))}
@@ -2145,8 +2150,20 @@ icon?: React.ElementType;
   </div>
 );
 
+// Shown while Refresh reloads the data. Indeterminate: the dashboard can't
+// tell how far along its queries are, so it shows activity, not a percentage.
+const RefreshBar = () => (
+  <div
+    role="progressbar"
+    aria-label="Refreshing dashboard"
+    className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden rounded-full bg-slate-200"
+  >
+    <div className="h-full w-2/5 rounded-full bg-slate-900 animate-indeterminate motion-reduce:animate-none motion-reduce:w-full motion-reduce:opacity-40" />
+  </div>
+);
+
 const SkeletonBlock = ({ className }: { className: string }) => (
-  <div className={`rounded-lg bg-slate-100 animate-pulse ${className}`} />
+  <div className={`rounded-lg bg-slate-100 animate-pulse motion-reduce:animate-none ${className}`} />
 );
 
 // Mirrors the dashboard's layout so nothing jumps when the data arrives.

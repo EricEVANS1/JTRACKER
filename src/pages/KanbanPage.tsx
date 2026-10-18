@@ -4,6 +4,7 @@ import {
   AlertCircle,
   Briefcase,
   ExternalLink,
+  Building2,
   GripVertical,
   Layers3,
   RefreshCw,
@@ -26,9 +27,11 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { buildStatusUpdate, type LifecycleRecord } from '../lib/applicationLifecycle';
 import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
+import { CompanyLogo } from '../components/CompanyLogo';
 
 interface CompanySummary {
   name: string;
+  website?: string | null;
 }
 
 interface RawKanbanApplication extends LifecycleRecord {
@@ -101,7 +104,8 @@ export const KanbanPage: React.FC = () => {
       .select(`
         *,
         companies (
-          name
+          name,
+          website
         )
       `)
       .eq('user_id', user.id)
@@ -401,6 +405,15 @@ const DraggableApplicationCard: React.FC<DraggableApplicationCardProps> = ({
       }`}
     >
       <div className="flex items-start justify-between gap-3">
+        <CompanyLogo
+          website={application.companies?.website}
+          size={32}
+          fallback={
+            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
+              <Building2 size={15} className="text-slate-500" />
+            </div>
+          }
+        />
         <div className="min-w-0 flex-1">
           <h4 className="font-semibold mb-1 break-words">
             {application.role_title}

@@ -29,6 +29,7 @@ isOfferAwaitingDecision,
 type ReachedStage,
 } from '../lib/applicationLifecycle';
 import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
+import { CompanyLogo } from '../components/CompanyLogo';
 
 type ApplicationStatus =
 | 'wishlist'
@@ -58,6 +59,7 @@ type OutcomeReason =
 interface CompanyJoin {
 id: string;
 name: string;
+website?: string | null;
 }
 
 interface CVVersionJoin {
@@ -283,7 +285,8 @@ const { data, error } = await supabase
     *,
     companies (
       id,
-      name
+      name,
+      website
     ),
     cv_versions (
       id,
@@ -1431,7 +1434,7 @@ const lifecycleSteps = [
 { label: 'Offer', date: app.offer_received_at },
 ];
 
-return ( <div className="group bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md transition overflow-hidden"> <div className="p-4 sm:p-5"> <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4"> <div className="flex items-start gap-3 min-w-0"> <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0"> <Briefcase size={18} className="text-slate-600" /> </div>
+return ( <div className="group bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md transition overflow-hidden"> <div className="p-4 sm:p-5"> <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4"> <div className="flex items-start gap-3 min-w-0"> <CompanyLogo website={app.companies?.website} size={40} fallback={<div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center"> <Briefcase size={18} className="text-slate-600" /> </div>} />
 
 
         <div className="min-w-0">
