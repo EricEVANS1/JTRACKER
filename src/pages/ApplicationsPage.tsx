@@ -28,6 +28,7 @@ isAwaitingFinalResponse,
 isOfferAwaitingDecision,
 type ReachedStage,
 } from '../lib/applicationLifecycle';
+import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
 
 type ApplicationStatus =
 | 'wishlist'
@@ -375,7 +376,7 @@ successMessage: string,
 eventTitle: string,
 eventDescription: string
 ) => {
-if (!user) return;
+if (!user) return false;
 
 
 setStatusUpdatingId(applicationId);
@@ -391,7 +392,7 @@ const { error } = await supabase
 if (error) {
   setError(error.message);
   setStatusUpdatingId(null);
-  return;
+  return false;
 }
 
 await supabase.from('application_events').insert({
@@ -409,6 +410,7 @@ setApplications((prev) =>
 
 setMessage(successMessage);
 setStatusUpdatingId(null);
+return true;
 
 
 };
@@ -429,13 +431,17 @@ const successMessage =
       ? 'Application moved to archive.'
       : `Status updated to ${formatStatus(newStatus)}.`;
 
-await updateApplication(
+const saved = await updateApplication(
   applicationId,
   updatePayload,
   successMessage,
   `Status changed to ${formatStatus(newStatus)}`,
   `Application moved from ${formatStatus(application.status)} to ${formatStatus(newStatus)}.`
 );
+
+if (saved && isNewOffer(newStatus, application)) {
+  celebrateOffer({ applicationId, roleTitle: application.role_title, companyName: application.companies?.name });
+}
 
 
 };
@@ -847,6 +853,10 @@ try {
       description: `Application added with status ${formatStatus(status)}.`,
       event_date: now,
     });
+
+    if (isNewOffer(status, null)) {
+      celebrateOffer({ applicationId: insertedApplication.id, roleTitle: roleTitle.trim(), companyName: companyName.trim() });
+    }
   }
 
   resetForm();

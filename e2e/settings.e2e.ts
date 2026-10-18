@@ -15,8 +15,9 @@ test('Notifications tab describes the alerts instead of showing switches that do
   await expect(main).toContainText('All alerts are always on; there are no per-type settings yet.');
   await expect(main).not.toContainText('Email event alerts');
 
-  // No toggle switches in this tab (they are the rounded-full buttons).
-  await expect(main.locator('button.rounded-full')).toHaveCount(0);
+  // No alert switches in this tab; the only switch is the offer celebration one.
+  await expect(main.getByRole('switch')).toHaveCount(1);
+  await expect(main.getByRole('switch', { name: 'Offer celebrations' })).toHaveAttribute('aria-checked', 'true');
 
   await page.getByRole('link', { name: 'Open Notifications' }).click();
   await expect(page).toHaveURL('/notifications');

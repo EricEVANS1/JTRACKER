@@ -29,6 +29,7 @@ import { supabase } from '../lib/supabase';
 import { isGmailConfigured, isOutlookConfigured } from '../lib/config';
 import { useAuth } from '../context/AuthContext';
 import { buildStatusUpdate } from '../lib/applicationLifecycle';
+import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
 import { useGmailToken } from '../hooks/useGmailToken';
 
 type EmailProvider = 'gmail' | 'outlook' | 'manual';
@@ -1137,16 +1138,18 @@ void Promise.resolve().then(syncGmail);
 // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [searchParams, settingsLoading]);
 
+// Returns true when this update made the application a new offer.
 const updateApplicationFromEmail = async (
 applicationId: string,
 status: string,
 eventTitle: string,
 eventDescription: string,
 ) => {
-if (!user) return;
+if (!user) return false;
 
 
 const matchedApp = applications.find((app) => app.id === applicationId);
+let becameOffer = false;
 
 if (canUpdateApplicationStatus(status) && emailSettings.ai_email_analysis_enabled) {
   const { error: updateError } = await supabase
@@ -1156,6 +1159,7 @@ if (canUpdateApplicationStatus(status) && emailSettings.ai_email_analysis_enable
     .eq('user_id', user.id);
 
   if (updateError) throw new Error(updateError.message);
+  becameOffer = isNewOffer(status, matchedApp ?? null);
 }
 
 const { error: eventError } = await supabase.from('application_events').insert({
@@ -1169,7 +1173,13 @@ const { error: eventError } = await supabase.from('application_events').insert({
 
 if (eventError) throw new Error(eventError.message);
 
+return becameOffer;
+};
 
+// The user confirmed an email that made an application a new offer.
+const celebrateOfferFromEmail = (applicationId: string) => {
+const app = applications.find((item) => item.id === applicationId);
+celebrateOffer({ applicationId, roleTitle: app?.role_title, companyName: app?.companies?.name });
 };
 
 const markApplicationRejected = async (email: EmailMessage) => {
@@ -1288,12 +1298,13 @@ if (markRejected) {
 
   setMessage(`Linked email and marked "${selectedApplication?.role_title || 'application'}" as rejected.`);
 } else {
-  await updateApplicationFromEmail(
+  const becameOffer = await updateApplicationFromEmail(
     applicationId,
     email.detection.status,
     `${email.provider} email manually linked`,
     `Manually linked this ${email.provider} email to the application. Detected status: ${formatStatus(email.detection.status)}.`,
   );
+  if (becameOffer) celebrateOfferFromEmail(applicationId);
 
   setMessage(`Linked email to "${selectedApplication?.role_title || 'application'}".`);
 }
@@ -1389,6 +1400,10 @@ try {
     event_date: new Date().toISOString(),
   });
 
+  if (isNewOffer(safeStatus, null)) {
+    celebrateOffer({ applicationId: newApplication.data.id, roleTitle: extractedRole, companyName: extractedCompany });
+  }
+
   setMessage(`Created application for ${extractedRole}.`);
   setSafeMessages((prev) => prev.filter((msg) => msg.id !== email.id));
   await fetchApplications();
@@ -1419,12 +1434,13 @@ try {
 
   await saveEmailEvent(email, applicationId);
 
-  await updateApplicationFromEmail(
+  const becameOffer = await updateApplicationFromEmail(
     applicationId,
     email.detection.status,
     `${email.provider} email linked: ${email.detection.category}`,
     `JTracker linked a ${email.provider} email to this application. Match score: ${email.matchedApplication.score}%.`,
   );
+  if (becameOffer) celebrateOfferFromEmail(applicationId);
 
   setMessage(`Linked ${email.provider} email to ${email.matchedApplication.roleTitle}.`);
   setSafeMessages((prev) => prev.filter((msg) => msg.id !== email.id));
@@ -1474,7 +1490,7 @@ try {
     received_at: new Date().toISOString(),
   });
 
-  await updateApplicationFromEmail(
+  const becameOffer = await updateApplicationFromEmail(
     selectedApplicationId,
     result.status,
     `Email detected: ${result.category}`,
@@ -1483,6 +1499,7 @@ try {
     } to ${formatStatus(result.status)}.`,
   );
 
+  if (becameOffer) celebrateOfferFromEmail(selectedApplicationId);
   setMessage('Application updated from email detection.');
   await fetchApplications();
 } catch (err) {

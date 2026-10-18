@@ -25,6 +25,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { buildStatusUpdate, type LifecycleRecord } from '../lib/applicationLifecycle';
+import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
 
 interface CompanySummary {
   name: string;
@@ -173,6 +174,14 @@ export const KanbanPage: React.FC = () => {
       await fetchApplications();
       setUpdatingId('');
       return;
+    }
+
+    if (isNewOffer(newStatus, application)) {
+      celebrateOffer({
+        applicationId: application.id,
+        roleTitle: application.role_title,
+        companyName: application.companies?.name,
+      });
     }
 
     const { error: eventError } = await supabase

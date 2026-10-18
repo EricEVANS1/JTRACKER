@@ -23,6 +23,7 @@ import { supabase } from '../lib/supabase';
 import { getSignatureName, signOff } from '../lib/emailSignature';
 import { useAuth } from '../context/AuthContext';
 import { buildStatusUpdate } from '../lib/applicationLifecycle';
+import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
 import type { Application } from '../types/application';
 
 type ApplicationStatus =
@@ -407,6 +408,9 @@ export const ApplicationDetailsPage: React.FC = () => {
     });
 
     setMessage('Status updated.');
+    if (isNewOffer(selectedStatus, application)) {
+      celebrateOffer({ applicationId: id, roleTitle: application.role_title, companyName: application.companies?.name });
+    }
     await fetchApplicationDetails();
     setSavingStatus(false);
   };

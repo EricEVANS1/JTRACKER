@@ -11,6 +11,7 @@ Inbox,
 Loader2,
 LogOut,
 Mail,
+PartyPopper,
 Save,
 Settings,
 Shield,
@@ -24,6 +25,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { FEATURES } from '../config/features';
 import { SettingsEmailSyncPanel } from '../components/settings/SettingsEmailSyncPanel';
+import { areCelebrationsEnabled, setCelebrationsEnabled } from '../lib/offerCelebration';
 
 interface Profile {
 id: string;
@@ -93,12 +95,17 @@ const inputCls =
 const Toggle = ({
 enabled,
 onChange,
+label,
 }: {
 enabled: boolean;
 onChange: (v: boolean) => void;
+label?: string;
 }) => (
 <button
 type="button"
+role="switch"
+aria-checked={enabled}
+aria-label={label}
 onClick={() => onChange(!enabled)}
 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
       enabled ? 'bg-slate-900' : 'bg-slate-200'
@@ -143,6 +150,8 @@ const [savingSettings, setSavingSettings] = useState(false);
 const [uploadingAvatar, setUploadingAvatar] = useState(false);
 const [message, setMessage] = useState('');
 const [error, setError] = useState('');
+// Kept on this device, like the celebration itself.
+const [celebrationsOn, setCelebrationsOn] = useState(() => areCelebrationsEnabled());
 
 const email = profile?.email || user?.email || '';
 
@@ -752,6 +761,7 @@ updateSetting('ai_confidence_threshold', Number(value));
   )}
 
   {activeTab === 'notifications' && (
+    <div className="space-y-6">
     <Card title="Notifications" icon={<Bell size={16} />}>
       {/* Alerts aren't configurable per type yet, so this tab describes them
           rather than showing switches that would do nothing. */}
@@ -789,6 +799,19 @@ updateSetting('ai_confidence_threshold', Number(value));
         Open Notifications
       </Link>
     </Card>
+
+    <Card title="Celebrations" icon={<PartyPopper size={16} />}>
+      <ToggleRow
+        label="Offer celebrations"
+        hint="A short animation when you record a new job offer. Saved on this device."
+        enabled={celebrationsOn}
+        onChange={(enabled) => {
+          setCelebrationsEnabled(enabled);
+          setCelebrationsOn(enabled);
+        }}
+      />
+    </Card>
+    </div>
   )}
 
   {activeTab === 'privacy' && (
@@ -908,7 +931,7 @@ onChange: (v: boolean) => void;
     </div>
 
 
-<Toggle enabled={enabled} onChange={onChange} />
+<Toggle enabled={enabled} onChange={onChange} label={label} />
 
 
   </div>

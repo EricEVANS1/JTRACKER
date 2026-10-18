@@ -19,6 +19,7 @@ import {
 
 import { useAuth } from '../context/AuthContext';
 import { ErrorBoundary } from './ErrorBoundary';
+import { OfferCelebration } from './OfferCelebration';
 import { supabase } from '../lib/supabase';
 
 export const AppLayout: React.FC = () => {
@@ -286,6 +287,8 @@ export const AppLayout: React.FC = () => {
           <Outlet />
         </ErrorBoundary>
       </main>
+
+      <OfferCelebration />
     </div>
   );
 };
