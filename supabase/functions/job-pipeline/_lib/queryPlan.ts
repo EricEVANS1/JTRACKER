@@ -2,7 +2,7 @@
 // of Deno and Supabase imports so it can be unit tested.
 //
 // Every combination is searched on every selected source, and each search is a
-// paid SerpAPI call, so a run is capped. Within the cap, combinations are
+// paid SerpAPI call (some sources make more than one), so a run is capped. Within the cap, combinations are
 // ordered so each title and each location is searched once before any pairing
 // repeats; the rest follow in title order.
 
@@ -72,17 +72,18 @@ export const parseMaxCalls = (value: string | undefined | null) => {
 export const planSearchQueries = ({
   titles,
   locations,
-  sourceCount,
+  callsPerCombination,
   maxCalls = DEFAULT_MAX_SEARCH_CALLS,
 }: {
   titles: string[];
   locations: string[];
-  sourceCount: number;
+  // Most paid calls one combination can cost across the selected sources.
+  callsPerCombination: number;
   maxCalls?: number;
 }): SearchPlan => {
   const all = orderCombinations(titles, locations);
   // Always search at least one combination, even if the sources alone exceed the cap.
-  const allowed = Math.max(1, Math.floor(maxCalls / Math.max(1, sourceCount)));
+  const allowed = Math.max(1, Math.floor(maxCalls / Math.max(1, callsPerCombination)));
 
   return {
     combinations: all.slice(0, allowed),

@@ -33,15 +33,15 @@ describe('orderCombinations', () => {
 
 describe('planSearchQueries', () => {
   it('searches every combination when they fit within the cap', () => {
-    const plan = planSearchQueries({ titles: ['A', 'B'], locations: ['X', 'Y'], sourceCount: 3, maxCalls: 18 });
+    const plan = planSearchQueries({ titles: ['A', 'B'], locations: ['X', 'Y'], callsPerCombination: 3, maxCalls: 18 });
 
     expect(plan.combinations).toHaveLength(4);
     expect(plan.skipped).toEqual([]);
   });
 
   it('caps paid calls per run and reports what was left out', () => {
-    // 6 sources x 3 combinations = 18 calls.
-    const plan = planSearchQueries({ titles: ['A', 'B', 'C'], locations: ['X', 'Y', 'Z'], sourceCount: 6, maxCalls: 18 });
+    // 6 calls per combination x 3 combinations = 18 calls.
+    const plan = planSearchQueries({ titles: ['A', 'B', 'C'], locations: ['X', 'Y', 'Z'], callsPerCombination: 6, maxCalls: 18 });
 
     expect(pairs(plan.combinations)).toEqual(['A @ X', 'B @ Y', 'C @ Z']);
     expect(plan.skipped).toHaveLength(6);
@@ -49,7 +49,7 @@ describe('planSearchQueries', () => {
   });
 
   it('still searches one combination when the sources alone exceed the cap', () => {
-    const plan = planSearchQueries({ titles: ['A', 'B'], locations: ['X'], sourceCount: 6, maxCalls: 4 });
+    const plan = planSearchQueries({ titles: ['A', 'B'], locations: ['X'], callsPerCombination: 6, maxCalls: 4 });
 
     expect(pairs(plan.combinations)).toEqual(['A @ X']);
     expect(pairs(plan.skipped)).toEqual(['B @ X']);

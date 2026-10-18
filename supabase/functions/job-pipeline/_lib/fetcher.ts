@@ -1,3 +1,11 @@
+import {
+  canonicalLinkedInJobUrl,
+  findLinkedInJobLink,
+  LINKEDIN_MAX_CALLS,
+  linkedInJobId,
+  linkedInSearchQuery,
+  MIN_LINKEDIN_RESULTS_BEFORE_FALLBACK,
+} from './linkedin.ts';
 import { cleanTerms, DEFAULT_MAX_SEARCH_CALLS, planSearchQueries, type SearchCombination } from './queryPlan.ts';
 import type { RawJob, UserJobPreferences } from './types.ts';
 
@@ -20,9 +28,11 @@ const BOARD_SOURCES: Record<
     siteQueries: string[];
   }
 > = {
+  // Only used as a fallback; LinkedIn postings come from Google Jobs first
+  // (see fetchLinkedInJobs).
   linkedin: {
     label: 'LinkedIn',
-    siteQueries: ['site:linkedin.com/jobs', 'site:pl.linkedin.com/jobs'],
+    siteQueries: ['site:linkedin.com/jobs/view'],
   },
   justjoinit: {
     label: 'JustJoinIT',
@@ -923,6 +933,8 @@ async function fetchOrganicBoardJobs(
   location: string,
   serpApiKey: string,
   limit: number,
+  // Google country to search from; null searches without one (location is in the query).
+  googleCountry: string | null = 'pl',
 ): Promise<RawJob[]> {
   const board = BOARD_SOURCES[source];
 
@@ -938,7 +950,7 @@ async function fetchOrganicBoardJobs(
       engine: 'google',
       q: searchQuery,
       hl: 'en',
-      gl: 'pl',
+      ...(googleCountry ? { gl: googleCountry } : {}),
       num: String(limit),
       api_key: serpApiKey,
     });
@@ -995,6 +1007,84 @@ async function fetchOrganicBoardJobs(
   }
 
   return jobs;
+}
+
+// A Google Jobs result posted on LinkedIn, as a LinkedIn job with the
+// LinkedIn posting as its link (Google Jobs' own link is a google.com page).
+function buildLinkedInJob(job: Record<string, unknown>, fallbackLocation: string): RawJob | null {
+  const link = findLinkedInJobLink(job);
+  if (!link) return null;
+
+  const built = buildGoogleJob({ ...job, share_link: undefined, link }, fallbackLocation);
+  if (!built) return null;
+
+  return {
+    ...built,
+    source: 'linkedin',
+    external_id: linkedInJobId(link) || built.external_id,
+    job_url: canonicalLinkedInJobUrl(link),
+  };
+}
+
+// LinkedIn postings: Google Jobs results posted on LinkedIn (structured title,
+// company, location, description and date), topped up from a Google search of
+// LinkedIn job pages when Google Jobs has few. No fixed country.
+async function fetchLinkedInJobs(
+  query: string,
+  location: string,
+  serpApiKey: string,
+  limit: number,
+): Promise<RawJob[]> {
+  const jobs: RawJob[] = [];
+
+  const params = new URLSearchParams({
+    engine: 'google_jobs',
+    q: linkedInSearchQuery(query, location),
+    hl: 'en',
+    api_key: serpApiKey,
+  });
+
+  console.log('[fetcher] LinkedIn (Google Jobs) query:', { query, location });
+
+  try {
+    const response = await fetchWithTimeout(`https://serpapi.com/search.json?${params}`);
+    const text = await response.text();
+    const data = response.ok ? (JSON.parse(text) as Record<string, unknown>) : null;
+
+    if (!response.ok) {
+      console.error('[fetcher] LinkedIn (Google Jobs) HTTP failed:', response.status);
+    } else if (data?.error) {
+      console.warn('[fetcher] LinkedIn (Google Jobs) SerpAPI message:', String(data.error));
+    } else if (data) {
+      const results = getResultsArray(data);
+      const linkedIn = results.map((job) => buildLinkedInJob(job, location)).filter(Boolean) as RawJob[];
+      console.log('[fetcher] LinkedIn postings in Google Jobs:', linkedIn.length, 'of', results.length);
+      jobs.push(...linkedIn.slice(0, limit));
+    }
+  } catch (error) {
+    // Still try the fallback search below.
+    console.error('[fetcher] LinkedIn (Google Jobs) failed:', error instanceof Error ? error.message : error);
+  }
+
+  if (jobs.length < MIN_LINKEDIN_RESULTS_BEFORE_FALLBACK) {
+    const found = await fetchOrganicBoardJobs('linkedin', query, location, serpApiKey, limit, null);
+    jobs.push(
+      ...found.map((job) => ({
+        ...job,
+        external_id: linkedInJobId(job.job_url) || job.external_id,
+        job_url: canonicalLinkedInJobUrl(job.job_url),
+      })),
+    );
+  }
+
+  return jobs;
+}
+
+// The most paid SerpAPI calls one title/location pair can cost on a source.
+function maxCallsForSource(source: SearchSource): number {
+  if (source === 'google_jobs' || source === 'indeed') return 1;
+  if (source === 'linkedin') return LINKEDIN_MAX_CALLS;
+  return BOARD_SOURCES[source]?.siteQueries.length || 1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1092,7 +1182,7 @@ export async function fetchJobsForPreferences(
   const plan = planSearchQueries({
     titles,
     locations,
-    sourceCount: sources.length,
+    callsPerCombination: sources.reduce((total, source) => total + maxCallsForSource(source), 0),
     maxCalls: maxSearchCalls,
   });
   const queries = plan.combinations;
@@ -1131,6 +1221,15 @@ for (const [index, query] of queries.entries()) {
     try {
       if (source === 'google_jobs') {
         const found = await fetchGoogleJobs(
+          query.title,
+          query.location,
+          serpApiKey,
+          perQueryLimit,
+        );
+
+        jobs.push(...found);
+      } else if (source === 'linkedin') {
+        const found = await fetchLinkedInJobs(
           query.title,
           query.location,
           serpApiKey,
