@@ -27,6 +27,7 @@ import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
 import { pickPrepInterview, toDateTimeLocalValue } from '../lib/interviewSchedule';
 import type { Milestone } from '../lib/recruitmentTimeline';
 import { RecruitmentTimeline } from '../components/RecruitmentTimeline';
+import { formatSalary, offerStatusLabel, type OfferRecord } from '../lib/offers';
 import type { Application } from '../types/application';
 
 type ApplicationStatus =
@@ -189,6 +190,8 @@ export const ApplicationDetailsPage: React.FC = () => {
   const [interviewCount, setInterviewCount] = useState(0);
   // All of this application's interview records, for the recruitment timeline.
   const [interviews, setInterviews] = useState<InterviewNote[]>([]);
+  // This application's offer record, if any (Offers page).
+  const [offer, setOffer] = useState<OfferRecord | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -347,6 +350,15 @@ export const ApplicationDetailsPage: React.FC = () => {
     const interviewRows = (interviewResult.data || []) as InterviewNote[];
     setInterviewCount(interviewRows.length);
     setInterviews(interviewRows);
+
+    // Before the offers table exists this errors; the page simply shows no offer.
+    const offerResult = await supabase
+      .from('offers')
+      .select('*')
+      .eq('application_id', id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    setOffer(offerResult.error ? null : ((offerResult.data as OfferRecord | null) ?? null));
     const prepInterview = pickPrepInterview(interviewRows);
     if (prepInterview) {
       const data = prepInterview;
@@ -859,6 +871,27 @@ ${signOff(signatureName)}`;
           interviews={interviews}
           onSaveDate={handleSaveMilestone}
         />
+
+        {(offer || application.status === 'offer') && (
+          <div className={`mt-6 flex flex-col gap-2 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${offer?.status === 'accepted' ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-900">
+                {offer ? `Offer · ${offerStatusLabel(offer.status)}` : 'Offer'}
+              </p>
+              <p className="text-sm text-slate-600 break-words">
+                {offer
+                  ? formatSalary(offer) || 'Pay not recorded yet'
+                  : 'This application is at Offer. Record the offer’s pay, terms and deadline.'}
+              </p>
+            </div>
+            <Link
+              to={offer ? `/offers/${offer.id}` : `/offers/new?application=${application.id}`}
+              className="inline-flex shrink-0 items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+            >
+              {offer ? 'View offer' : 'Record offer details'}
+            </Link>
+          </div>
+        )}
 
         {application.notes && (
           <div className="mt-8">

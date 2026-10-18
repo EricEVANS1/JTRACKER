@@ -30,6 +30,7 @@ type ReachedStage,
 } from '../lib/applicationLifecycle';
 import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
 import { CompanyLogo } from '../components/CompanyLogo';
+import { offerStatusForDecision } from '../lib/offers';
 
 type ApplicationStatus =
 | 'wishlist'
@@ -540,13 +541,24 @@ const handleOfferDecision = async (applicationId: string, decision: 'accepted' |
 const app = applications.find((item) => item.id === applicationId);
 if (!app) return;
 
-await updateApplication(
+const now = nowIso();
+const saved = await updateApplication(
   applicationId,
-  buildOfferDecision(decision, nowIso()),
+  buildOfferDecision(decision, now),
   decision === 'accepted' ? 'Offer marked as accepted.' : 'Offer marked as declined.',
   decision === 'accepted' ? 'Offer accepted' : 'Offer declined',
   `The offer for ${app.role_title} was ${decision}.`
 );
+
+// Keep the offer record (Offers page), if there is one, in step. Before the
+// offers table exists this matches nothing and changes nothing.
+if (saved && user) {
+  await supabase
+    .from('offers')
+    .update({ status: offerStatusForDecision(decision), decided_at: now, updated_at: now })
+    .eq('application_id', applicationId)
+    .eq('user_id', user.id);
+}
 };
 
 const handleDeleteApplication = async (applicationId: string) => {

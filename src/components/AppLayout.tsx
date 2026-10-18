@@ -14,6 +14,7 @@ import {
   Search,
   Settings,
   Share2,
+  Trophy,
   Users,
   X,
 } from 'lucide-react';
@@ -95,6 +96,12 @@ export const AppLayout: React.FC = () => {
         label: 'Interviews',
         path: '/interviews',
         icon: CalendarDays,
+        enabled: true,
+      },
+      {
+        label: 'Offers',
+        path: '/offers',
+        icon: Trophy,
         enabled: true,
       },
       {
