@@ -56,9 +56,9 @@ test('the job list shows only jobs that match Date posted, work model and experi
   }
   await expect(main).toContainText('2 results · posted past 24 hours · 3 hidden by your filters');
 
-  // Summary shows the filters in LinkedIn's terms.
-  await expect(main).toContainText('Past 24 hours');
-  await expect(main).toContainText('On-site');
+  // The search bar shows the filters in LinkedIn's terms.
+  await expect(page.getByRole('combobox', { name: 'Date posted' })).toHaveValue('past_24_hours');
+  await expect(page.getByRole('combobox', { name: 'Work model' })).toHaveValue('onsite');
   await expect(main).toContainText('Entry level, Associate');
 
   // Never "Posted …" from the date JTracker found it.
@@ -67,7 +67,7 @@ test('the job list shows only jobs that match Date posted, work model and experi
 
 test('widening Date posted and choosing levels saves them', async ({ page, supabase }) => {
   await page.goto('/job-automation');
-  await page.getByRole('button', { name: 'Edit Profile' }).first().click();
+  await page.getByRole('button', { name: 'Edit search' }).first().click();
 
   const datePosted = page.getByRole('combobox').filter({ has: page.getByRole('option', { name: 'Past 24 hours' }) });
   await expect(datePosted).toHaveValue('past_24_hours');
@@ -77,7 +77,7 @@ test('widening Date posted and choosing levels saves them', async ({ page, supab
   await page.getByRole('button', { name: 'Mid-Senior level' }).click();
   await page.getByRole('button', { name: 'Entry level' }).click(); // turn off
 
-  await page.getByRole('button', { name: 'Save Profile' }).first().click();
+  await page.getByRole('button', { name: 'Save search' }).first().click();
   await expect(page.locator('main')).toContainText('Search profile saved.');
 
   expect(supabase.writes('user_job_preferences').at(-1)!.body).toMatchObject({
@@ -87,15 +87,27 @@ test('widening Date posted and choosing levels saves them', async ({ page, supab
   });
 });
 
+test('Date posted and Work model change in place from the search bar', async ({ page, supabase }) => {
+  await page.goto('/job-automation');
+
+  await page.getByRole('combobox', { name: 'Date posted' }).selectOption('past_week');
+  await expect(page.locator('main')).toContainText('Filters updated.');
+  expect(supabase.writes('user_job_preferences').at(-1)!.body).toMatchObject({ max_job_age_days: 7, work_model: 'onsite' });
+
+  await page.getByRole('combobox', { name: 'Work model' }).selectOption('hybrid');
+  await expect(page.getByRole('combobox', { name: 'Work model' })).toHaveValue('hybrid');
+  expect(supabase.writes('user_job_preferences').at(-1)!.body).toMatchObject({ max_job_age_days: 7, work_model: 'hybrid' });
+});
+
 test('experience levels explain what is needed before the database column exists', async ({ page, supabase }) => {
   delete supabase.tables.user_job_preferences[0].experience_levels;
   await page.goto('/job-automation');
-  await page.getByRole('button', { name: 'Edit Profile' }).first().click();
+  await page.getByRole('button', { name: 'Edit search' }).first().click();
 
   await expect(page.getByRole('button', { name: 'Associate' })).toBeDisabled();
   await expect(page.locator('main')).toContainText('the database needs the experience_levels column');
 
-  await page.getByRole('button', { name: 'Save Profile' }).first().click();
+  await page.getByRole('button', { name: 'Save search' }).first().click();
   await expect(page.locator('main')).toContainText('Search profile saved.');
   expect(supabase.writes('user_job_preferences').at(-1)!.body).not.toHaveProperty('experience_levels');
 });
@@ -120,7 +132,7 @@ test('a run reports how many jobs each filter removed', async ({ page }) => {
   );
 
   await page.goto('/job-automation');
-  await page.getByRole('button', { name: 'Run Search Now' }).click();
+  await page.getByRole('button', { name: 'Run search' }).click();
 
   await expect(page.locator('main')).toContainText(
     'Filtered out: 12 older than past 24 hours or undated, 1 no longer accepting applications, 2 other work model, 2 other experience level.',
@@ -156,7 +168,7 @@ test('a run with nothing found says why', async ({ page }) => {
   );
 
   await page.goto('/job-automation');
-  await page.getByRole('button', { name: 'Run Search Now' }).click();
+  await page.getByRole('button', { name: 'Run search' }).click();
   await expect(page.locator('main')).toContainText(
     'LinkedIn search for "Software engineer" in Warsaw: Google Jobs had 10 listings, none posted on LinkedIn.',
   );
@@ -183,5 +195,5 @@ test('"Search LinkedIn directly" opens LinkedIn with the same filters', async ({
     f_E: '2,3',
     sortBy: 'DD',
   });
-  await expect(page.locator('main')).toContainText('Opens LinkedIn with your Date posted (past 24 hours)');
+  await expect(page.getByText('Search LinkedIn directly')).toHaveAttribute('title', /^Opens LinkedIn with your Date posted \(past 24 hours\)/);
 });

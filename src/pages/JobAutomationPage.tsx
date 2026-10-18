@@ -23,7 +23,7 @@ import { cleanTerms, orderCombinations } from '../../supabase/functions/job-pipe
 import {
   AlertCircle,
   Briefcase,
-  CalendarClock,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -34,9 +34,8 @@ import {
   RefreshCw,
   Save,
   Search,
-  Settings,
+  SlidersHorizontal,
   Sparkles,
-  Trash2,
   TriangleAlert,
   X,
   Zap,
@@ -337,6 +336,10 @@ const formatPostedAgo = (value?: string | null) => {
   return diffDays === 1 ? 'Posted 1 day ago' : `Posted ${diffDays} days ago`;
 };
 
+// Posted in the last 24 hours: shown in green, as LinkedIn does.
+const isPostedToday = (value?: string | null) =>
+  Boolean(value) && Date.now() - new Date(value as string).getTime() < 24 * 60 * 60 * 1000;
+
 // ─── component ────────────────────────────────────────────────────────────────
 
 export const JobAutomationPage: React.FC = () => {
@@ -530,27 +533,27 @@ export const JobAutomationPage: React.FC = () => {
 
   // ── actions ──────────────────────────────────────────────────────────────────
 
-  const handleSavePreferences = async () => {
-    if (!user || !preferenceForm) return;
+  const handleSavePreferences = async (form = preferenceForm, savedMessage = 'Search profile saved.') => {
+    if (!user || !form) return false;
     setSavingPreferences(true);
     setError('');
     setSuccess('');
 
     const payload = {
       user_id:               user.id,
-      default_cv_version_id: preferenceForm.defaultCvVersionId || null,
-      target_titles:         splitCsv(preferenceForm.targetTitles),
-      preferred_locations:   splitCsv(preferenceForm.preferredLocations),
-      work_model:            preferenceForm.workModel || 'any',
-      min_match_score:       Number(preferenceForm.minMatchScore) || 60,
-      enabled_sources:       preferenceForm.enabledSources,
-      max_job_age_days:      maxAgeFromDatePosted(preferenceForm.datePosted),
-      automation_enabled:    preferenceForm.automationEnabled,
+      default_cv_version_id: form.defaultCvVersionId || null,
+      target_titles:         splitCsv(form.targetTitles),
+      preferred_locations:   splitCsv(form.preferredLocations),
+      work_model:            form.workModel || 'any',
+      min_match_score:       Number(form.minMatchScore) || 60,
+      enabled_sources:       form.enabledSources,
+      max_job_age_days:      maxAgeFromDatePosted(form.datePosted),
+      automation_enabled:    form.automationEnabled,
       ...(supportsExcludedKeywords(preferences)
-        ? { excluded_keywords: splitCsv(preferenceForm.excludedKeywords) }
+        ? { excluded_keywords: splitCsv(form.excludedKeywords) }
         : {}),
       ...(supportsExperienceLevels(preferences)
-        ? { experience_levels: preferenceForm.experienceLevels }
+        ? { experience_levels: form.experienceLevels }
         : {}),
     };
 
@@ -558,12 +561,25 @@ export const JobAutomationPage: React.FC = () => {
       .from('user_job_preferences')
       .upsert(payload, { onConflict: 'user_id' });
 
-    if (saveError) { setError(saveError.message); setSavingPreferences(false); return; }
+    if (saveError) { setError(saveError.message); setSavingPreferences(false); return false; }
 
-    setSuccess('Search profile saved.');
+    setSuccess(savedMessage);
     setEditingProfile(false);
     setSavingPreferences(false);
     await fetchData(true);
+    return true;
+  };
+
+  // Date posted and Work model change in place from the search bar, like
+  // LinkedIn's filter pills, and are saved straight away.
+  const handleQuickFilter = (patch: Partial<PreferenceForm>) => {
+    if (!preferenceForm) return;
+    const previous = preferenceForm;
+    const next = { ...preferenceForm, ...patch };
+    setPreferenceForm(next);
+    void handleSavePreferences(next, 'Filters updated.').then((saved) => {
+      if (!saved) setPreferenceForm(previous);
+    });
   };
 
   const handleRefresh = () => fetchData(true);
@@ -895,440 +911,454 @@ export const JobAutomationPage: React.FC = () => {
   }
 
   return (
-    <div className="w-full max-w-5xl mx-auto">
+    <div className="w-full max-w-4xl mx-auto">
 
       {/* ── Page header ───────────────────────────────────────────────────────── */}
-      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 mb-4">
-            <Sparkles size={14} />
-            Job Search Automation
-          </p>
-          <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">
-            Job Automation
-          </h1>
-          <p className="text-slate-600 mt-3 max-w-2xl">
-            Set your search profile, fetch fresh jobs, and create tracked applications from the best matches.
-          </p>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Job Automation</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Fresh jobs from your saved search, scored against your CV.</p>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={handleRefresh}
             disabled={refreshing}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            aria-label="Refresh"
+            title="Refresh"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
           >
             {refreshing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-            Refresh
           </button>
           <button
             type="button"
             onClick={handleRunSearchNow}
             disabled={refreshing}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-slate-900 px-4 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
           >
-            {refreshing ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
-            Run Search Now
+            {refreshing ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
+            Run search
           </button>
         </div>
       </div>
 
       {/* ── Alerts ────────────────────────────────────────────────────────────── */}
       {error && (
-        <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex gap-2">
-          <AlertCircle size={18} className="shrink-0 mt-0.5" />
-          <span>{error}</span>
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 flex gap-2">
+          <AlertCircle size={16} className="shrink-0 mt-0.5" />
+          <span className="flex-1">{error}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setError('')} className="shrink-0 text-red-400 hover:text-red-700">
+            <X size={16} />
+          </button>
         </div>
       )}
 
       {success && (
-        <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 flex gap-2">
-          <CheckCircle2 size={18} className="shrink-0 mt-0.5" />
-          <span>{success}</span>
+        <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 flex gap-2">
+          <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+          <span className="flex-1">{success}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setSuccess('')} className="shrink-0 text-emerald-500 hover:text-emerald-800">
+            <X size={16} />
+          </button>
         </div>
       )}
 
-      {/* ⑦ Default CV warning — shown outside the profile panel so it's always visible */}
+      {/* Without a default CV, scoring and tailoring can't work. */}
       {missingDefaultCv && !editingProfile && (
-        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 flex items-start gap-2">
-          <TriangleAlert size={18} className="shrink-0 mt-0.5 text-amber-500" />
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800 flex items-start gap-2">
+          <TriangleAlert size={16} className="shrink-0 mt-0.5 text-amber-500" />
           <span>
-            <strong>No default CV selected.</strong> Scoring and CV tailoring won't work until you pick a CV in your Search Profile.{' '}
-            <button
-              type="button"
-              className="underline font-medium hover:text-amber-900"
-              onClick={() => setEditingProfile(true)}
-            >
-              Edit Profile
+            <strong>No default CV selected.</strong> Scoring and CV tailoring won't work until you pick one.{' '}
+            <button type="button" className="underline font-medium hover:text-amber-900" onClick={() => setEditingProfile(true)}>
+              Choose a CV
             </button>
           </span>
         </div>
       )}
 
-      {/* ── Search Profile ────────────────────────────────────────────────────── */}
-      <section className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-6">
-        <div className="border-b border-slate-200 p-5 flex items-center justify-between gap-4">
-          <h2 className="font-semibold text-slate-900 flex items-center gap-2">
-            <Settings size={18} />
-            Search Profile
-          </h2>
+      {/* ── Search: what, where and filters ───────────────────────────────────── */}
+      <section className="mb-4 rounded-2xl border border-slate-200 bg-white">
+        {!preferenceForm ? (
+          <div className="p-4 text-sm text-slate-500">No preferences found.</div>
+        ) : editingProfile ? (
+          <div className="p-4 sm:p-5">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <h2 className="font-semibold text-slate-900">Edit search</h2>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => {
+                  setPreferenceForm(preferenceToForm(preferences, jobSources));
+                  setEditingProfile(false);
+                }}
+                className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
-          <div className="flex items-center gap-2">
-            {editingProfile && (
+            <div className="space-y-5">
+              <FormSection title="What and where">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <TextInput
+                    label="Job titles"
+                    value={preferenceForm.targetTitles}
+                    onChange={(v) => updatePreferenceForm('targetTitles', v)}
+                    placeholder="Support Specialist, Junior Software Engineer"
+                  />
+                  <TextInput
+                    label="Locations"
+                    value={preferenceForm.preferredLocations}
+                    onChange={(v) => updatePreferenceForm('preferredLocations', v)}
+                    placeholder="Warsaw, Remote"
+                  />
+                  <div className="sm:col-span-2">
+                    <label htmlFor="excluded-keywords" className="block text-xs font-medium text-slate-600 mb-1">
+                      Exclude jobs mentioning
+                    </label>
+                    <input
+                      id="excluded-keywords"
+                      value={preferenceForm.excludedKeywords}
+                      disabled={!supportsExcludedKeywords(preferences)}
+                      placeholder="Senior, Manager, 10+ years"
+                      onChange={(e) => updatePreferenceForm('excludedKeywords', e.target.value)}
+                      className={`${INPUT_CLASS} disabled:bg-slate-100 disabled:text-slate-400`}
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      {supportsExcludedKeywords(preferences)
+                        ? 'Jobs that mention any of these get a lower match score and are flagged. Separate with commas.'
+                        : 'Not available yet: the database needs the excluded_keywords column (supabase/sql/2026-10-17_job_preferences_excluded_keywords.sql).'}
+                    </p>
+                  </div>
+                </div>
+              </FormSection>
+
+              <FormSection title="Filters">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <SelectInput
+                    label="Date posted"
+                    value={preferenceForm.datePosted}
+                    onChange={(v) => updatePreferenceForm('datePosted', v as DatePosted)}
+                    options={DATE_POSTED_OPTIONS}
+                  />
+                  <SelectInput
+                    label="Work model"
+                    value={preferenceForm.workModel}
+                    onChange={(v) => updatePreferenceForm('workModel', v)}
+                    options={WORK_MODEL_OPTIONS}
+                  />
+                </div>
+                <p className="text-xs font-medium text-slate-600 mt-3 mb-1.5">Experience level</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {EXPERIENCE_LEVEL_OPTIONS.map((level) => {
+                    const active = preferenceForm.experienceLevels.includes(level.value);
+                    return (
+                      <ToggleChip
+                        key={level.value}
+                        active={active}
+                        disabled={!supportsExperienceLevels(preferences)}
+                        onClick={() =>
+                          updatePreferenceForm(
+                            'experienceLevels',
+                            active
+                              ? preferenceForm.experienceLevels.filter((value) => value !== level.value)
+                              : [...preferenceForm.experienceLevels, level.value],
+                          )
+                        }
+                      >
+                        {level.label}
+                      </ToggleChip>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {supportsExperienceLevels(preferences)
+                    ? 'None selected means any level. Estimated from the title and description; roles that give no sign of their level count as Associate.'
+                    : 'Not available yet: the database needs the experience_levels column (supabase/sql/2026-10-18_job_search_filters.sql).'}
+                </p>
+              </FormSection>
+
+              <FormSection title="Sources">
+                <div className="flex flex-wrap gap-1.5">
+                  {jobSources.map((source) => (
+                    <ToggleChip
+                      key={source.slug}
+                      active={preferenceForm.enabledSources.includes(source.slug)}
+                      onClick={() => toggleSource(source.slug)}
+                    >
+                      {source.name}
+                    </ToggleChip>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  LinkedIn, Google Jobs and Adzuna give each job's posting date. The other boards are found through
+                  Google's page index, which often has no date, so with a Date posted filter most of their results are
+                  dropped. Each run lists what every source found and kept.
+                </p>
+              </FormSection>
+
+              <FormSection title="Scoring and alerts">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <SelectInput
+                    label="Default CV"
+                    value={preferenceForm.defaultCvVersionId}
+                    onChange={(v) => updatePreferenceForm('defaultCvVersionId', v)}
+                    options={[
+                      { value: '', label: 'No default CV selected' },
+                      ...cvVersions.map((cv) => ({
+                        value: cv.id,
+                        label: `${cv.name || 'Untitled CV'}${cv.target_role ? ` — ${cv.target_role}` : ''}`,
+                      })),
+                    ]}
+                  />
+                  <NumberInput
+                    label="Minimum match score"
+                    value={preferenceForm.minMatchScore}
+                    min={0}
+                    max={100}
+                    onChange={(v) => updatePreferenceForm('minMatchScore', v)}
+                  />
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-4 rounded-xl bg-slate-50 px-3 py-2.5">
+                  <p className="text-sm text-slate-600">
+                    <span className="font-medium text-slate-800">Automatic searches.</span> Searches automatically a
+                    few times a day with this profile and sends you a notification when it finds new jobs scoring at or
+                    above your minimum score.
+                  </p>
+                  <Switch
+                    label="Automatic searches"
+                    checked={preferenceForm.automationEnabled}
+                    onChange={(checked) => updatePreferenceForm('automationEnabled', checked)}
+                  />
+                </div>
+              </FormSection>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
               <button
                 type="button"
                 onClick={() => {
                   setPreferenceForm(preferenceToForm(preferences, jobSources));
                   setEditingProfile(false);
                 }}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="h-9 rounded-full border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Cancel
               </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => editingProfile ? handleSavePreferences() : setEditingProfile(true)}
-              disabled={savingPreferences}
-              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-            >
-              {savingPreferences ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : editingProfile ? (
-                <Save size={14} />
-              ) : (
-                <Settings size={14} />
-              )}
-              {editingProfile ? 'Save Profile' : 'Edit Profile'}
-            </button>
-          </div>
-        </div>
-
-        {!preferenceForm ? (
-          <div className="p-5 text-sm text-slate-500">No preferences found.</div>
-        ) : editingProfile ? (
-          <div className="p-5 space-y-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <TextInput
-                label="Target roles"
-                value={preferenceForm.targetTitles}
-                onChange={(v) => updatePreferenceForm('targetTitles', v)}
-                placeholder="Technical Support Engineer, Junior Software Engineer"
-              />
-              <TextInput
-                label="Preferred locations"
-                value={preferenceForm.preferredLocations}
-                onChange={(v) => updatePreferenceForm('preferredLocations', v)}
-                placeholder="Remote, London, Berlin"
-              />
-              <div className="md:col-span-2">
-                <label htmlFor="excluded-keywords" className="block text-sm font-medium text-slate-700 mb-2">
-                  Exclude jobs mentioning
-                </label>
-                <input
-                  id="excluded-keywords"
-                  value={preferenceForm.excludedKeywords}
-                  disabled={!supportsExcludedKeywords(preferences)}
-                  placeholder="Senior, Manager, 10+ years"
-                  onChange={(e) => updatePreferenceForm('excludedKeywords', e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 disabled:bg-slate-100 disabled:text-slate-400"
-                />
-                <p className="mt-1.5 text-xs text-slate-500">
-                  {supportsExcludedKeywords(preferences)
-                    ? 'Jobs that mention any of these get a lower match score and are flagged. Separate with commas.'
-                    : 'Not available yet: the database needs the excluded_keywords column (supabase/sql/2026-10-17_job_preferences_excluded_keywords.sql).'}
-                </p>
-              </div>
-              <SelectInput
-                label="Work model"
-                value={preferenceForm.workModel}
-                onChange={(v) => updatePreferenceForm('workModel', v)}
-                options={WORK_MODEL_OPTIONS}
-              />
-              <SelectInput
-                label="Default CV"
-                value={preferenceForm.defaultCvVersionId}
-                onChange={(v) => updatePreferenceForm('defaultCvVersionId', v)}
-                options={[
-                  { value: '', label: 'No default CV selected' },
-                  ...cvVersions.map((cv) => ({
-                    value: cv.id,
-                    label: `${cv.name || 'Untitled CV'}${cv.target_role ? ` — ${cv.target_role}` : ''}`,
-                  })),
-                ]}
-              />
-              <NumberInput
-                label="Minimum match score"
-                value={preferenceForm.minMatchScore}
-                min={0}
-                max={100}
-                onChange={(v) => updatePreferenceForm('minMatchScore', v)}
-              />
-              <SelectInput
-                label="Date posted"
-                value={preferenceForm.datePosted}
-                onChange={(v) => updatePreferenceForm('datePosted', v as DatePosted)}
-                options={DATE_POSTED_OPTIONS}
-              />
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-wide font-semibold text-slate-500">Automation</p>
-                <p className="text-sm text-slate-600 mt-1">
-                  Searches automatically a few times a day with this profile and sends you a notification when it
-                  finds new jobs scoring at or above your minimum score.
-                </p>
-              </div>
               <button
                 type="button"
-                onClick={() => updatePreferenceForm('automationEnabled', !preferenceForm.automationEnabled)}
-                className={`rounded-full px-4 py-2 text-sm font-medium ${
-                  preferenceForm.automationEnabled ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700'
-                }`}
+                onClick={() => handleSavePreferences()}
+                disabled={savingPreferences}
+                className="inline-flex h-9 items-center gap-2 rounded-full bg-slate-900 px-4 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
               >
-                {preferenceForm.automationEnabled ? 'On' : 'Off'}
+                {savingPreferences ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Save search
               </button>
-            </div>
-
-            <div>
-              <p className="text-sm font-medium text-slate-700 mb-2">Experience level</p>
-              <div className="flex flex-wrap gap-2">
-                {EXPERIENCE_LEVEL_OPTIONS.map((level) => {
-                  const active = preferenceForm.experienceLevels.includes(level.value);
-                  return (
-                    <button
-                      key={level.value}
-                      type="button"
-                      aria-pressed={active}
-                      disabled={!supportsExperienceLevels(preferences)}
-                      onClick={() =>
-                        updatePreferenceForm(
-                          'experienceLevels',
-                          active
-                            ? preferenceForm.experienceLevels.filter((value) => value !== level.value)
-                            : [...preferenceForm.experienceLevels, level.value],
-                        )
-                      }
-                      className={`rounded-full px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
-                        active ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                      }`}
-                    >
-                      {level.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="mt-1.5 text-xs text-slate-500">
-                {supportsExperienceLevels(preferences)
-                  ? 'None selected means any level. Estimated from the title and description; roles that give no sign of their level count as Associate.'
-                  : 'Not available yet: the database needs the experience_levels column (supabase/sql/2026-10-18_job_search_filters.sql).'}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-sm font-medium text-slate-700 mb-2">Enabled sources</p>
-              <div className="flex flex-wrap gap-2">
-                {jobSources.map((source) => {
-                  const active = preferenceForm.enabledSources.includes(source.slug);
-                  return (
-                    <button
-                      key={source.slug}
-                      type="button"
-                      onClick={() => toggleSource(source.slug)}
-                      className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                        active ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                      }`}
-                    >
-                      {source.name}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-slate-400 mt-2">
-                LinkedIn, Google Jobs and Adzuna give each job's posting date. The other boards are found through
-                Google's page index, which often has no date, so with a Date posted filter most of their results are
-                dropped. Each run lists what every source found and kept.
-              </p>
             </div>
           </div>
         ) : (
-          <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <SummaryItem label="Target roles"   value={preferences?.target_titles?.length ? preferences.target_titles.join(', ') : 'Not set'} />
-            <SummaryItem label="Locations"      value={preferences?.preferred_locations?.length ? preferences.preferred_locations.join(', ') : 'Not set'} />
-            <SummaryItem label="Work model"     value={WORK_MODEL_LABELS[preferences?.work_model || 'any'] || 'Any'} />
-            <SummaryItem
-              label="Default CV"
-              value={defaultCv ? `${defaultCv.name || 'Untitled CV'}${defaultCv.target_role ? ` — ${defaultCv.target_role}` : ''}` : 'Not selected'}
-              highlight={missingDefaultCv}
-            />
-            <SummaryItem label="Minimum score"  value={`${preferences?.min_match_score ?? 60}/100`} />
-            <SummaryItem label="Date posted"    value={datePostedLabel(preferences?.max_job_age_days)} />
-            {supportsExperienceLevels(preferences) && (
-              <SummaryItem
-                label="Experience level"
-                value={preferences?.experience_levels?.length ? preferences.experience_levels.map(experienceLevelLabel).join(', ') : 'Any'}
+          <div className="p-4 space-y-3">
+            {/* What and where, like LinkedIn's search box */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900">
+                  <Search size={15} className="text-slate-400" />
+                  {preferences?.target_titles?.length ? preferences.target_titles.join(', ') : 'No job titles yet'}
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-slate-700">
+                  <MapPin size={15} className="text-slate-400" />
+                  {preferences?.preferred_locations?.length ? preferences.preferred_locations.join(', ') : 'No locations yet'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingProfile(true)}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <SlidersHorizontal size={14} />
+                Edit search
+              </button>
+            </div>
+
+            {/* Filters: Date posted and Work model change in place; the rest open Edit search. */}
+            <div className="-mx-4 flex items-center gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
+              <PillSelect
+                label="Date posted"
+                value={preferenceForm.datePosted}
+                active={preferenceForm.datePosted !== 'any_time'}
+                disabled={savingPreferences}
+                options={DATE_POSTED_OPTIONS}
+                onChange={(v) => handleQuickFilter({ datePosted: v as DatePosted })}
               />
-            )}
-            <SummaryItem
-              label="Automation"
-              value={
-                !preferences?.automation_enabled
+              <PillSelect
+                label="Work model"
+                value={preferenceForm.workModel || 'any'}
+                active={(preferenceForm.workModel || 'any') !== 'any'}
+                disabled={savingPreferences}
+                options={WORK_MODEL_OPTIONS.map((o) => (o.value === 'any' ? { ...o, label: 'Any work model' } : o))}
+                onChange={(v) => handleQuickFilter({ workModel: v })}
+              />
+              {supportsExperienceLevels(preferences) && (
+                <Pill
+                  active={Boolean(preferences?.experience_levels?.length)}
+                  onClick={() => setEditingProfile(true)}
+                >
+                  {preferences?.experience_levels?.length
+                    ? preferences.experience_levels.map(experienceLevelLabel).join(', ')
+                    : 'Any experience level'}
+                </Pill>
+              )}
+              {supportsExcludedKeywords(preferences) && Boolean(preferences?.excluded_keywords?.length) && (
+                <Pill active onClick={() => setEditingProfile(true)} title={preferences?.excluded_keywords?.join(', ')}>
+                  Excluding: {shortList(preferences?.excluded_keywords || [], 3)}
+                </Pill>
+              )}
+              <Pill
+                onClick={() => setEditingProfile(true)}
+                title={(preferences?.enabled_sources || []).map((s) => sourceLabels[s] || s).join(', ')}
+              >
+                {preferences?.enabled_sources?.length
+                  ? shortList(preferences.enabled_sources.map((s) => sourceLabels[s] || s), 2, 'sources')
+                  : 'No sources selected'}
+              </Pill>
+              <Pill warning={missingDefaultCv} onClick={() => setEditingProfile(true)}>
+                {defaultCv ? `CV: ${defaultCv.name || 'Untitled CV'}` : 'No CV selected'}
+              </Pill>
+              <Pill onClick={() => setEditingProfile(true)}>Min score {preferences?.min_match_score ?? 60}</Pill>
+              <Pill active={Boolean(preferences?.automation_enabled)} onClick={() => setEditingProfile(true)}>
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${preferences?.automation_enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                />
+                Automation:{' '}
+                {!preferences?.automation_enabled
                   ? 'Off'
                   : lastScheduledRunAt
                     ? `On · last automatic search ${formatPostedAgo(lastScheduledRunAt).replace(/^Posted /, '').toLowerCase()}`
-                    : 'On · no automatic search has run yet'
-              }
-            />
-            {supportsExcludedKeywords(preferences) && (
-              <SummaryItem label="Excluded keywords" value={preferences?.excluded_keywords?.length ? preferences.excluded_keywords.join(', ') : 'None'} />
+                    : 'On · no automatic search has run yet'}
+              </Pill>
+            </div>
+
+            {/* LinkedIn's own search, for filters only it has */}
+            {linkedInSearches.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                <span
+                  title={`Opens LinkedIn with your Date posted (${datePostedLabel(preferences?.max_job_age_days).toLowerCase()}), work model and experience level, newest first.`}
+                >
+                  Search LinkedIn directly, then add &ldquo;Under 10 applicants&rdquo;:
+                </span>
+                {linkedInSearches.map((search) => (
+                  <a
+                    key={search.url}
+                    href={search.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline"
+                  >
+                    {search.title} · {search.location}
+                    <ExternalLink size={12} />
+                  </a>
+                ))}
+              </div>
             )}
-            <SummaryItem
-              label="Enabled sources"
-              value={preferences?.enabled_sources?.length ? preferences.enabled_sources.map((s) => sourceLabels[s] || s).join(', ') : 'No sources selected'}
-            />
           </div>
         )}
       </section>
 
-      {/* ── Search LinkedIn directly ─────────────────────────────────────────── */}
-      {preferences && !editingProfile && linkedInSearches.length > 0 && (
-        <section className="mb-6 rounded-3xl border border-slate-200 bg-white shadow-sm p-5">
-          <h2 className="font-semibold text-slate-900">Search LinkedIn directly</h2>
-          <p className="text-sm text-slate-500 mt-1">
-            Opens LinkedIn with your Date posted ({datePostedLabel(preferences.max_job_age_days).toLowerCase()}), work model
-            and experience level, newest first. Add LinkedIn-only filters such as &ldquo;Under 10 applicants&rdquo; there.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {linkedInSearches.map((search) => (
-              <a
-                key={search.url}
-                href={search.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-              >
-                <ExternalLink size={13} />
-                {search.title} · {search.location}
-              </a>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Matched Jobs ──────────────────────────────────────────────────────── */}
-      <section className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      {/* ── Jobs ──────────────────────────────────────────────────────────────── */}
+      <section className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
 
         {/* Toolbar */}
-        <div className="border-b border-slate-200 p-4">
-          <div className="flex flex-col gap-3">
-
-            {/* Row 1: title + keyword search */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <h2 className="font-semibold text-slate-900 flex items-center gap-2">
-                  <Briefcase size={18} />
-                  Matched Jobs
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {filteredJobs.length} result{filteredJobs.length === 1 ? '' : 's'}
-                  {jobs.length !== filteredJobs.length ? ` of ${jobs.length}` : ''}
-                  {` · posted ${datePostedLabel(preferences?.max_job_age_days).toLowerCase()}`}
-                  {hiddenByFilters > 0 ? ` · ${hiddenByFilters} hidden by your filters` : ''}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    value={keyword}
-                    onChange={(e) => setKeyword(e.target.value)}
-                    placeholder="Search jobs…"
-                    className="w-full sm:w-52 rounded-xl border border-slate-300 bg-white pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500"
-                  />
-                </div>
-
-                {hasActiveFilter && (
-                  <button
-                    type="button"
-                    onClick={clearSearch}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <X size={14} />
-                    Clear
-                  </button>
-                )}
-              </div>
+        <div className="border-b border-slate-200 px-4 py-3 space-y-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <h2 className="font-semibold text-slate-900">Jobs for you</h2>
+              <p className="text-xs text-slate-500">
+                {filteredJobs.length} result{filteredJobs.length === 1 ? '' : 's'}
+                {jobs.length !== filteredJobs.length ? ` of ${jobs.length}` : ''}
+                {` · posted ${datePostedLabel(preferences?.max_job_age_days).toLowerCase()}`}
+                {hiddenByFilters > 0 ? ` · ${hiddenByFilters} hidden by your filters` : ''}
+              </p>
             </div>
 
-            {/* Row 2: filter chips */}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 sm:flex-none">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="Search jobs…"
+                  aria-label="Search jobs"
+                  className="h-8 w-full sm:w-48 rounded-full border border-slate-300 bg-white pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                />
+              </div>
 
-              {/* ⑥ Scored / Unscored chips */}
-              <FilterChip active={scoreView === 'all'} onClick={() => setScoreView('all')}>
-                All
-              </FilterChip>
-              <FilterChip active={scoreView === 'recommended'} onClick={() => setScoreView('recommended')}>
-                Recommended
-              </FilterChip>
-              <FilterChip active={scoreView === 'possible'} onClick={() => setScoreView('possible')}>
-                Possible
-              </FilterChip>
-              <FilterChip active={scoreView === 'stretch'} onClick={() => setScoreView('stretch')}>
-                Stretch
-              </FilterChip>
-
-              <span className="w-px self-stretch bg-slate-200 mx-1" />
-
-              <FilterChip
-                active={scoreView === 'scored'}
-                onClick={() => setScoreView(scoreView === 'scored' ? 'all' : 'scored')}
-                count={scoredCount}
-              >
-                Scored
-              </FilterChip>
-              <FilterChip
-                active={scoreView === 'unscored'}
-                onClick={() => setScoreView(scoreView === 'unscored' ? 'all' : 'unscored')}
-                count={unscoredCount}
-                countVariant="warning"
-              >
-                Unscored
-              </FilterChip>
-
-              {/* ⑤ Source filter chips — only show slugs that appear in current job list */}
-              {presentSources.length > 1 && (
-                <>
-                  <span className="w-px self-stretch bg-slate-200 mx-1" />
-                  {presentSources.map((slug) => (
-                    <FilterChip
-                      key={slug}
-                      active={sourceFilter === slug}
-                      onClick={() => setSourceFilter(sourceFilter === slug ? 'all' : slug)}
-                    >
-                      {sourceLabels[slug] || slug}
-                    </FilterChip>
-                  ))}
-                </>
+              {hasActiveFilter && (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                >
+                  <X size={13} />
+                  Clear
+                </button>
               )}
             </div>
+          </div>
+
+          <div className="-mx-4 flex items-center gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
+            <FilterChip active={scoreView === 'all'} onClick={() => setScoreView('all')}>All</FilterChip>
+            <FilterChip active={scoreView === 'recommended'} onClick={() => setScoreView('recommended')}>Recommended</FilterChip>
+            <FilterChip active={scoreView === 'possible'} onClick={() => setScoreView('possible')}>Possible</FilterChip>
+            <FilterChip active={scoreView === 'stretch'} onClick={() => setScoreView('stretch')}>Stretch</FilterChip>
+
+            <span className="mx-0.5 h-4 w-px shrink-0 bg-slate-200" />
+
+            <FilterChip
+              active={scoreView === 'scored'}
+              onClick={() => setScoreView(scoreView === 'scored' ? 'all' : 'scored')}
+              count={scoredCount}
+            >
+              Scored
+            </FilterChip>
+            <FilterChip
+              active={scoreView === 'unscored'}
+              onClick={() => setScoreView(scoreView === 'unscored' ? 'all' : 'unscored')}
+              count={unscoredCount}
+              countVariant="warning"
+            >
+              Unscored
+            </FilterChip>
+
+            {/* Sources that appear in the current list */}
+            {presentSources.length > 1 && (
+              <>
+                <span className="mx-0.5 h-4 w-px shrink-0 bg-slate-200" />
+                {presentSources.map((slug) => (
+                  <FilterChip
+                    key={slug}
+                    active={sourceFilter === slug}
+                    onClick={() => setSourceFilter(sourceFilter === slug ? 'all' : slug)}
+                  >
+                    {sourceLabels[slug] || slug}
+                  </FilterChip>
+                ))}
+              </>
+            )}
           </div>
         </div>
 
         {filteredJobs.length === 0 ? (
-          <div className="p-10 text-center">
-            <Briefcase size={38} className="mx-auto text-slate-300 mb-3" />
+          <div className="px-6 py-10 text-center">
+            <Briefcase size={32} className="mx-auto text-slate-300 mb-2" />
             <h3 className="font-semibold text-slate-800">No matched jobs yet</h3>
-            <p className="text-sm text-slate-500 mt-2 max-w-md mx-auto">
-              Nothing posted {datePostedLabel(preferences?.max_job_age_days).toLowerCase()} matches your search profile. Run Search Now, or widen Date posted, work model or experience level.
+            <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
+              Nothing posted {datePostedLabel(preferences?.max_job_age_days).toLowerCase()} matches your search profile. Run search, or widen Date posted, work model or experience level.
             </p>
           </div>
         ) : (
           <>
-            <div className="divide-y divide-slate-200">
+            <ul className="divide-y divide-slate-100">
               {visibleJobs.map((job) => {
                 const match         = matchesByJobId[job.id];
                 const score         = match?.match_score ?? job.best_match_score;
@@ -1337,216 +1367,175 @@ export const JobAutomationPage: React.FC = () => {
                 const missingSkills = (match?.missing_skills || []).filter(Boolean);
                 const source        = job.source_slug || job.source || 'unknown';
                 const isUnscored    = score == null;
-                const descriptionPlain = stripHtml(job.description);
-                const isDescExpanded = expandedDescriptions[job.id] ?? false;
-                const DESC_LIMIT = 180;
+                const company       = resolveCompany(job);
+                const scoreLabel    = isUnscored ? 'Not scored yet' : `${score} · ${getRecommendationLabel(rec)}`;
+                const workModel     = job.work_model && job.work_model !== 'any' ? WORK_MODEL_LABELS[job.work_model] || job.work_model : '';
+                const description   = stripHtml(job.description);
+                const hasDetails    = Boolean(description || match?.suggested_cv_angle || matchedSkills.length || missingSkills.length);
+                const showDetails   = expandedDescriptions[job.id] ?? false;
 
                 return (
-                  <article key={job.id} className="p-4">
-                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                  <li key={job.id}>
+                    <article className="flex gap-3 px-4 py-3.5 hover:bg-slate-50/70">
+                      <CompanyMark name={company} />
 
-                      {/* ── Left column ─────────────────────────────────────── */}
                       <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h3 className="text-[15px] font-semibold leading-snug">
+                              <a
+                                href={job.job_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-blue-700 hover:underline"
+                              >
+                                {cleanJobTitle(job.title)}
+                              </a>
+                            </h3>
+                            <p className="text-sm text-slate-800">{company}</p>
+                            <p className="text-sm text-slate-500">
+                              {job.location || 'Location not specified'}
+                              {workModel ? ` (${workModel})` : ''}
+                            </p>
+                          </div>
 
-                        {/* Meta chips row */}
-                        <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-                            {sourceLabels[source] || source}
-                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <ScoreBadge score={score} label={scoreLabel} className="hidden sm:inline-flex" />
+                            <button
+                              type="button"
+                              onClick={() => handleIgnoreJob(job.id)}
+                              disabled={ignoringJobId === job.id}
+                              aria-label="Ignore"
+                              title="Ignore this job"
+                              className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                            >
+                              {ignoringJobId === job.id ? <Loader2 size={16} className="animate-spin" /> : <X size={16} />}
+                            </button>
+                          </div>
+                        </div>
 
-                          <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${getScoreBadgeClass(score)}`}>
-                            {isUnscored
-                              ? 'Not scored yet'
-                              : `${score}/100 · ${getRecommendationLabel(rec)}`}
-                          </span>
-
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+                        <ScoreBadge score={score} label={scoreLabel} className="mt-1.5 inline-flex sm:hidden" />
+                        <p className="mt-1 text-xs text-slate-500">
+                          <span className={isPostedToday(job.source_posted_at) ? 'font-medium text-emerald-700' : ''}>
                             {formatPostedAgo(job.source_posted_at)}
                           </span>
-                        </div>
+                          {` · ${sourceLabels[source] || source}`}
+                          {job.salary_range ? ` · ${job.salary_range}` : ''}
+                          {!isUnscored && (matchedSkills.length > 0 || missingSkills.length > 0)
+                            ? ` · ${matchedSkills.length} skills matched, ${missingSkills.length} missing`
+                            : ''}
+                        </p>
 
-                        {/* ① Cleaned title + meta line — more compact */}
-                        <h3 className="text-base font-semibold text-slate-900 leading-snug">
-                          {cleanJobTitle(job.title)}
-                        </h3>
+                        {showDetails && (
+                          <div className="mt-2 space-y-2">
+                            {description && <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{description}</p>}
+                            {match?.suggested_cv_angle && (
+                              <div className="rounded-lg bg-slate-50 px-3 py-2">
+                                <p className="text-xs font-semibold text-slate-500 mb-0.5">Suggested CV angle</p>
+                                <p className="text-xs text-slate-600">{match.suggested_cv_angle}</p>
+                              </div>
+                            )}
+                            {(matchedSkills.length > 0 || missingSkills.length > 0) && (
+                              <div className="flex flex-wrap gap-3">
+                                {matchedSkills.length > 0 && <SkillList title="Matched" items={matchedSkills} positive />}
+                                {missingSkills.length > 0 && <SkillList title="Missing" items={missingSkills} />}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
-                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500">
-                          <span className="inline-flex items-center gap-1">
-                            <Briefcase size={12} />
-                            {resolveCompany(job)}
-                          </span>
-                          <span className="inline-flex items-center gap-1">
-                            <MapPin size={12} />
-                            {job.location || 'Location not specified'}
-                          </span>
-                          {job.work_model && (
-                            <span className="inline-flex items-center gap-1">
-                              <CalendarClock size={12} />
-                              {job.work_model}
-                            </span>
+                        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                          {isUnscored ? (
+                            <ActionButton
+                              primary
+                              busy={scoringJobId === job.id}
+                              icon={<Zap size={13} />}
+                              onClick={() => handleScoreJob(job)}
+                            >
+                              Score Job
+                            </ActionButton>
+                          ) : (
+                            <ActionButton
+                              primary
+                              busy={creatingApplicationId === job.id}
+                              icon={<Briefcase size={13} />}
+                              onClick={() => handleCreateApplication(job)}
+                            >
+                              Create App
+                            </ActionButton>
                           )}
-                          {job.salary_range && <span>{job.salary_range}</span>}
+
+                          {!isUnscored && (
+                            <ActionButton icon={<Sparkles size={13} />} onClick={() => handleTailorCv(job)}>
+                              Tailor CV
+                            </ActionButton>
+                          )}
+
+                          {isUnscored && (
+                            <ActionButton
+                              busy={creatingApplicationId === job.id}
+                              icon={<Briefcase size={13} />}
+                              onClick={() => handleCreateApplication(job)}
+                            >
+                              Create App
+                            </ActionButton>
+                          )}
+
+                          <a
+                            href={job.job_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            <ExternalLink size={13} />
+                            View Job
+                          </a>
+
+                          {!isUnscored && (
+                            <button
+                              type="button"
+                              onClick={() => handleScoreJob(job)}
+                              disabled={scoringJobId === job.id}
+                              className="inline-flex h-7 items-center gap-1 rounded-full px-2 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
+                            >
+                              {scoringJobId === job.id ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
+                              Re-score
+                            </button>
+                          )}
+
+                          {hasDetails && (
+                            <button
+                              type="button"
+                              onClick={() => toggleDescription(job.id)}
+                              aria-expanded={showDetails}
+                              className="ml-auto inline-flex h-7 items-center gap-1 rounded-full px-2 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                            >
+                              {showDetails ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                              {showDetails ? 'Hide details' : 'Details'}
+                            </button>
+                          )}
                         </div>
-
-                        {/* ② Description preview */}
-                        {descriptionPlain && (
-                          <div className="mt-2">
-                            <p className="text-xs text-slate-600 leading-relaxed">
-                              {isDescExpanded || descriptionPlain.length <= DESC_LIMIT
-                                ? descriptionPlain
-                                : `${descriptionPlain.slice(0, DESC_LIMIT)}…`}
-                            </p>
-                            {descriptionPlain.length > DESC_LIMIT && (
-                              <button
-                                type="button"
-                                onClick={() => toggleDescription(job.id)}
-                                className="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600"
-                              >
-                                {isDescExpanded
-                                  ? <><ChevronUp size={12} /> Show less</>
-                                  : <><ChevronDown size={12} /> Show more</>}
-                              </button>
-                            )}
-                          </div>
-                        )}
-
-                        {/* CV angle */}
-                        {match?.suggested_cv_angle && (
-                          <div className="mt-2 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2">
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-0.5">
-                              Suggested CV angle
-                            </p>
-                            <p className="text-xs text-slate-600">{match.suggested_cv_angle}</p>
-                          </div>
-                        )}
-
-                        {/* Skills — only when non-empty */}
-                        {(matchedSkills.length > 0 || missingSkills.length > 0) && (
-                          <div className="mt-2 flex flex-wrap gap-3">
-                            {matchedSkills.length > 0 && (
-                              <SkillList title="Matched" items={matchedSkills} positive />
-                            )}
-                            {missingSkills.length > 0 && (
-                              <SkillList title="Missing" items={missingSkills} />
-                            )}
-                          </div>
-                        )}
                       </div>
-
-                      {/* ── Right column — action buttons ─────────────────── */}
-                      {/* ③ Reduced padding, tighter gap, smaller text */}
-                      <div className="flex flex-row flex-wrap lg:flex-col gap-2 lg:w-40 shrink-0">
-
-                        {/* ④ Score Job is PRIMARY for unscored, secondary (Re-score) for scored */}
-                        {isUnscored ? (
-                          <button
-                            type="button"
-                            onClick={() => handleScoreJob(job)}
-                            disabled={scoringJobId === job.id}
-                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-                          >
-                            {scoringJobId === job.id
-                              ? <Loader2 size={14} className="animate-spin" />
-                              : <Zap size={14} />}
-                            Score Job
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleCreateApplication(job)}
-                            disabled={creatingApplicationId === job.id}
-                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-                          >
-                            {creatingApplicationId === job.id
-                              ? <Loader2 size={14} className="animate-spin" />
-                              : <Briefcase size={14} />}
-                            Create App
-                          </button>
-                        )}
-
-                        <a
-                          href={job.job_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          <ExternalLink size={14} />
-                          View Job
-                        </a>
-
-                        {!isUnscored && (
-                          <button
-                            type="button"
-                            onClick={() => handleTailorCv(job)}
-                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-xs font-medium text-white hover:bg-slate-700"
-                          >
-                            <Sparkles size={14} />
-                            Tailor CV
-                          </button>
-                        )}
-
-                        {/* Re-score — secondary for already-scored jobs */}
-                        {!isUnscored && (
-                          <button
-                            type="button"
-                            onClick={() => handleScoreJob(job)}
-                            disabled={scoringJobId === job.id}
-                            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 disabled:opacity-50"
-                          >
-                            {scoringJobId === job.id
-                              ? <Loader2 size={14} className="animate-spin" />
-                              : <Zap size={14} />}
-                            Re-score
-                          </button>
-                        )}
-
-                        {/* For unscored jobs: also show Create App so user can still add without scoring */}
-                        {isUnscored && (
-                          <button
-                            type="button"
-                            onClick={() => handleCreateApplication(job)}
-                            disabled={creatingApplicationId === job.id}
-                            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                          >
-                            {creatingApplicationId === job.id
-                              ? <Loader2 size={14} className="animate-spin" />
-                              : <Briefcase size={14} />}
-                            Create App
-                          </button>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => handleIgnoreJob(job.id)}
-                          disabled={ignoringJobId === job.id}
-                          className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-red-50 hover:text-red-700 hover:border-red-200 disabled:opacity-50"
-                        >
-                          {ignoringJobId === job.id
-                            ? <Loader2 size={14} className="animate-spin" />
-                            : <Trash2 size={14} />}
-                          Ignore
-                        </button>
-                      </div>
-                    </div>
-                  </article>
+                    </article>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
 
             {/* Load More */}
             {hasMore && (
-              <div className="border-t border-slate-200 p-4 flex flex-col items-center gap-1.5">
-                <p className="text-xs text-slate-400">
-                  Showing {visibleCount} of {filteredJobs.length} jobs
-                </p>
+              <div className="border-t border-slate-100 p-3 flex flex-col items-center gap-1">
                 <button
                   type="button"
                   onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   <ChevronDown size={15} />
-                  Load {Math.min(PAGE_SIZE, filteredJobs.length - visibleCount)} more
+                  Show {Math.min(PAGE_SIZE, filteredJobs.length - visibleCount)} more
                 </button>
+                <p className="text-xs text-slate-400">
+                  Showing {visibleCount} of {filteredJobs.length} jobs
+                </p>
               </div>
             )}
           </>
@@ -1557,6 +1546,15 @@ export const JobAutomationPage: React.FC = () => {
 };
 
 // ─── sub-components ───────────────────────────────────────────────────────────
+
+const INPUT_CLASS =
+  'w-full h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400';
+
+// "a, b +3" or "10 sources": a short label for a list.
+const shortList = (items: string[], max: number, noun?: string) => {
+  if (items.length <= max) return items.join(', ');
+  return noun ? `${items.length} ${noun}` : `${items.slice(0, max).join(', ')} +${items.length - max}`;
+};
 
 interface FilterChipProps {
   active: boolean;
@@ -1575,7 +1573,7 @@ const FilterChip: React.FC<FilterChipProps> = ({
   <button
     type="button"
     onClick={onClick}
-    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+    className={`inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-medium transition-colors ${
       active
         ? 'bg-slate-900 text-white'
         : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -1598,19 +1596,143 @@ const FilterChip: React.FC<FilterChipProps> = ({
   </button>
 );
 
-interface SummaryItemProps {
+// A search filter pill, green when it narrows the search (as on LinkedIn).
+const pillClass = (active?: boolean, warning?: boolean) =>
+  `inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs font-medium transition-colors ${
+    warning
+      ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+      : active
+      ? 'border-emerald-600 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+  }`;
+
+interface PillProps {
+  active?: boolean;
+  warning?: boolean;
+  title?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}
+const Pill: React.FC<PillProps> = ({ active, warning, title, onClick, children }) => (
+  <button type="button" title={title} onClick={onClick} className={pillClass(active, warning)}>
+    {children}
+  </button>
+);
+
+interface PillSelectProps {
   label: string;
   value: string;
-  highlight?: boolean;
+  active: boolean;
+  disabled?: boolean;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
 }
-const SummaryItem: React.FC<SummaryItemProps> = ({ label, value, highlight }) => (
-  <div className={`rounded-2xl border p-4 ${highlight ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50'}`}>
-    <p className={`text-xs uppercase tracking-wide font-semibold ${highlight ? 'text-amber-600' : 'text-slate-500'}`}>
-      {label}
-    </p>
-    <p className={`mt-1 text-sm font-medium break-words ${highlight ? 'text-amber-800' : 'text-slate-900'}`}>
-      {value}
-    </p>
+// A filter that changes in place, like LinkedIn's Date posted dropdown.
+const PillSelect: React.FC<PillSelectProps> = ({ label, value, active, disabled, options, onChange }) => (
+  <span className="relative inline-flex shrink-0">
+    <select
+      aria-label={label}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      className={`${pillClass(active)} appearance-none pr-7 cursor-pointer focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:opacity-60`}
+    >
+      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+    <ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-current opacity-70" />
+  </span>
+);
+
+interface ToggleChipProps {
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}
+const ToggleChip: React.FC<ToggleChipProps> = ({ active, disabled, onClick, children }) => (
+  <button
+    type="button"
+    aria-pressed={active}
+    disabled={disabled}
+    onClick={onClick}
+    className={`inline-flex h-7 items-center gap-1 rounded-full border px-3 text-xs font-medium transition-colors disabled:opacity-50 ${
+      active
+        ? 'border-emerald-600 bg-emerald-50 text-emerald-800'
+        : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+    }`}
+  >
+    {active && <Check size={12} />}
+    {children}
+  </button>
+);
+
+interface SwitchProps {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}
+const Switch: React.FC<SwitchProps> = ({ label, checked, onChange }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    aria-label={label}
+    onClick={() => onChange(!checked)}
+    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+      checked ? 'bg-emerald-600' : 'bg-slate-300'
+    }`}
+  >
+    <span
+      className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+        checked ? 'translate-x-5' : 'translate-x-0.5'
+      }`}
+    />
+  </button>
+);
+
+interface ActionButtonProps {
+  primary?: boolean;
+  busy?: boolean;
+  icon: React.ReactNode;
+  onClick: () => void;
+  children: React.ReactNode;
+}
+const ActionButton: React.FC<ActionButtonProps> = ({ primary, busy, icon, onClick, children }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={busy}
+    className={`inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-xs font-medium disabled:opacity-50 ${
+      primary
+        ? 'bg-slate-900 text-white hover:bg-slate-700'
+        : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
+    }`}
+  >
+    {busy ? <Loader2 size={13} className="animate-spin" /> : icon}
+    {children}
+  </button>
+);
+
+const ScoreBadge: React.FC<{ score?: number | null; label: string; className?: string }> = ({ score, label, className = '' }) => (
+  <span className={`items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${getScoreBadgeClass(score)} ${className}`}>
+    {label}
+  </span>
+);
+
+// The company's initial in a square, where LinkedIn shows the logo.
+const CompanyMark: React.FC<{ name: string }> = ({ name }) => (
+  <div
+    aria-hidden="true"
+    className="hidden sm:flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-base font-semibold text-slate-500"
+  >
+    {(name.trim()[0] || '?').toUpperCase()}
+  </div>
+);
+
+const FormSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+  <div>
+    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">{title}</h3>
+    {children}
   </div>
 );
 
@@ -1621,16 +1743,12 @@ interface SelectInputProps {
   onChange: (value: string) => void;
 }
 const SelectInput: React.FC<SelectInputProps> = ({ label, value, options, onChange }) => (
-  <div>
-    {label && <label className="block text-sm font-medium text-slate-700 mb-2">{label}</label>}
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500"
-    >
+  <label className="block">
+    <span className="block text-xs font-medium text-slate-600 mb-1">{label}</span>
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={INPUT_CLASS}>
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
-  </div>
+  </label>
 );
 
 interface TextInputProps {
@@ -1640,15 +1758,10 @@ interface TextInputProps {
   onChange: (value: string) => void;
 }
 const TextInput: React.FC<TextInputProps> = ({ label, value, placeholder, onChange }) => (
-  <div>
-    <label className="block text-sm font-medium text-slate-700 mb-2">{label}</label>
-    <input
-      value={value}
-      placeholder={placeholder}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500"
-    />
-  </div>
+  <label className="block">
+    <span className="block text-xs font-medium text-slate-600 mb-1">{label}</span>
+    <input value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={INPUT_CLASS} />
+  </label>
 );
 
 interface NumberInputProps {
@@ -1659,17 +1772,17 @@ interface NumberInputProps {
   onChange: (value: number) => void;
 }
 const NumberInput: React.FC<NumberInputProps> = ({ label, value, min, max, onChange }) => (
-  <div>
-    <label className="block text-sm font-medium text-slate-700 mb-2">{label}</label>
+  <label className="block">
+    <span className="block text-xs font-medium text-slate-600 mb-1">{label}</span>
     <input
       type="number"
       value={value}
       min={min}
       max={max}
       onChange={(e) => onChange(Number(e.target.value))}
-      className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500"
+      className={INPUT_CLASS}
     />
-  </div>
+  </label>
 );
 
 interface SkillListProps {
@@ -1679,7 +1792,7 @@ interface SkillListProps {
 }
 const SkillList: React.FC<SkillListProps> = ({ title, items, positive = false }) => (
   <div>
-    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">{title}</p>
+    <p className="text-xs font-semibold text-slate-500 mb-1">{title}</p>
     <div className="flex flex-wrap gap-1.5">
       {items.slice(0, 6).map((item) => (
         <span

@@ -44,7 +44,7 @@ test('a run reports how many title and location combinations it searched', async
   });
 
   await page.goto('/job-automation');
-  await page.getByRole('button', { name: 'Run Search Now' }).click();
+  await page.getByRole('button', { name: 'Run search' }).click();
 
   const main = page.locator('main');
   await expect(main).toContainText('Job search completed.');
@@ -64,7 +64,7 @@ test('without saved titles or locations, nothing is searched and the user is tol
   });
 
   await page.goto('/job-automation');
-  await page.getByRole('button', { name: 'Run Search Now' }).click();
+  await page.getByRole('button', { name: 'Run search' }).click();
 
   await expect(page.locator('main')).toContainText('Add at least one target job title and one preferred location');
   expect(pipelineCalls).toBe(0);
@@ -79,9 +79,9 @@ test('the automation switch shows whether automatic searches have run', async ({
   await expect(main).toContainText('On · no automatic search has run yet');
 
   // Preferences form.
-  await page.getByRole('button', { name: 'Edit Profile' }).first().click();
+  await page.getByRole('button', { name: 'Edit search' }).first().click();
   await expect(main).toContainText('Searches automatically a few times a day');
-  await expect(page.getByRole('button', { name: 'On', exact: true })).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'Automatic searches' })).toHaveAttribute('aria-checked', 'true');
 });
 
 test('the summary shows when the last automatic search ran', async ({ page, supabase }) => {
@@ -98,15 +98,15 @@ test.describe('excluded keywords', () => {
   test('can be edited and saved once the database column exists', async ({ page, supabase }) => {
     supabase.tables.user_job_preferences[0].excluded_keywords = ['Senior'];
     await page.goto('/job-automation');
-    await expect(page.locator('main')).toContainText('Excluded keywords');
+    await expect(page.locator('main')).toContainText('Excluding: Senior');
 
-    await page.getByRole('button', { name: 'Edit Profile' }).first().click();
+    await page.getByRole('button', { name: 'Edit search' }).first().click();
     const field = page.getByLabel('Exclude jobs mentioning');
     await expect(field).toBeEnabled();
     await expect(field).toHaveValue('Senior');
 
     await field.fill('Senior,  Manager , ');
-    await page.getByRole('button', { name: 'Save Profile' }).first().click();
+    await page.getByRole('button', { name: 'Save search' }).first().click();
     await expect(page.locator('main')).toContainText('Search profile saved.');
 
     const save = supabase.writes('user_job_preferences').at(-1)!;
@@ -115,13 +115,13 @@ test.describe('excluded keywords', () => {
 
   test('explain what is needed, and are not sent, before the column exists', async ({ page, supabase }) => {
     await page.goto('/job-automation');
-    await expect(page.locator('main')).not.toContainText('Excluded keywords');
+    await expect(page.locator('main')).not.toContainText('Excluding:');
 
-    await page.getByRole('button', { name: 'Edit Profile' }).first().click();
+    await page.getByRole('button', { name: 'Edit search' }).first().click();
     await expect(page.getByLabel('Exclude jobs mentioning')).toBeDisabled();
     await expect(page.locator('main')).toContainText('the database needs the excluded_keywords column');
 
-    await page.getByRole('button', { name: 'Save Profile' }).first().click();
+    await page.getByRole('button', { name: 'Save search' }).first().click();
     await expect(page.locator('main')).toContainText('Search profile saved.');
     expect(supabase.writes('user_job_preferences').at(-1)!.body).not.toHaveProperty('excluded_keywords');
   });
