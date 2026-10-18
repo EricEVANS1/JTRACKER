@@ -187,10 +187,12 @@ export const INTERVIEW_LOOKAHEAD_DAYS = 7;
 
 export interface InterviewNoteDate {
   interview_date?: string | null;
+  // scheduled / completed / cancelled (absent before the calendar migration).
+  status?: string | null;
 }
 
 // Earliest saved interview date from today through the next 7 days, for an
-// application that is still active.
+// application that is still active. Cancelled and completed interviews don't count.
 export const getUpcomingInterviewDate = (
   app: LifecycleRecord & { interview_notes?: InterviewNoteDate[] | InterviewNoteDate | null },
   now: Date = new Date()
@@ -208,6 +210,7 @@ export const getUpcomingInterviewDate = (
   end.setDate(start.getDate() + INTERVIEW_LOOKAHEAD_DAYS + 1);
 
   const upcoming = notes
+    .filter((note) => note.status !== 'cancelled' && note.status !== 'completed')
     .map((note) => note.interview_date)
     .filter(isValidDate)
     .filter((date) => {

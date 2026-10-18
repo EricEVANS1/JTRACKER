@@ -5,6 +5,7 @@ import {
   BarChart3,
   Briefcase,
   Building2,
+  CalendarDays,
   Clock3,
   Columns3,
   FileText,
@@ -88,6 +89,12 @@ export const AppLayout: React.FC = () => {
         label: 'Follow-Ups',
         path: '/follow-ups',
         icon: Clock3,
+        enabled: true,
+      },
+      {
+        label: 'Interviews',
+        path: '/interviews',
+        icon: CalendarDays,
         enabled: true,
       },
       {

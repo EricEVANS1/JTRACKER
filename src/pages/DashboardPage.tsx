@@ -77,7 +77,7 @@ id: string;
 role_title: string | null;
 status: ApplicationStatus;
 outcome_reason?: string | null;
-interview_notes?: { interview_date: string | null }[] | null;
+interview_notes?: { interview_date: string | null; status?: string | null }[] | null;
 archived: boolean | null;
 date_applied: string | null;
 created_at: string;
@@ -333,7 +333,7 @@ const [
       rejected_after_interview,
       outcome_reason,
       interview_notes (
-        interview_date
+        *
       )
     `)
     .eq('user_id', user.id)

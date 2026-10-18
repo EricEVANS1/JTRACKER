@@ -29,6 +29,7 @@ import { TailoredDocumentsHistoryPage } from './pages/TailoredDocumentsHistoryPa
 
 import { EmailSyncPage } from './pages/EmailSyncPage';
 import { JobAutomationPage } from './pages/JobAutomationPage';
+import { InterviewsPage } from './pages/InterviewsPage';
 
 const App: React.FC = () => {
   return (
@@ -71,6 +72,7 @@ const App: React.FC = () => {
             />
 
             <Route path="/follow-ups" element={<FollowUpsPage />} />
+            <Route path="/interviews" element={<InterviewsPage />} />
             <Route path="/archived" element={<ArchivedApplicationsPage />} />
 
             <Route

@@ -113,7 +113,7 @@ rejected_after_interview?: boolean | null;
 final_response_pending?: boolean | null;
 interview_count?: number | null;
 outcome_reason?: OutcomeReason;
-interview_notes?: { interview_date: string | null }[] | null;
+interview_notes?: { interview_date: string | null; status?: string | null }[] | null;
 
 analysis_id?: string | null;
 match_score?: number | null;
@@ -298,7 +298,7 @@ const { data, error } = await supabase
       email
     ),
     interview_notes (
-      interview_date
+      *
     )
   `)
   .eq('user_id', user.id)

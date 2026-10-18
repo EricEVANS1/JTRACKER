@@ -24,6 +24,7 @@ import { getSignatureName, signOff } from '../lib/emailSignature';
 import { useAuth } from '../context/AuthContext';
 import { buildStatusUpdate } from '../lib/applicationLifecycle';
 import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
+import { pickPrepInterview, toDateTimeLocalValue } from '../lib/interviewSchedule';
 import type { Application } from '../types/application';
 
 type ApplicationStatus =
@@ -90,6 +91,8 @@ interface ApplicationEvent {
 
 interface InterviewNote {
   id: string;
+  application_id: string;
+  status?: string | null;
   interview_stage: string | null;
   interview_date: string | null;
   notes: string | null;
@@ -181,6 +184,7 @@ export const ApplicationDetailsPage: React.FC = () => {
   const [emailEvents, setEmailEvents] = useState<EmailEvent[]>([]);
   const [recruiters, setRecruiters] = useState<RecruiterOption[]>([]);
   const [interviewNote, setInterviewNote] = useState<InterviewNote | null>(null);
+  const [interviewCount, setInterviewCount] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -289,12 +293,13 @@ export const ApplicationDetailsPage: React.FC = () => {
           .eq('user_id', user.id)
           .order('received_at', { ascending: false }),
 
+        // An application can have several interviews (see the Interviews calendar).
         supabase
           .from('interview_notes')
           .select('*')
           .eq('application_id', id)
           .eq('user_id', user.id)
-          .maybeSingle(),
+          .order('interview_date', { ascending: true }),
 
         supabase
           .from('recruiters')
@@ -335,11 +340,15 @@ export const ApplicationDetailsPage: React.FC = () => {
     setEditRejectionReason(normalizedApplication.rejection_reason || '');
     setEditRejectionCategory(normalizedApplication.rejection_category || '');
 
-    if (interviewResult.data) {
-      const data = interviewResult.data as InterviewNote;
+    const interviewRows = (interviewResult.data || []) as InterviewNote[];
+    setInterviewCount(interviewRows.length);
+    const prepInterview = pickPrepInterview(interviewRows);
+    if (prepInterview) {
+      const data = prepInterview;
       setInterviewNote(data);
       setInterviewStage(data.interview_stage || '');
-      setInterviewDate(data.interview_date ? data.interview_date.slice(0, 16) : '');
+      // The input shows local time; the stored value is UTC.
+      setInterviewDate(toDateTimeLocalValue(data.interview_date));
       setInterviewNotes(data.notes || '');
       setInterviewQuestions(Array.isArray(data.questions) ? data.questions.join('\n') : '');
     }
@@ -1082,6 +1091,18 @@ ${signOff(signatureName)}`;
 </Section>
 
       <Section title="Interview Preparation" description="Store preparation notes, interview stage, and questions for this application.">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+          <span>
+            {interviewCount === 0
+              ? 'No interviews scheduled for this application yet.'
+              : interviewCount === 1
+                ? 'These notes belong to this application’s interview.'
+                : `This application has ${interviewCount} interviews; these notes belong to the next one (or the latest).`}
+          </span>
+          <Link to={`/interviews?application=${id}`} className="font-medium text-slate-900 underline">
+            {interviewCount ? 'View in interview calendar' : 'Schedule in interview calendar'}
+          </Link>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <input value={interviewStage} onChange={(e) => setInterviewStage(e.target.value)} placeholder="Interview stage e.g. HR Screen" className={inputCls} />
           <input value={interviewDate} onChange={(e) => setInterviewDate(e.target.value)} type="datetime-local" className={inputCls} />

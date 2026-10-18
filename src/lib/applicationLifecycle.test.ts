@@ -279,6 +279,18 @@ describe('getUpcomingInterviewDate', () => {
     expect(getUpcomingInterviewDate(app({ status: 'interview', interview_notes: [{ interview_date: null }] } as Partial<LifecycleRecord>), now)).toBeNull();
     expect(getUpcomingInterviewDate(app({ status: 'interview' }), now)).toBeNull();
   });
+
+  it('skips cancelled and completed interviews', () => {
+    const interviewing = app({
+      status: 'interview',
+      interview_notes: [
+        { interview_date: on(1), status: 'cancelled' },
+        { interview_date: on(2), status: 'completed' },
+        { interview_date: on(3), status: 'scheduled' },
+      ],
+    } as Partial<LifecycleRecord>);
+    expect(getUpcomingInterviewDate(interviewing, now)).toBe(on(3));
+  });
 });
 
 describe('hasReachedStage', () => {
