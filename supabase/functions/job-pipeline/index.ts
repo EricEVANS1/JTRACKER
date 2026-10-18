@@ -9,7 +9,7 @@ import { errorResponse, getCorsHeaders, jsonResponse } from './_lib/cors.ts';
 import { fetchJobsForPreferences } from './_lib/fetcher.ts';
 import { cleanTerms, parseMaxCalls } from './_lib/queryPlan.ts';
 import { chunk, filterNewJobs, insertSkippingDuplicates } from './_lib/saveJobs.ts';
-import { applyJobFilters } from './_lib/jobFilters.ts';
+import { applyJobFilters, filterReason } from './_lib/jobFilters.ts';
 import { readAdzunaConfig } from './_lib/adzuna.ts';
 import {
   buildMatchAlert,
@@ -18,6 +18,7 @@ import {
   SCHEDULED_RUN_BUDGET_MS,
   usersDueForSearch,
 } from './_lib/schedule.ts';
+import { summariseSources } from './_lib/searchReport.ts';
 import { scoreJobAgainstCV } from './_lib/scorer.ts';
 import type {
   CVProfile,
@@ -415,10 +416,15 @@ async function runJobSearch(
 
     // LinkedIn-style filters: date posted (undated jobs are dropped), closed
     // postings, work model and experience level. Same rules as the job list.
-    const { kept: freshJobs, removed: filteredOut } = applyJobFilters(fetchedJobs, preferences, {
-      workFromHome: (job) =>
-        (job.raw_data?.detected_extensions as Record<string, unknown> | undefined)?.work_from_home === true,
-    });
+    const workFromHome = (job: RawJob) =>
+      (job.raw_data?.detected_extensions as Record<string, unknown> | undefined)?.work_from_home === true;
+    const { kept: freshJobs, removed: filteredOut } = applyJobFilters(fetchedJobs, preferences, { workFromHome });
+
+    // What each source found and kept, so sources that only return undated
+    // or old pages are easy to spot.
+    const sourceSummaries = summariseSources(sourcesUsed, fetchedJobs, (job) =>
+      filterReason(job, preferences, { workFromHome: workFromHome(job) }),
+    );
 
     const { insertedJobs, duplicateCount } = await insertJobAds(
       supabase,
@@ -502,6 +508,7 @@ async function runJobSearch(
           trigger,
           max_search_calls: maxSearchCalls,
           search_reports: searchReports,
+          source_summaries: sourceSummaries,
           fetched_count: fetchedJobs.length,
           fresh_count: freshJobs.length,
           filtered_out: filteredOut,
@@ -544,6 +551,7 @@ async function runJobSearch(
       combinations_searched: combinationsSearched,
       combinations_skipped: combinationsSkipped,
       search_reports: searchReports,
+      source_summaries: sourceSummaries,
     };
   } catch (error) {
     if (error instanceof SearchRequestError) throw error;

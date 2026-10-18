@@ -209,3 +209,41 @@ describe('LinkedIn and Adzuna together', () => {
     expect(searchReports[0].error).toContain('ADZUNA_APP_ID');
   }, 20_000);
 });
+
+describe('chosen sources', () => {
+  it("keeps a Google Jobs result with only Google's own job page", async () => {
+    stubSerpApi({ google_jobs: () => ({ jobs_results: [googleJob(5, '', { apply_options: [] })] }) });
+    const { jobs } = await fetchJobsForPreferences(preferences({ enabled_sources: ['google_jobs'] }), 'test-key', 10);
+    expect(jobs.map((j) => j.job_url)).toEqual(['https://www.google.com/search?ibp=htl%3Bjobs&htidocid=gj-5']);
+  }, 20_000);
+
+  it('searches every source the page offers, and reports a source that fails', async () => {
+    const engines: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const params = new URL(String(input)).searchParams;
+      engines.push(`${params.get('engine')} ${params.get('q') ?? ''}`.trim());
+      if (params.get('engine') === 'indeed') {
+        return new Response(JSON.stringify({ error: 'Unsupported `indeed` search engine.' }), { status: 400 });
+      }
+      if (params.get('engine') === 'google_jobs') {
+        return respond({ jobs_results: [googleJob(1, 'https://careers.example/jobs/1', { via: 'Company careers' })] });
+      }
+      return respond({});
+    }));
+
+    const { jobs, sourcesUsed, searchReports } = await fetchJobsForPreferences(
+      preferences({ enabled_sources: ['google_jobs', 'pracuj_it', 'bulldogjob', 'crossweb', 'indeed'] }),
+      'test-key',
+      10,
+    );
+
+    expect(sourcesUsed).toEqual(['google_jobs', 'pracuj_it', 'bulldogjob', 'crossweb', 'indeed']);
+    // Linked to the posting, not Google's share page.
+    expect(jobs.map((j) => [j.source, j.job_url])).toEqual([['google_jobs', 'https://careers.example/jobs/1']]);
+    expect(engines.some((e) => e.startsWith('google site:it.pracuj.pl'))).toBe(true);
+    expect(engines.some((e) => e.startsWith('google site:crossweb.pl'))).toBe(true);
+    expect(searchReports).toEqual([
+      expect.objectContaining({ source: 'indeed', error: 'Unsupported `indeed` search engine.' }),
+    ]);
+  }, 20_000);
+});

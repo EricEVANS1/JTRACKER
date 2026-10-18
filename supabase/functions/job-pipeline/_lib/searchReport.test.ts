@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { cleanSearchError, describeSearchReports, type SearchReport } from './searchReport.ts';
+import {
+  cleanSearchError,
+  describeSearchReports,
+  describeSourceSummaries,
+  summariseSources,
+  type SearchReport,
+} from './searchReport.ts';
 
 const report = (overrides: Partial<SearchReport>): SearchReport => ({
   source: 'linkedin', title: 'Software engineer', location: 'Warsaw', listings: 0, viaLinkedIn: 0, matched: 0, error: null, ...overrides,
@@ -40,6 +46,36 @@ describe('describeSearchReports for Adzuna', () => {
     ])).toEqual([
       'Adzuna search for "Support Specialist" in Warsaw: no listings.',
       'Adzuna search for "Support Specialist" in Warsaw failed: Authorisation failed',
+    ]);
+  });
+});
+
+describe('source summaries', () => {
+  it('counts what each source found and why its jobs were dropped', () => {
+    const jobs = [
+      { source: 'linkedin', source_posted_at: '2026-10-17T10:00:00Z', reason: null },
+      { source: 'linkedin', source_posted_at: '2026-08-01T10:00:00Z', reason: 'date' },
+      { source: 'linkedin', source_posted_at: '2026-10-17T10:00:00Z', reason: 'work_model' },
+      { source: 'justjoinit', source_posted_at: null, reason: 'date' },
+      { source: 'justjoinit', source_posted_at: null, reason: 'date' },
+    ];
+
+    const summaries = summariseSources(['linkedin', 'justjoinit', 'indeed'], jobs, (job) => job.reason);
+
+    expect(summaries).toEqual([
+      { source: 'linkedin', found: 3, kept: 1, undated: 0, tooOld: 1, otherFilters: 1 },
+      { source: 'justjoinit', found: 2, kept: 0, undated: 2, tooOld: 0, otherFilters: 0 },
+      { source: 'indeed', found: 0, kept: 0, undated: 0, tooOld: 0, otherFilters: 0 },
+    ]);
+    expect(describeSourceSummaries(summaries, 'Past week')).toBe(
+      'By source: LinkedIn 3 found, 1 kept (1 older than past week, 1 removed by other filters); JustJoinIT 2 found, 0 kept (2 undated); Indeed 0 found.',
+    );
+    expect(describeSourceSummaries([], 'Past week')).toBe('');
+  });
+
+  it('names a failed source', () => {
+    expect(describeSearchReports([report({ source: 'indeed', error: 'Unsupported `indeed` search engine.' })])).toEqual([
+      'Indeed search for "Software engineer" in Warsaw failed: Unsupported `indeed` search engine.',
     ]);
   });
 });

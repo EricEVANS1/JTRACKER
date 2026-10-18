@@ -12,7 +12,12 @@ import {
   type DatePosted,
   type FilterReason,
 } from '../../supabase/functions/job-pipeline/_lib/jobFilters.ts';
-import { describeSearchReports, type SearchReport } from '../../supabase/functions/job-pipeline/_lib/searchReport.ts';
+import {
+  describeSearchReports,
+  describeSourceSummaries,
+  type SearchReport,
+  type SourceSummary,
+} from '../../supabase/functions/job-pipeline/_lib/searchReport.ts';
 import { linkedInSearchUrl } from '../../supabase/functions/job-pipeline/_lib/linkedin.ts';
 import { cleanTerms, orderCombinations } from '../../supabase/functions/job-pipeline/_lib/queryPlan.ts';
 import {
@@ -624,6 +629,7 @@ export const JobAutomationPage: React.FC = () => {
           describeFilteredOut(payload.filtered_out as Partial<Record<FilterReason, number>> | undefined, preferences?.max_job_age_days)
             ? `Filtered out: ${describeFilteredOut(payload.filtered_out as Partial<Record<FilterReason, number>> | undefined, preferences?.max_job_age_days)}.`
             : '',
+          describeSourceSummaries(payload.source_summaries as SourceSummary[] | undefined, datePostedLabel(preferences?.max_job_age_days)),
           payload.no_cv_warning ? 'No CV was found, so jobs were saved without full CV scoring.' : '',
           // Why a search found nothing (no LinkedIn listings, or a search service error).
           ...describeSearchReports(payload.search_reports as SearchReport[] | undefined),
@@ -1141,6 +1147,11 @@ export const JobAutomationPage: React.FC = () => {
                   );
                 })}
               </div>
+              <p className="text-xs text-slate-400 mt-2">
+                LinkedIn, Google Jobs and Adzuna give each job's posting date. The other boards are found through
+                Google's page index, which often has no date, so with a Date posted filter most of their results are
+                dropped. Each run lists what every source found and kept.
+              </p>
             </div>
           </div>
         ) : (

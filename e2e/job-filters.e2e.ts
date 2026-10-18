@@ -144,6 +144,12 @@ test('a run with nothing found says why', async ({ page }) => {
         filtered_out: { date: 0, closed: 0, work_model: 0, experience_level: 0 },
         search_reports: [
           { source: 'linkedin', title: 'Software engineer', location: 'Warsaw', listings: 10, viaLinkedIn: 0, matched: 0, error: null },
+          { source: 'indeed', title: 'Software engineer', location: 'Warsaw', listings: 0, viaLinkedIn: 0, matched: 0, error: 'Unsupported `indeed` search engine.' },
+        ],
+        source_summaries: [
+          { source: 'linkedin', found: 0, kept: 0, undated: 0, tooOld: 0, otherFilters: 0 },
+          { source: 'justjoinit', found: 6, kept: 0, undated: 6, tooOld: 0, otherFilters: 0 },
+          { source: 'indeed', found: 0, kept: 0, undated: 0, tooOld: 0, otherFilters: 0 },
         ],
       }),
     }),
@@ -153,6 +159,12 @@ test('a run with nothing found says why', async ({ page }) => {
   await page.getByRole('button', { name: 'Run Search Now' }).click();
   await expect(page.locator('main')).toContainText(
     'LinkedIn search for "Software engineer" in Warsaw: Google Jobs had 10 listings, none posted on LinkedIn.',
+  );
+  await expect(page.locator('main')).toContainText(
+    'By source: LinkedIn 0 found; JustJoinIT 6 found, 0 kept (6 undated); Indeed 0 found.',
+  );
+  await expect(page.locator('main')).toContainText(
+    'Indeed search for "Software engineer" in Warsaw failed: Unsupported `indeed` search engine.',
   );
 });
 

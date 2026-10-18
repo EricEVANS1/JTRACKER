@@ -129,6 +129,17 @@ function cleanUrlForKey(url: string): string {
   }
 }
 
+// A failed SerpAPI answer as one line: its error message, or the HTTP status.
+function serpApiFailure(label: string, status: number, text: string) {
+  try {
+    const message = safeString((JSON.parse(text) as Record<string, unknown>).error);
+    if (message) return message;
+  } catch {
+    // Not JSON.
+  }
+  return `${label} answered with HTTP ${status}.`;
+}
+
 function isNoResultsMessage(message: string) {
   const lower = message.toLowerCase();
 
@@ -340,23 +351,27 @@ interface RejectionCheckInput {
   company: string;
   url: string;
   description: string;
+  // The URL is known to be one job (Google Jobs' own page), so its shape
+  // isn't checked.
+  singleJobUrl?: boolean;
 }
 
 function getRejectionReason(input: RejectionCheckInput): string | null {
-  const { title, company, url, description } = input;
+  const { title, company, url, description, singleJobUrl } = input;
 
   if (!title || title.length < 3) return 'missing_or_too_short_title';
   if (!url) return 'missing_url';
 
   const cleanedUrl = cleanUrl(url);
 
-  if (matchesAny(cleanedUrl, LISTING_URL_PATTERNS)) return 'listing_url_pattern';
+  if (!singleJobUrl && matchesAny(cleanedUrl, LISTING_URL_PATTERNS)) return 'listing_url_pattern';
   if (matchesAny(title, LISTING_TITLE_PATTERNS)) return 'listing_title_pattern';
   if (matchesAny(description, LISTING_SNIPPET_PATTERNS)) return 'listing_snippet_pattern';
 
   if (/^\d+\+?$/.test(title.trim())) return 'numeric_only_title';
 
   if (!company || company.length < 2) return 'missing_company';
+  if (singleJobUrl) return null;
 
   const urlPath = (() => {
     try {
@@ -619,13 +634,23 @@ function buildGoogleJob(job: Record<string, unknown>, fallbackLocation: string):
 
   const description = safeString(job.description || job.snippet);
   const location = safeString(job.location) || fallbackLocation;
-  const url = cleanUrl(getFirstUrl(job));
+
+  // Link to the posting itself: a link the caller chose, else the first
+  // "Apply on" option that looks like a single job, else Google's own page
+  // for the job (a google.com/search link, which is still one job).
+  const applyOptions = Array.isArray(job.apply_options) ? (job.apply_options as Record<string, unknown>[]) : [];
+  const chosenLink = safeString(job.link);
+  const postingLink = (chosenLink ? [chosenLink] : applyOptions.map((option) => safeString(option.link)))
+    .map(cleanUrl)
+    .find((link) => link && !getRejectionReason({ title, company, url: link, description }));
+  const url = postingLink || cleanUrl(getFirstUrl(job));
 
   const rejection = getRejectionReason({
     title,
     company,
     url,
     description,
+    singleJobUrl: !postingLink,
   });
 
   if (rejection) {
@@ -848,7 +873,7 @@ async function fetchGoogleJobs(
 
   if (!response.ok) {
     console.error('[fetcher] Google Jobs HTTP failed:', response.status, text);
-    return [];
+    throw new Error(serpApiFailure('Google Jobs', response.status, text));
   }
 
   let data: Record<string, unknown>;
@@ -868,7 +893,7 @@ async function fetchGoogleJobs(
       return [];
     }
 
-    throw new Error(`Google Jobs SerpAPI error: ${message}`);
+    throw new Error(message);
   }
 
   const results = getResultsArray(data);
@@ -907,7 +932,7 @@ async function fetchIndeedJobs(
 
   if (!response.ok) {
     console.error('[fetcher] Indeed HTTP failed:', response.status, text);
-    return [];
+    throw new Error(serpApiFailure('Indeed', response.status, text));
   }
 
   let data: Record<string, unknown>;
@@ -927,7 +952,7 @@ async function fetchIndeedJobs(
       return [];
     }
 
-    throw new Error(`Indeed SerpAPI error: ${message}`);
+    throw new Error(message);
   }
 
   const results = getResultsArray(data);
@@ -1139,8 +1164,16 @@ function getSearchSources(preferences: UserJobPreferences): SearchSource[] {
     return defaultSources;
   }
 
-  // Adzuna is only used when chosen (it needs its own API keys).
-  const allowed = new Set<SearchSource>([...defaultSources, 'adzuna']);
+  // Every source this file can search. Google Jobs, Pracuj.pl IT,
+  // Bulldogjob, Crossweb and Adzuna are only used when chosen.
+  const allowed = new Set<SearchSource>([
+    ...defaultSources,
+    'google_jobs',
+    'pracuj_it',
+    'bulldogjob',
+    'crossweb',
+    'adzuna',
+  ]);
 
   const selected = enabled.filter((source): source is SearchSource =>
     allowed.has(source as SearchSource),
@@ -1309,6 +1342,17 @@ for (const [index, query] of queries.entries()) {
       }
     } catch (error) {
       console.error(`[fetcher] ${source} failed:`, error);
+
+      // Say which source failed and why, instead of it just finding nothing.
+      searchReports.push({
+        source,
+        title: query.title,
+        location: query.location,
+        listings: 0,
+        viaLinkedIn: 0,
+        matched: 0,
+        error: cleanSearchError(error instanceof Error ? error.message : error),
+      });
 
       queriesRun.push({
         source: `${source}_error`,
