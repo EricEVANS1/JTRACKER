@@ -339,3 +339,23 @@ GitHub:
 # License
 
 This project is intended for educational, portfolio, and demonstration purposes.
+
+## Owner web analytics
+
+The private PostHog **Web analytics** dashboard measures traffic across JTracker. The in-app Analytics page continues to report the signed-in user's recruitment pipeline.
+
+1. Create or select your PostHog project. In Vercel, set the **Production** variable `VITE_POSTHOG_PROJECT_TOKEN` to its public project token. Set `VITE_POSTHOG_HOST` to its ingestion host (`https://eu.i.posthog.com` for EU or `https://us.i.posthog.com` for US). Keep personal API keys out of Vite variables. Leave the token unset for previews and development.
+2. Redeploy JTracker. In a fresh browser with tracking protection disabled for this test, opt in, visit two pages, click a control and leave the site. In PostHog Live events, check the host, the pageview and pageleave events, shared session ID and masked paths. Check that declining in a fresh browser sends no events. The signed-in Privacy settings can change consent.
+3. Open **Web analytics**, filter to the production hostname, and select the last seven days with previous-period comparison. Use the visitors trend, top paths, landing/exit pages and device/browser breakdowns. Data begins with the first received events. For week-on-week reporting, compare complete weeks after two weeks of collection.
+4. To measure use of the application creation form, add a conversion goal for `application_record_created`. It fires after the application insert succeeds, including Wishlist records. It counts saved records from that form, not employer submissions or imports.
+
+| Metric | Interpretation |
+| --- | --- |
+| Visitors | Distinct measured browser identities. Someone using two browsers can appear twice. |
+| Page views | Captured page loads and client-side navigation. Revisiting a page can add another view. |
+| Sessions | Groups of activity sharing a PostHog session ID. |
+| Average session duration | Elapsed time inferred from captured activity, including page exits when delivered. |
+| Bounce rate | Under PostHog's default, a single-page session under ten seconds with no captured interaction. JTracker captures clicks. |
+| Top paths | Aggregated route templates. For example, every application detail page appears under `/applications/:id`. |
+
+Coverage is limited to consenting browsers that deliver events. Browser restrictions, blockers and device changes affect counts. Recording, form contents, URL queries, hashes and user-account identification are excluded. A visit to the CV editor shows feature traffic; it does not prove a CV was generated.

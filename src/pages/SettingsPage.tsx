@@ -1,3 +1,4 @@
+import { AnalyticsPreference } from '../components/AnalyticsConsent';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -816,6 +817,7 @@ updateSetting('ai_confidence_threshold', Number(value));
 
   {activeTab === 'privacy' && (
     <Card title="Privacy & Data" icon={<Shield size={16} />}>
+      <AnalyticsPreference />
       <p className="text-sm text-slate-500 mb-4">
         AI analysis sends selected email snippets and metadata to your configured AI
         provider. Full email body analysis should stay optional.
