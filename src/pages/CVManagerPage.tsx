@@ -14,6 +14,8 @@ import {
   X,
 } from 'lucide-react';
 
+import { saveAs } from 'file-saver';
+import { CV_BUCKET as BUCKET, getCvStoragePath, readPrivateCv } from '../lib/privateCvFiles';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
@@ -45,7 +47,6 @@ const ACCEPTED_TYPES = [
 
 const ACCEPTED_EXT = '.pdf,.doc,.docx';
 const MAX_MB = 10;
-const BUCKET = 'cv-files';
 
 const inputCls =
   'border border-slate-200 rounded-xl px-3 py-2.5 text-sm w-full bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder:text-slate-400 transition';
@@ -308,21 +309,27 @@ export const CVManagerPage: React.FC = () => {
     };
   };
 
-  const getPreviewUrl = (url: string) => {
-    const lower = url.toLowerCase();
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
-    if (lower.includes('.pdf')) {
-      return url;
+  const handleOpenPreview = async (cv: CVVersion) => {
+    if (!cv.file_url || !user) return;
+
+    setError('');
+    try {
+      const { file, filename } = await readPrivateCv(cv.file_url, user.id);
+      if (filename.toLowerCase().endsWith('.pdf')) {
+        setPreviewUrl(URL.createObjectURL(new Blob([file], { type: 'application/pdf' })));
+        setPreviewName(cv.name);
+      } else {
+        saveAs(file, filename);
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not open the CV file.');
     }
-
-    return `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(url)}`;
-  };
-
-  const handleOpenPreview = (cv: CVVersion) => {
-    if (!cv.file_url) return;
-
-    setPreviewUrl(getPreviewUrl(cv.file_url));
-    setPreviewName(cv.name);
   };
 
   const closePreview = () => {
@@ -378,6 +385,7 @@ export const CVManagerPage: React.FC = () => {
     setUploadProgress(100);
     setUploadState('done');
 
+    // Keep the stored reference format used by the CV extraction function.
     const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
     return data.publicUrl;
   };
@@ -439,13 +447,8 @@ export const CVManagerPage: React.FC = () => {
 
     if (cv.file_url) {
       try {
-        const url = new URL(cv.file_url);
-        const parts = url.pathname.split(`/object/public/${BUCKET}/`);
-        const path = parts[1];
-
-        if (path) {
-          await supabase.storage.from(BUCKET).remove([path]);
-        }
+        const path = getCvStoragePath(cv.file_url, user.id);
+        await supabase.storage.from(BUCKET).remove([path]);
       } catch {
         // Storage cleanup should not block DB deletion.
       }
@@ -600,8 +603,7 @@ export const CVManagerPage: React.FC = () => {
 
             {uploadState === 'error' && (
               <p className="text-xs text-red-500 mt-2 break-words">
-                Upload failed. Make sure you have a Supabase Storage bucket named{' '}
-                <code className="font-mono">cv-files</code> with public access enabled.
+                Upload failed. Check your file and try again.
               </p>
             )}
           </div>
@@ -733,7 +735,7 @@ export const CVManagerPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleOpenPreview(cv)}
-                        title="Preview CV"
+                        title="Preview PDF or download Word document"
                         className="w-full sm:w-auto px-3 py-2 rounded-xl text-slate-600 hover:text-slate-800 hover:bg-slate-100 transition inline-flex items-center justify-center gap-1 text-xs font-semibold border border-slate-200"
                       >
                         <ExternalLink size={14} />
