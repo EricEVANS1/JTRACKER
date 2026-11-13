@@ -1,3 +1,4 @@
+import { readPrivateCv } from '../lib/privateCvFiles';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Download,
@@ -124,6 +125,17 @@ export const TailoredDocumentsHistoryPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+
+  async function downloadSourceCv(fileUrl: string) {
+    if (!user) return;
+    setError('');
+    try {
+      const { file, filename } = await readPrivateCv(fileUrl, user.id);
+      saveAs(file, filename);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not download the source CV.');
+    }
+  }
 
   const fetchDocuments = async () => {
     if (!user) return;
@@ -497,15 +509,16 @@ export const TailoredDocumentsHistoryPage: React.FC = () => {
                       <span>{formatDate(document.created_at)}</span>
 
                       {cvVersion?.file_url && (
-                        <a
-                          href={cvVersion.file_url}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (cvVersion.file_url) void downloadSourceCv(cvVersion.file_url);
+                          }}
                           className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900"
                         >
                           Source CV
                           <ExternalLink size={13} />
-                        </a>
+                        </button>
                       )}
                     </div>
                   </div>
