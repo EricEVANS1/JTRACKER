@@ -100,9 +100,11 @@ test.describe('with interviews', () => {
     await expect(dialog(page).getByLabel('Time', { exact: true })).toHaveValue('10:00');
     await expect(dialog(page).getByLabel('Time zone')).toHaveValue('Europe/Warsaw');
 
-    await dialog(page).getByLabel('Date').fill('2026-10-26'); // after the clocks go back
-    await dialog(page).getByLabel('Time', { exact: true }).fill('11:15');
     await dialog(page).getByLabel('Notes').fill('Bring portfolio');
+    // Exercise submission when the native control has committed its value
+    // but the React change handler has not updated the form state.
+    await dialog(page).getByLabel('Date').evaluate((input: HTMLInputElement) => { input.value = '2026-10-26'; });
+    await dialog(page).getByLabel('Time', { exact: true }).evaluate((input: HTMLInputElement) => { input.value = '11:15'; });
     await dialog(page).getByRole('button', { name: 'Save changes' }).click();
 
     await expect(page.locator('main')).toContainText('Interview rescheduled.');
@@ -115,7 +117,10 @@ test.describe('with interviews', () => {
       application_id: 'a1',
       event_type: 'interview_rescheduled',
     });
+    await page.reload();
     await expect(page.locator('main').getByRole('heading', { name: 'Monday 26 October' })).toBeVisible();
+    await page.goto('/applications/a1');
+    await expect(page.locator('input[type="datetime-local"]')).toHaveValue('2026-10-26T11:15');
   });
 
   test('an interview can be cancelled, and completed from the past list', async ({ page, supabase }) => {
@@ -188,6 +193,7 @@ test('scheduling an interview in another time zone stores the exact moment and t
   await dialog(page).getByLabel('Time zone').selectOption('Europe/London');
   await expect(dialog(page)).toContainText('Fri, 23 Oct 15:30 in your time zone (Europe/Warsaw).');
   await dialog(page).getByLabel('Notes').fill('Panel of three');
+  await dialog(page).getByLabel('Date').evaluate((input: HTMLInputElement) => { input.value = '2026-10-24'; });
   await dialog(page).getByRole('button', { name: 'Schedule', exact: true }).click();
 
   await expect(page.locator('main')).toContainText('Interview scheduled.');
@@ -197,7 +203,7 @@ test('scheduling an interview in another time zone stores the exact moment and t
       user_id: USER_ID,
       application_id: 'a2',
       interview_stage: 'Final interview',
-      interview_date: '2026-10-23T13:30:00.000Z',
+      interview_date: '2026-10-24T13:30:00.000Z',
       timezone: 'Europe/London',
       status: 'scheduled',
       notes: 'Panel of three',
@@ -205,10 +211,13 @@ test('scheduling an interview in another time zone stores the exact moment and t
   });
   expect(supabase.writes('application_events').at(-1)!.body).toMatchObject({ application_id: 'a2', event_type: 'interview_scheduled' });
 
+  await page.reload();
   const main = page.locator('main');
-  await expect(main.getByRole('heading', { name: 'Friday 23 October' })).toBeVisible();
+  await expect(main.getByRole('heading', { name: 'Saturday 24 October' })).toBeVisible();
   await expect(main).toContainText('15:30 · 14:30');
   await expect(main).toContainText('Service Desk Analyst — Globex');
+  await page.goto('/applications/a2');
+  await expect(page.locator('input[type="datetime-local"]')).toHaveValue('2026-10-24T15:30');
 });
 
 test('shows a skeleton while loading, and an empty state for weeks without interviews', async ({ page }) => {
