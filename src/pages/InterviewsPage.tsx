@@ -1012,7 +1012,12 @@ const InterviewDialog = ({
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            void run('save', () => onSave(form));
+            const fields = new FormData(event.currentTarget);
+            void run('save', () => onSave({
+              ...form,
+              date: String(fields.get('date') ?? ''),
+              time: String(fields.get('time') ?? ''),
+            }));
           }}
           className="space-y-4"
         >
@@ -1048,11 +1053,11 @@ const InterviewDialog = ({
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="block text-xs font-medium text-slate-600 mb-1">Date</span>
-              <input type="date" value={form.date} onChange={(event) => set('date', event.target.value)} className={INPUT} required />
+              <input type="date" name="date" defaultValue={form.date} onChange={(event) => set('date', event.target.value)} className={INPUT} required />
             </label>
             <label className="block">
               <span className="block text-xs font-medium text-slate-600 mb-1">Time</span>
-              <input type="time" value={form.time} onChange={(event) => set('time', event.target.value)} className={INPUT} required />
+              <input type="time" name="time" defaultValue={form.time} onChange={(event) => set('time', event.target.value)} className={INPUT} required />
             </label>
           </div>
 
