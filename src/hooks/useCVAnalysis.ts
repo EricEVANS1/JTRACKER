@@ -63,6 +63,40 @@ export const useCVAnalysis = () => {
         return null;
       }
 
+      const { data: cv, error: readError } = await supabase
+        .from('cv_versions')
+        .select('cv_text, file_url')
+        .eq('id', cvVersionId)
+        .eq('user_id', session.user.id)
+        .abortSignal(abortController.signal)
+        .maybeSingle();
+
+      if (readError || !cv) throw new Error('Could not load this CV for analysis.');
+
+      if (!cv.cv_text?.trim()) {
+        if (!cv.file_url) throw new Error('Add CV text in Resume Builder or select a CV with an attached file.');
+        setState(prev => ({ ...prev, progressMessage: 'Extracting text from your CV...' }));
+        const { data, error } = await supabase.functions.invoke<{ text: string }>('extract-cv-text', {
+          body: { fileUrl: cv.file_url },
+          signal: abortController.signal,
+        });
+        if (abortController.signal.aborted) throw new DOMException('Analysis timed out', 'AbortError');
+        if (error) throw new Error('Could not extract text from this CV. Try again or paste the text in Resume Builder.');
+        const extractedText = data?.text?.trim();
+        if (!extractedText) throw new Error('No readable text was found. Try a text-based CV or paste the text in Resume Builder.');
+
+        const { data: saved, error: saveError } = await supabase
+          .from('cv_versions')
+          .update({ cv_text: extractedText, cv_text_extracted_at: new Date().toISOString() })
+          .eq('id', cvVersionId)
+          .eq('user_id', session.user.id)
+          .eq('file_url', cv.file_url)
+          .select('id')
+          .abortSignal(abortController.signal)
+          .maybeSingle();
+        if (saveError || !saved) throw new Error('Could not save the extracted CV text. Please try again.');
+      }
+
       const supabaseUrl = (supabase as any).supabaseUrl as string;
       const functionUrl = `${supabaseUrl}/functions/v1/smart-worker`;
 
