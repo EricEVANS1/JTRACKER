@@ -273,3 +273,39 @@ test('the application page links to its interviews, and the calendar can be filt
   await page.getByRole('button', { name: 'Schedule interview' }).first().click();
   await expect(dialog(page).getByLabel('Application')).toHaveValue('a1');
 });
+
+test('imports a calendar attachment into a reviewed interview', async ({ page, supabase }) => {
+  await page.goto('/interviews?application=a1');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import calendar invite' }).click();
+  await (await chooser).setFiles({
+    name: 'interview.ics',
+    mimeType: 'text/calendar',
+    buffer: Buffer.from([
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'DTSTART:20261023T133000Z',
+      'SUMMARY:Technical interview',
+      'LOCATION:https://meet.example.test/interview',
+      'DESCRIPTION:Bring your portfolio',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n')),
+  });
+
+  await expect(dialog(page).getByLabel('Application')).toHaveValue('a1');
+  await expect(dialog(page).getByLabel('Date')).toHaveValue('2026-10-23');
+  await expect(dialog(page).getByLabel('Time', { exact: true })).toHaveValue('13:30');
+  await expect(dialog(page).getByLabel('Notes')).toHaveValue(/Bring your portfolio/);
+  expect(supabase.writes('interview_notes')).toHaveLength(0);
+  await dialog(page).getByRole('button', { name: 'Schedule', exact: true }).click();
+  await expect(page.getByText('Interview scheduled.', { exact: true })).toBeVisible();
+  expect(supabase.writes('interview_notes').at(-1)?.body).toMatchObject({
+    application_id: 'a1',
+    interview_date: '2026-10-23T13:30:00.000Z',
+    interview_stage: 'Technical interview',
+  });
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Friday 23 October' })).toBeVisible();
+});
