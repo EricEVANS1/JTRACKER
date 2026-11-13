@@ -14,6 +14,7 @@ import {
   XCircle,
 } from 'lucide-react';
 
+import { parseInterviewInvite } from '../lib/interviewInvite';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -193,6 +194,24 @@ export const InterviewsPage: React.FC = () => {
 
   // ── create / edit ──────────────────────────────────────────────────────────
 
+  const [inviteError, setInviteError] = useState('');
+  const inviteInput = useRef<HTMLInputElement>(null);
+
+  const importInvite = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) return;
+    setInviteError('');
+    try {
+      if (file.size > 1024 * 1024) throw new Error('Choose a calendar invite under 1 MB.');
+      const invite = parseInterviewInvite(await file.text());
+      setMessage('');
+      setForm({ id: null, applicationId: applicationFilter || '', ...invite });
+    } catch (error) {
+      setInviteError(error instanceof Error ? error.message : 'Could not read the calendar invite.');
+    }
+  };
+
   const openCreate = (day?: string) => {
     setMessage('');
     setForm({
@@ -361,11 +380,19 @@ export const InterviewsPage: React.FC = () => {
             Every interview linked to its application. Times are shown in your time zone ({viewerZone}).
           </p>
         </div>
-        <button type="button" onClick={() => openCreate()} className={BUTTON_PRIMARY} disabled={loading}>
-          <Plus size={16} />
-          Schedule interview
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <input ref={inviteInput} type="file" accept=".ics,text/calendar" hidden onChange={importInvite} />
+          <button type="button" onClick={() => inviteInput.current?.click()} className={BUTTON_SECONDARY} disabled={loading}>
+            Import calendar invite
+          </button>
+          <button type="button" onClick={() => openCreate()} className={BUTTON_PRIMARY} disabled={loading}>
+            <Plus size={16} />
+            Schedule interview
+          </button>
+        </div>
       </div>
+
+      {inviteError && <p role="alert" className="mb-4 text-sm text-red-700">{inviteError}</p>}
 
       {!hasStatusColumns && !loading && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex gap-2">
