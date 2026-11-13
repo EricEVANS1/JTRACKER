@@ -66,3 +66,48 @@ test('a rejected refresh for an expired session returns to sign-in', async ({ pa
   await expect(page).toHaveURL(/\/auth$/);
   await expect(page.getByRole('button', { name: 'Sign In', exact: true })).toBeVisible();
 });
+
+test('forgot password sends an email request with the reset route', async ({ page, context, supabase }) => {
+  await context.route('http://mock.supabase.test/auth/v1/recover?**', async (route) => {
+    expect(new URL(route.request().url()).searchParams.get('redirect_to')).toBe('http://localhost:5199/reset-password');
+    expect(route.request().postDataJSON()).toMatchObject({ email: supabase.user.email });
+    await route.fulfill({ json: {} });
+  });
+  await page.goto('/auth');
+  await page.getByRole('link', { name: 'Forgot password?' }).click();
+  await page.getByLabel('Email address').fill(supabase.user.email);
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+  await expect(page.getByRole('status')).toContainText('If an account exists');
+});
+
+test('reset verifies the recovery token before changing the password', async ({ page, context, supabase }) => {
+  await context.route('http://mock.supabase.test/auth/v1/verify', async (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({ type: 'recovery', token_hash: 'mock-recovery' });
+    await route.fulfill({ json: supabase.session });
+  });
+  await context.route('http://mock.supabase.test/auth/v1/user', async (route) => {
+    expect(route.request().method()).toBe('PUT');
+    expect(route.request().postDataJSON()).toMatchObject({ password: 'new-test-password' });
+    await route.fulfill({ json: supabase.user });
+  });
+  await page.goto('/reset-password?token_hash=mock-recovery');
+  await page.getByLabel('New password', { exact: true }).fill('new-test-password');
+  await page.getByLabel('Confirm new password').fill('different-password');
+  await page.getByRole('button', { name: 'Update password' }).click();
+  await expect(page.getByRole('alert')).toHaveText('The passwords must match.');
+  await page.getByLabel('Confirm new password').fill('new-test-password');
+  await page.getByRole('button', { name: 'Update password' }).click();
+  await expect(page.getByRole('status')).toContainText('You can now sign in');
+  await expect(page).toHaveURL(/\/reset-password$/);
+});
+
+test('an expired reset link offers a fresh link', async ({ page, context }) => {
+  await context.route('http://mock.supabase.test/auth/v1/verify', (route) =>
+    route.fulfill({ status: 403, json: { code: 'otp_expired', msg: 'Expired' } }),
+  );
+  await page.goto('/reset-password?token_hash=expired');
+  await page.getByLabel('New password', { exact: true }).fill('new-test-password');
+  await page.getByLabel('Confirm new password').fill('new-test-password');
+  await page.getByRole('button', { name: 'Update password' }).click();
+  await expect(page.getByRole('link', { name: 'Request a new link' })).toBeVisible();
+});

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import {
   AlertCircle,
   Briefcase,
@@ -245,6 +245,14 @@ export const AuthPage: React.FC = () => {
                   ? 'Create Account'
                   : 'Sign In'}
             </button>
+
+            {!isSignup && (
+              <div className="mt-4 text-center">
+                <Link to="/forgot-password" className="text-sm font-medium text-slate-700 underline">
+                  Forgot password?
+                </Link>
+              </div>
+            )}
 
             <div className="mt-5 text-center">
               <button

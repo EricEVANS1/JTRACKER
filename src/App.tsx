@@ -6,6 +6,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { AppLayout } from './components/AppLayout';
 
 import { AuthPage } from './pages/AuthPage';
+import { PasswordRecoveryPage } from './pages/PasswordRecoveryPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ApplicationsPage } from './pages/ApplicationsPage';
 import { ApplicationDetailsPage } from './pages/ApplicationDetailsPage';
@@ -38,6 +39,8 @@ const App: React.FC = () => {
       <AuthProvider>
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
+          <Route path="/forgot-password" element={<PasswordRecoveryPage key="request" mode="request" />} />
+          <Route path="/reset-password" element={<PasswordRecoveryPage key="reset" mode="reset" />} />
 
           <Route path="/share/:publicShareId" element={<PublicSharePage />} />
 
