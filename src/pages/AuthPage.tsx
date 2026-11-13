@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import {
   AlertCircle,
   Briefcase,
@@ -14,8 +14,8 @@ import {
 import { useAuth } from '../context/AuthContext';
 
 export const AuthPage: React.FC = () => {
-  const { signIn, signUp } = useAuth();
-  const navigate = useNavigate();
+  const { signIn, signUp, session, loading: sessionLoading } = useAuth();
+  const { state } = useLocation();
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [fullName, setFullName] = useState('');
@@ -30,6 +30,9 @@ export const AuthPage: React.FC = () => {
 
   const isSignup = mode === 'signup';
 
+  if (sessionLoading) return <p role="status" className="p-8">Loading...</p>;
+  if (session) return <Navigate to={state?.returnTo ?? '/dashboard'} replace />;
+
   const resetForm = () => {
     setFullName('');
     setEmail('');
@@ -42,20 +45,26 @@ export const AuthPage: React.FC = () => {
 
     setError('');
     setMessage('');
+    if (loading) return;
+    if (isSignup && !fullName.trim()) {
+      setError('Enter your full name.');
+      return;
+    }
     setLoading(true);
 
     try {
       if (isSignup) {
-        await signUp(email.trim(), password, fullName.trim());
+        const session = await signUp(email.trim(), password, fullName.trim());
 
-        resetForm();
-        setMode('signin');
-        setMessage('Account created. Please sign in.');
+        if (!session) {
+          setFullName('');
+          setPassword('');
+          setShowPassword(false);
+          setMode('signin');
+          setMessage('If registration is available for this email, check your inbox for a confirmation link before signing in.');
+        }
       } else {
         await signIn(email.trim(), password);
-
-        setMessage('Login successful. Redirecting...');
-        navigate('/dashboard');
       }
     } catch (err: unknown) {
       console.error('Auth error:', err);
@@ -207,7 +216,7 @@ export const AuthPage: React.FC = () => {
                     autoComplete={isSignup ? 'new-password' : 'current-password'}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    minLength={6}
+                    minLength={isSignup ? 6 : undefined}
                     className="w-full border border-slate-200 rounded-xl pl-10 pr-11 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 transition"
                   />
 
@@ -237,10 +246,19 @@ export const AuthPage: React.FC = () => {
                   : 'Sign In'}
             </button>
 
+            {!isSignup && (
+              <div className="mt-4 text-center">
+                <Link to="/forgot-password" className="text-sm font-medium text-slate-700 underline">
+                  Forgot password?
+                </Link>
+              </div>
+            )}
+
             <div className="mt-5 text-center">
               <button
                 type="button"
                 onClick={switchMode}
+                disabled={loading}
                 className="text-sm text-slate-600 hover:text-slate-900 break-words"
               >
                 {isSignup
@@ -278,6 +296,7 @@ const AlertBox = ({
   message: string;
 }) => (
   <div
+    role={type === 'error' ? 'alert' : 'status'}
     className={`rounded-xl border px-4 py-3 text-sm mb-4 flex items-start gap-2 overflow-hidden ${
       type === 'error'
         ? 'bg-red-50 border-red-200 text-red-700'
