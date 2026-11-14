@@ -146,7 +146,10 @@ test.describe('unsaved changes', () => {
     expect(await page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith('jtracker_resume_draft')))).toBe(false);
 
     await page.getByRole('link', { name: /Dashboard/ }).first().click();
-    expect(dialogs).toEqual(['confirm']);
+    const leavePrompt = page.getByRole('dialog', { name: 'Leave Resume Builder?' });
+    await expect(leavePrompt).toBeVisible();
+    await leavePrompt.getByRole('button', { name: 'Keep editing' }).click();
+    expect(dialogs).toEqual([]);
     await expect(page).toHaveURL(/\/resume-builder\/saved\/v1$/);
 
     answer = true;

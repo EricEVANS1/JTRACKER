@@ -1,3 +1,4 @@
+import { Modal } from '../components/Modal';
 import { DeleteApplicationDialog } from '../components/DeleteApplicationDialog';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -1216,15 +1217,14 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
   )}
 
   {shareModalOpen && selectedShareApp && (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4 py-6">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+    <Modal label="Share opportunity" onClose={() => setShareModalOpen(false)} className="m-auto bg-white rounded-2xl shadow-xl w-[calc(100%-2rem)] max-w-xl max-h-[90vh] overflow-y-auto p-4 sm:p-6 backdrop:bg-slate-950/50">
         <div className="flex items-start justify-between gap-4 mb-5">
           <div>
             <h2 className="text-xl font-bold">Share Opportunity</h2>
             <p className="text-sm text-slate-500 mt-1">Share a safe snapshot of this role.</p>
           </div>
 
-          <button onClick={() => setShareModalOpen(false)} className="text-slate-400 hover:text-slate-700">
+          <button type="button" aria-label="Close share dialog" onClick={() => setShareModalOpen(false)} className="text-slate-400 hover:text-slate-700">
             <X size={20} />
           </button>
         </div>
@@ -1349,8 +1349,7 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
             </button>
           </div>
         )}
-      </div>
-    </div>
+      </Modal>
   )}
 
   {!showForm && (

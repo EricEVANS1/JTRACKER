@@ -1,3 +1,4 @@
+import { Modal } from './Modal';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Trophy, X } from 'lucide-react';
@@ -38,13 +39,11 @@ export const OfferCelebration: React.FC = () => {
   const [reducedMotion, setReducedMotion] = useState(false);
   const [turnedOff, setTurnedOff] = useState(false);
   const viewButtonRef = useRef<HTMLAnchorElement>(null);
-  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const show = (event: Event) => {
       const detail = (event as CustomEvent<OfferCelebrationDetail>).detail;
       if (!detail?.applicationId) return;
-      returnFocusRef.current = document.activeElement as HTMLElement | null;
       setReducedMotion(prefersReducedMotion());
       setTurnedOff(false);
       setOffer(detail);
@@ -56,19 +55,7 @@ export const OfferCelebration: React.FC = () => {
 
   const close = useCallback(() => {
     setOffer(null);
-    returnFocusRef.current?.focus?.();
   }, []);
-
-  useEffect(() => {
-    if (!offer) return;
-    viewButtonRef.current?.focus();
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [offer, close]);
 
   if (!offer) return null;
 
@@ -79,18 +66,14 @@ export const OfferCelebration: React.FC = () => {
   const motion = (className: string) => (reducedMotion ? '' : className);
 
   return (
-    <div
-      className={`fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px] ${motion('animate-offer-fade')}`}
-      onClick={close}
+    <Modal
+      labelledBy="offer-celebration-title"
+      describedBy="offer-celebration-details"
+      initialFocus={viewButtonRef}
+      onClose={close}
+      dismissOnBackdrop
+      className={`relative m-auto w-[calc(100%-2rem)] max-w-sm rounded-2xl bg-white p-6 pt-8 text-center shadow-2xl backdrop:bg-slate-900/40 ${motion('animate-offer-pop')}`}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="offer-celebration-title"
-        aria-describedby="offer-celebration-details"
-        onClick={(event) => event.stopPropagation()}
-        className={`relative w-full max-w-sm rounded-2xl bg-white p-6 pt-8 text-center shadow-2xl ${motion('animate-offer-pop')}`}
-      >
         <button
           type="button"
           onClick={close}
@@ -187,7 +170,6 @@ export const OfferCelebration: React.FC = () => {
             </button>
           )}
         </p>
-      </div>
-    </div>
+    </Modal>
   );
 };

@@ -1,3 +1,4 @@
+import { useConfirmation } from '../hooks/useConfirmation';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
 AlertCircle,
@@ -72,6 +73,7 @@ return `${window.location.origin}/share/${publicShareId}`;
 };
 
 export const SharedOpportunitiesPage: React.FC = () => {
+const confirm = useConfirmation();
 const { user } = useAuth();
 
 const [activeTab, setActiveTab] = useState<ShareTab>('with_me');
@@ -346,7 +348,12 @@ const handleDeleteSharedOpportunity = async (opportunityId: string) => {
 if (!user) return;
 
 
-const confirmed = window.confirm('Delete this shared opportunity record? This will not delete the original application.');
+const confirmed = await confirm({
+      title: 'Delete shared record?',
+      description: 'This removes the shared record. The original application will remain.',
+      action: 'Delete shared record',
+      destructive: true,
+    });
 
 if (!confirmed) return;
 

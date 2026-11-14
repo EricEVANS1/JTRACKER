@@ -1,3 +1,4 @@
+import { Modal } from '../components/Modal';
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
@@ -1263,8 +1264,7 @@ ${signOff(signatureName)}`;
       </Section>
 
       {shareModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4 py-6">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+        <Modal label="Share opportunity" onClose={() => setShareModalOpen(false)} className="m-auto bg-white rounded-2xl shadow-xl w-[calc(100%-2rem)] max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 backdrop:bg-slate-950/50">
             <div className="flex items-start justify-between gap-4 mb-5">
               <div>
                 <h2 className="text-xl font-bold">Share Opportunity</h2>
@@ -1274,6 +1274,8 @@ ${signOff(signatureName)}`;
               </div>
 
               <button
+                type="button"
+                aria-label="Close share dialog"
                 onClick={() => setShareModalOpen(false)}
                 className="text-slate-400 hover:text-slate-700"
               >
@@ -1348,8 +1350,7 @@ ${signOff(signatureName)}`;
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+          </Modal>
       )}
     </div>
   );

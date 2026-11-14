@@ -1,3 +1,4 @@
+import { useConfirmation } from '../hooks/useConfirmation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -128,6 +129,7 @@ className={`relative inline-flex h-6 w-11 items-center rounded-full transition-c
 );
 
 export const SettingsPage: React.FC = () => {
+const confirm = useConfirmation();
 const { user, signOut } = useAuth();
 const fileInputRef = useRef<HTMLInputElement | null>(null);
 const [searchParams, setSearchParams] = useSearchParams();
@@ -361,9 +363,12 @@ const clearEmailEvents = async () => {
 if (!user) return;
 
 
-const confirmed = window.confirm(
-  'Delete all synced email events? This cannot be undone.',
-);
+const confirmed = await confirm({
+      title: 'Dismiss all ignored emails?',
+      description: 'This removes all ignored emails from the recovery list.',
+      action: 'Dismiss all',
+      destructive: true,
+    });
 
 if (!confirmed) return;
 

@@ -1,3 +1,4 @@
+import { useConfirmation } from '../hooks/useConfirmation';
 import { readPrivateCv } from '../lib/privateCvFiles';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -113,6 +114,7 @@ const getScoreBadgeClass = (score?: number | null) => {
 };
 
 export const TailoredDocumentsHistoryPage: React.FC = () => {
+  const confirm = useConfirmation();
   const { user } = useAuth();
 
   const [documents, setDocuments] = useState<TailoredDocument[]>([]);
@@ -329,11 +331,14 @@ export const TailoredDocumentsHistoryPage: React.FC = () => {
   };
 
   const handleDelete = async (document: TailoredDocument) => {
-    const confirmed = window.confirm(
-      document.document_type === 'saved_builder'
-        ? 'Remove this saved Resume Builder CV from history? The CV version will remain in CV Manager, but it will no longer appear here.'
-        : 'Delete this tailored CV from your history? This will remove the generated CV result from this analysis.'
-    );
+    const confirmed = await confirm({
+      title: 'Remove CV from history?',
+      description: document.document_type === 'saved_builder'
+        ? 'This entry will be removed from history. The CV version will remain in CV Manager.'
+        : 'The generated CV result will be removed from this analysis.',
+      action: 'Remove from history',
+      destructive: true,
+    });
 
     if (!confirmed) return;
 

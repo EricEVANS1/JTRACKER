@@ -1,3 +1,4 @@
+import { Modal } from '../Modal';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -298,6 +299,7 @@ cvName,
 const navigate = useNavigate();
 
 const [jobDescription, setJobDescription] = useState('');
+const [inputError, setInputError] = useState('');
 const [copied, setCopied] = useState(false);
 const [editableGeneratedCV, setEditableGeneratedCV] = useState('');
 const [scoreHistory, setScoreHistory] = useState<ScoreHistoryItem[]>([]);
@@ -345,6 +347,7 @@ useEffect(() => {
 if (!open) {
 resetAnalysis();
 setJobDescription('');
+setInputError('');
 setCopied(false);
 setEditableGeneratedCV('');
 setScoreHistory([]);
@@ -353,16 +356,17 @@ setScoreHistory([]);
 
 const handleAnalyze = async () => {
 if (!cvVersionId) {
-alert('No CV version selected. Please select or upload a CV first.');
+setInputError('No CV version selected. Please select or upload a CV first.');
 return;
 }
 
 
 if (!jobDescription.trim()) {
-  alert('Please paste a job description first.');
+  setInputError('Please paste a job description first.');
   return;
 }
 
+setInputError('');
 await analyzeCV({
   cvVersionId,
   jobDescription: jobDescription.trim(),
@@ -398,10 +402,13 @@ if (!open) return null;
 const progress = Math.min(Math.max(progressPercent || 5, 5), 100);
 
 return (
-<> <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-
-
-  <div className="fixed inset-y-0 right-0 h-screen w-full sm:w-[880px] bg-slate-50 z-50 shadow-2xl overflow-hidden flex flex-col">
+<Modal
+  label="CV Intelligence"
+  onClose={onClose}
+  dismissOnBackdrop
+  className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-none w-full max-w-full overflow-hidden bg-slate-50 shadow-2xl backdrop:bg-black/40 sm:w-[880px]"
+>
+  <div className="flex h-full flex-col overflow-hidden">
     <div className="shrink-0 bg-white border-b border-slate-200 p-5 flex items-center justify-between z-10">
       <div className="min-w-0">
         <h2 className="text-2xl font-bold flex items-center gap-2">
@@ -448,7 +455,7 @@ return (
 
           <textarea
             value={jobDescription}
-            onChange={(e) => setJobDescription(e.target.value)}
+            onChange={(e) => { setJobDescription(e.target.value); setInputError(''); }}
             rows={10}
             placeholder="Paste the full job description here..."
             className="w-full rounded-xl border border-slate-300 p-4 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 bg-white"
@@ -499,6 +506,7 @@ return (
         </section>
       )}
 
+      {inputError && <p role="alert" className="text-sm text-red-700">{inputError}</p>}
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-red-500 mt-0.5" />
@@ -524,7 +532,7 @@ return (
       )}
     </div>
   </div>
-</>
+</Modal>
 
 
 );

@@ -1,3 +1,5 @@
+import { Modal } from '../components/Modal';
+import { useConfirmation } from '../hooks/useConfirmation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
@@ -195,6 +197,7 @@ const DropZone: React.FC<{
 };
 
 export const CVManagerPage: React.FC = () => {
+  const confirm = useConfirmation();
   const { user } = useAuth();
   const { onboardingComplete, completedSteps, refreshOnboarding } = useOnboarding();
 
@@ -440,7 +443,12 @@ export const CVManagerPage: React.FC = () => {
   const handleDelete = async (cv: CVVersion) => {
     if (!user) return;
 
-    const confirmed = window.confirm(`Delete "${cv.name}"? This cannot be undone.`);
+    const confirmed = await confirm({
+      title: 'Delete CV version?',
+      description: `“${cv.name}” will be permanently deleted. You can’t undo this.`,
+      action: 'Delete CV version',
+      destructive: true,
+    });
     if (!confirmed) return;
 
     setDeletingId(cv.id);
@@ -815,8 +823,7 @@ export const CVManagerPage: React.FC = () => {
       )}
 
       {previewUrl && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-2 sm:p-4">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-6xl h-[95vh] sm:h-[88vh] flex flex-col overflow-hidden">
+        <Modal label="CV preview" onClose={closePreview} className="m-auto bg-white rounded-3xl shadow-xl w-[calc(100%-2rem)] max-w-6xl h-[95vh] sm:h-[88vh] overflow-hidden backdrop:bg-slate-950/50"><div className="flex h-full max-h-[90vh] flex-col">
             <div className="flex items-start sm:items-center justify-between gap-3 px-4 sm:px-5 py-4 border-b border-slate-200">
               <div className="min-w-0">
                 <h3 className="text-sm font-semibold text-slate-800 break-words">
@@ -828,6 +835,7 @@ export const CVManagerPage: React.FC = () => {
               <button
                 type="button"
                 onClick={closePreview}
+                aria-label="Close CV preview"
                 className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition shrink-0"
               >
                 <X size={18} />
@@ -839,8 +847,7 @@ export const CVManagerPage: React.FC = () => {
               title={previewName}
               className="w-full flex-1 bg-slate-100"
             />
-          </div>
-        </div>
+          </div></Modal>
       )}
 
       <CVIntelligenceDrawer

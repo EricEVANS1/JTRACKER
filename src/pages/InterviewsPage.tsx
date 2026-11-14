@@ -1,3 +1,4 @@
+import { Modal } from '../components/Modal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -964,26 +965,6 @@ const InterviewDialog = ({
   const [problem, setProblem] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const firstFieldRef = useRef<HTMLSelectElement>(null);
-  const onCloseRef = useRef(onClose);
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-
-  // Once per opening: focus the first field, close on Escape, and give focus
-  // back to whatever opened the dialog.
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    firstFieldRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCloseRef.current();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      opener?.focus?.();
-    };
-  }, []);
-
   const status = interview ? interviewStatus(interview) : 'scheduled';
   const zones = useMemo(() => timeZoneOptions(viewerZone, form.timeZone), [viewerZone, form.timeZone]);
   // Active applications to choose from, plus the linked one if it's archived.
@@ -1011,14 +992,13 @@ const InterviewDialog = ({
   const set = <K extends keyof InterviewForm>(key: K, value: InterviewForm[K]) => onChange({ ...form, [key]: value });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-0 sm:items-center sm:p-4" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="interview-dialog-title"
-        onClick={(event) => event.stopPropagation()}
-        className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-lg sm:rounded-2xl"
-      >
+    <Modal
+      labelledBy="interview-dialog-title"
+      initialFocus={firstFieldRef}
+      onClose={onClose}
+      dismissOnBackdrop
+      className="mx-auto mt-auto mb-0 max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl backdrop:bg-slate-900/40 sm:m-auto sm:max-w-lg sm:rounded-2xl"
+    >
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h2 id="interview-dialog-title" className="text-lg font-semibold text-slate-900">
@@ -1164,8 +1144,7 @@ const InterviewDialog = ({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
+import { Modal } from './Modal';
 
 interface DeleteApplicationDialogProps {
   role: string;
@@ -9,21 +10,9 @@ interface DeleteApplicationDialogProps {
 }
 
 export function DeleteApplicationDialog({ role, company, onCancel, onDelete }: DeleteApplicationDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    const trigger = document.activeElement;
-    dialog?.showModal();
-    cancelRef.current?.focus();
-    return () => {
-      dialog?.close();
-      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
-    };
-  }, []);
 
   async function confirmDelete() {
     if (pending) return;
@@ -38,14 +27,11 @@ export function DeleteApplicationDialog({ role, company, onCancel, onDelete }: D
   }
 
   return (
-    <dialog
-      ref={dialogRef}
-      aria-labelledby="delete-application-title"
-      aria-describedby="delete-application-description"
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!pending) onCancel();
-      }}
+    <Modal
+      initialFocus={cancelRef}
+      labelledBy="delete-application-title"
+      describedBy="delete-application-description"
+      onClose={() => { if (!pending) onCancel(); }}
       className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl backdrop:bg-slate-950/50"
     >
       <div className="mb-4 grid size-10 place-items-center rounded-xl bg-red-50 text-red-700">
@@ -76,6 +62,6 @@ export function DeleteApplicationDialog({ role, company, onCancel, onDelete }: D
           {pending ? 'Deleting…' : 'Delete application'}
         </button>
       </div>
-    </dialog>
+    </Modal>
   );
 }

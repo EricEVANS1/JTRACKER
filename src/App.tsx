@@ -1,3 +1,4 @@
+import { ConfirmationProvider } from './components/ConfirmationProvider';
 import React from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
@@ -39,6 +40,7 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <ConfirmationProvider>
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/forgot-password" element={<PasswordRecoveryPage key="request" mode="request" />} />
@@ -144,6 +146,7 @@ const App: React.FC = () => {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        </ConfirmationProvider>
       </AuthProvider>
     </BrowserRouter>
   );
