@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { useDesktopInstall } from './hooks/useDesktopInstall';
 import { AppLayout } from './components/AppLayout';
 
 import { AuthPage } from './pages/AuthPage';
@@ -34,6 +35,7 @@ import { InterviewsPage } from './pages/InterviewsPage';
 import { OfferDetailPage, OffersPage } from './pages/OffersPage';
 
 const App: React.FC = () => {
+  const install = useDesktopInstall();
   return (
     <BrowserRouter>
       <AuthProvider>
@@ -47,7 +49,7 @@ const App: React.FC = () => {
           <Route
             element={
               <ProtectedRoute>
-                <AppLayout />
+                <AppLayout onInstall={install} />
               </ProtectedRoute>
             }
           >
