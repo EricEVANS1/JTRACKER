@@ -825,7 +825,7 @@ const handleCreateApplication = async (e: React.FormEvent) => {
 e.preventDefault();
 
 
-if (!user || !roleTitle.trim()) return;
+if (!user || !roleTitle.trim() || !companyName.trim()) return;
 
 setSaving(true);
 setError('');
@@ -956,7 +956,7 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
         <div>
           <h3 className="text-lg font-semibold mb-1">Quick Add Application</h3>
           <p className="text-sm text-slate-500">
-            Add the role fast. Attach the CV now so analytics stay accurate.
+            Enter a company and role, then save. Status defaults to Applied; other details are optional.
           </p>
         </div>
 
@@ -981,15 +981,38 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
           />
         </Field>
 
-        <Field label="Company Name">
+        <Field label="Company Name *">
           <input
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
             className={inputCls}
             placeholder="Revolut, Google, Cognizant..."
+            required
           />
         </Field>
 
+        <Field label="Status">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as ApplicationStatus)}
+            className={inputCls}
+          >
+            {statusOptions
+              .filter((option) => option.value !== 'archived')
+              .map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+          </select>
+        </Field>
+      </div>
+
+      <details className="mt-5">
+        <summary className="cursor-pointer text-sm font-medium text-slate-700 hover:text-slate-900">
+          Add optional details
+        </summary>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
         <Field label="CV Version">
           <select
             value={selectedCvId}
@@ -1019,21 +1042,7 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
           </select>
         </Field>
 
-        <Field label="Status">
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as ApplicationStatus)}
-            className={inputCls}
-          >
-            {statusOptions
-              .filter((option) => option.value !== 'archived')
-              .map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-          </select>
-        </Field>
+
 
         <Field label="Date Applied">
           <input
@@ -1054,12 +1063,8 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
         </Field>
       </div>
 
-      <details className="mt-5">
-        <summary className="cursor-pointer text-sm font-medium text-slate-700 hover:text-slate-900">
-          Add more details
-        </summary>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
+
           <Field label="Location">
             <input
               value={location}
