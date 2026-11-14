@@ -256,6 +256,7 @@ const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => getInitialS
 
 const [roleTitle, setRoleTitle] = useState('');
 const [companyName, setCompanyName] = useState('');
+const [companyWebsite, setCompanyWebsite] = useState('');
 const [selectedCvId, setSelectedCvId] = useState('');
 const [status, setStatus] = useState<ApplicationStatus>('applied');
 const [source, setSource] = useState('');
@@ -784,7 +785,11 @@ if (!user || !companyName.trim()) return null;
 
 
 const cleanName = companyName.trim();
-const domain = companyLogoDomainFromJobLink(applicationLink);
+const explicitDomain = companyWebsite.trim() ? companyLogoDomain(companyWebsite) : null;
+if (companyWebsite.trim() && !explicitDomain) {
+  throw new Error('Enter the company’s own website, not a LinkedIn or job-board URL.');
+}
+const domain = explicitDomain ?? companyLogoDomainFromJobLink(applicationLink);
 const website = domain ? `https://${domain}` : null;
 
 const { data: existingCompany, error: findError } = await supabase
@@ -867,7 +872,7 @@ const handleCreateApplication = async (e: React.FormEvent) => {
 e.preventDefault();
 
 
-if (!user || !roleTitle.trim() || !companyName.trim()) return;
+if (!user || !roleTitle.trim()) return;
 
 setSaving(true);
 setError('');
@@ -945,6 +950,7 @@ setSaving(false);
 const resetForm = () => {
 setRoleTitle('');
 setCompanyName('');
+setCompanyWebsite('');
 setSelectedCvId('');
 setStatus('applied');
 setSource('');
@@ -1002,7 +1008,7 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
         <div>
           <h3 className="text-lg font-semibold mb-1">Quick Add Application</h3>
           <p className="text-sm text-slate-500">
-            Enter a company and role, then save. Status defaults to Applied; other details are optional.
+            Add the role fast. Attach the CV now so analytics stay accurate.
           </p>
         </div>
 
@@ -1027,38 +1033,25 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
           />
         </Field>
 
-        <Field label="Company Name *">
+        <Field label="Company Name">
           <input
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
             className={inputCls}
             placeholder="Revolut, Google, Cognizant..."
-            required
           />
         </Field>
 
-        <Field label="Status">
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as ApplicationStatus)}
+        <Field label="Company Website (for logo)">
+          <input
+            value={companyWebsite}
+            onChange={(e) => setCompanyWebsite(e.target.value)}
             className={inputCls}
-          >
-            {statusOptions
-              .filter((option) => option.value !== 'archived')
-              .map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-          </select>
+            placeholder="company.com (optional)"
+            autoComplete="url"
+          />
         </Field>
-      </div>
 
-      <details className="mt-5">
-        <summary className="cursor-pointer text-sm font-medium text-slate-700 hover:text-slate-900">
-          Add optional details
-        </summary>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
         <Field label="CV Version">
           <select
             value={selectedCvId}
@@ -1088,7 +1081,21 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
           </select>
         </Field>
 
-
+        <Field label="Status">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as ApplicationStatus)}
+            className={inputCls}
+          >
+            {statusOptions
+              .filter((option) => option.value !== 'archived')
+              .map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+          </select>
+        </Field>
 
         <Field label="Date Applied">
           <input
@@ -1107,6 +1114,14 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
             placeholder="Paste job link"
           />
         </Field>
+      </div>
+
+      <details className="mt-5">
+        <summary className="cursor-pointer text-sm font-medium text-slate-700 hover:text-slate-900">
+          Add more details
+        </summary>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
           <Field label="Location">
             <input
               value={location}
