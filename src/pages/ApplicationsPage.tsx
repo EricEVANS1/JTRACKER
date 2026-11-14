@@ -1120,7 +1120,6 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
             />
           </Field>
         </div>
-        </div>
       </details>
 
       <div className="flex flex-col sm:flex-row sm:justify-end gap-3 mt-6">
