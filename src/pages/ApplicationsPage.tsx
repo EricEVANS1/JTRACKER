@@ -256,7 +256,6 @@ const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => getInitialS
 
 const [roleTitle, setRoleTitle] = useState('');
 const [companyName, setCompanyName] = useState('');
-const [companyWebsite, setCompanyWebsite] = useState('');
 const [selectedCvId, setSelectedCvId] = useState('');
 const [status, setStatus] = useState<ApplicationStatus>('applied');
 const [source, setSource] = useState('');
@@ -785,11 +784,7 @@ if (!user || !companyName.trim()) return null;
 
 
 const cleanName = companyName.trim();
-const explicitDomain = companyWebsite.trim() ? companyLogoDomain(companyWebsite) : null;
-if (companyWebsite.trim() && !explicitDomain) {
-  throw new Error('Enter the company’s own website, not a LinkedIn or job-board URL.');
-}
-const domain = explicitDomain ?? companyLogoDomain(applicationLink);
+const domain = companyLogoDomain(applicationLink);
 const website = domain ? `https://${domain}` : null;
 
 const { data: existingCompany, error: findError } = await supabase
@@ -904,7 +899,6 @@ setSaving(false);
 const resetForm = () => {
 setRoleTitle('');
 setCompanyName('');
-setCompanyWebsite('');
 setSelectedCvId('');
 setStatus('applied');
 setSource('');
@@ -993,16 +987,6 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
             onChange={(e) => setCompanyName(e.target.value)}
             className={inputCls}
             placeholder="Revolut, Google, Cognizant..."
-          />
-        </Field>
-
-        <Field label="Company Website (for logo)">
-          <input
-            value={companyWebsite}
-            onChange={(e) => setCompanyWebsite(e.target.value)}
-            className={inputCls}
-            placeholder="company.com (optional)"
-            autoComplete="url"
           />
         </Field>
 
