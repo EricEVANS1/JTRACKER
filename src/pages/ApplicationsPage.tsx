@@ -792,12 +792,17 @@ if (companyWebsite.trim() && !explicitDomain) {
 const domain = explicitDomain ?? companyLogoDomainFromJobLink(applicationLink);
 const website = domain ? `https://${domain}` : null;
 
-const { data: existingCompany, error: findError } = await supabase
+const { data: matchingCompanies, error: findError } = await supabase
   .from('companies')
-  .select('id, website')
+  .select('id, name, website')
   .eq('user_id', user.id)
-  .ilike('name', cleanName)
-  .maybeSingle();
+  .ilike('name', cleanName);
+
+// ilike treats % and _ as wildcards. Match the actual name before reusing
+// a company so an unusual company name cannot link to the wrong record.
+const existingCompany = matchingCompanies?.find(
+  (company) => company.name.toLocaleLowerCase() === cleanName.toLocaleLowerCase()
+);
 
 if (findError) throw new Error(findError.message);
 if (existingCompany) {
@@ -926,7 +931,9 @@ try {
   }
 
   // Resolve the company logo asynchronously if no trusted domain was supplied.
-  if (companyId && companyName.trim()) {
+  if (companyId && companyName.trim() &&
+      !companyLogoDomain(companyWebsite) &&
+      !companyLogoDomainFromJobLink(applicationLink)) {
     void resolveCompanyWebsite(companyId, companyName.trim());
   }
   resetForm();
