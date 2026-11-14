@@ -32,6 +32,7 @@ type ReachedStage,
 } from '../lib/applicationLifecycle';
 import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
 import { CompanyLogo } from '../components/CompanyLogo';
+import { companyLogoDomain } from '../lib/companyLogo';
 import { offerStatusForDecision } from '../lib/offers';
 
 type ApplicationStatus =
@@ -255,6 +256,7 @@ const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => getInitialS
 
 const [roleTitle, setRoleTitle] = useState('');
 const [companyName, setCompanyName] = useState('');
+const [companyWebsite, setCompanyWebsite] = useState('');
 const [selectedCvId, setSelectedCvId] = useState('');
 const [status, setStatus] = useState<ApplicationStatus>('applied');
 const [source, setSource] = useState('');
@@ -783,20 +785,37 @@ if (!user || !companyName.trim()) return null;
 
 
 const cleanName = companyName.trim();
+const explicitDomain = companyWebsite.trim() ? companyLogoDomain(companyWebsite) : null;
+if (companyWebsite.trim() && !explicitDomain) {
+  throw new Error('Enter the company’s own website, not a LinkedIn or job-board URL.');
+}
+const domain = explicitDomain ?? companyLogoDomain(applicationLink);
+const website = domain ? `https://${domain}` : null;
 
 const { data: existingCompany, error: findError } = await supabase
   .from('companies')
-  .select('id')
+  .select('id, website')
   .eq('user_id', user.id)
   .ilike('name', cleanName)
   .maybeSingle();
 
 if (findError) throw new Error(findError.message);
-if (existingCompany) return existingCompany.id;
+if (existingCompany) {
+  // Preserve any previously confirmed domain. Only fill in missing websites.
+  if (website && !existingCompany.website) {
+    const { error: updateError } = await supabase
+      .from('companies')
+      .update({ website })
+      .eq('user_id', user.id)
+      .eq('id', existingCompany.id);
+    if (updateError) throw new Error(updateError.message);
+  }
+  return existingCompany.id;
+}
 
 const { data: newCompany, error: companyError } = await supabase
   .from('companies')
-  .insert({ user_id: user.id, name: cleanName })
+  .insert({ user_id: user.id, name: cleanName, website })
   .select('id')
   .single();
 
@@ -885,6 +904,7 @@ setSaving(false);
 const resetForm = () => {
 setRoleTitle('');
 setCompanyName('');
+setCompanyWebsite('');
 setSelectedCvId('');
 setStatus('applied');
 setSource('');
@@ -973,6 +993,16 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
             onChange={(e) => setCompanyName(e.target.value)}
             className={inputCls}
             placeholder="Revolut, Google, Cognizant..."
+          />
+        </Field>
+
+        <Field label="Company Website (for logo)">
+          <input
+            value={companyWebsite}
+            onChange={(e) => setCompanyWebsite(e.target.value)}
+            className={inputCls}
+            placeholder="company.com (optional)"
+            autoComplete="url"
           />
         </Field>
 
@@ -1443,7 +1473,7 @@ const lifecycleSteps = [
 { label: 'Offer', date: app.offer_received_at },
 ];
 
-return ( <div className="group bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md transition overflow-hidden"> <div className="p-4 sm:p-5"> <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4"> <div className="flex items-start gap-3 min-w-0"> <CompanyLogo website={app.companies?.website} size={40} fallback={<div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center"> <Briefcase size={18} className="text-slate-600" /> </div>} />
+return ( <div className="group bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md transition overflow-hidden"> <div className="p-4 sm:p-5"> <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4"> <div className="flex items-start gap-3 min-w-0"> <CompanyLogo website={app.companies?.website} applicationLink={app.application_link} size={40} fallback={<div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center"> <Briefcase size={18} className="text-slate-600" /> </div>} />
 
 
         <div className="min-w-0">
