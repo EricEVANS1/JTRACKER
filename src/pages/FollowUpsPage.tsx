@@ -1,3 +1,5 @@
+import { Modal } from '../components/Modal';
+import { useConfirmation } from '../hooks/useConfirmation';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
@@ -235,6 +237,7 @@ const buildFollowUpMessage = (app: FollowUpItem, signatureName: string) => {
 };
 
 export const FollowUpsPage: React.FC = () => {
+  const confirm = useConfirmation();
   const { user } = useAuth();
   const { onboardingComplete, completedSteps, refreshOnboarding } = useOnboarding();
 
@@ -506,9 +509,11 @@ export const FollowUpsPage: React.FC = () => {
   const handleMarkGhosted = async (app: ApplicationItem) => {
     if (!user) return;
 
-    const confirmed = window.confirm(
-      `Mark ${app.role_title} as ghosted? This will remove it from the active follow-up queue.`
-    );
+    const confirmed = await confirm({
+      title: 'Mark as ghosted?',
+      description: `“${app.role_title}” will be removed from the active follow-up queue.`,
+      action: 'Mark as ghosted',
+    });
 
     if (!confirmed) return;
 
@@ -895,8 +900,7 @@ const MessageModal = ({
   onCopy: () => void;
   onClose: () => void;
 }) => (
-  <div className="fixed inset-0 z-50 bg-slate-950/40 p-4 flex items-center justify-center">
-    <div className="w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-xl border border-slate-200">
+  <Modal label="Follow-up message" onClose={onClose} className="m-auto w-[calc(100%-2rem)] max-w-3xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-xl border border-slate-200 backdrop:bg-slate-950/50">
       <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-slate-900 break-words">
@@ -910,6 +914,7 @@ const MessageModal = ({
         <button
           type="button"
           onClick={onClose}
+          aria-label="Close follow-up message"
           className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
         >
           <X size={18} />
@@ -944,8 +949,7 @@ const MessageModal = ({
           </a>
         </div>
       </div>
-    </div>
-  </div>
+    </Modal>
 );
 
 const AlertBox = ({

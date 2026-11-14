@@ -1,3 +1,4 @@
+import { useConfirmation } from '../../hooks/useConfirmation';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
 AlertTriangle,
@@ -138,6 +139,7 @@ onUpdate,
 onSave,
 onOpenEmailEvents,
 }) => {
+const confirm = useConfirmation();
 const { user } = useAuth();
 
 const [sessions, setSessions] = useState<EmailSyncSession[]>([]);
@@ -261,9 +263,12 @@ const handleDismissAllIgnored = async () => {
 if (!user || ignoredEmails.length === 0) return;
 
 
-const confirmed = window.confirm(
-  'Dismiss all ignored emails? This removes them from the recovery list.',
-);
+const confirmed = await confirm({
+      title: 'Delete all synced email events?',
+      description: 'This permanently removes all synced email events from JTracker.',
+      action: 'Delete email events',
+      destructive: true,
+    });
 
 if (!confirmed) return;
 

@@ -1,3 +1,4 @@
+import { useConfirmation } from '../hooks/useConfirmation';
 import { DeleteApplicationDialog } from '../components/DeleteApplicationDialog';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -121,6 +122,7 @@ const inputCls =
   'w-full border border-slate-200 rounded-xl pl-10 pr-3 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition';
 
 export const ArchivedApplicationsPage: React.FC = () => {
+  const confirm = useConfirmation();
   const { user } = useAuth();
 
   const [applications, setApplications] = useState<ArchivedApplication[]>([]);
@@ -237,9 +239,11 @@ export const ArchivedApplicationsPage: React.FC = () => {
       ? getFurthestActiveStatus(application)
       : application.status;
 
-    const confirmed = window.confirm(
-      `Restore this application to your active pipeline as "${formatStatus(restoredStatus)}"?`
-    );
+    const confirmed = await confirm({
+      title: 'Restore application?',
+      description: `“${application.role_title}” will return to your active pipeline as ${formatStatus(restoredStatus)}.`,
+      action: 'Restore application',
+    });
 
     if (!confirmed) return;
 

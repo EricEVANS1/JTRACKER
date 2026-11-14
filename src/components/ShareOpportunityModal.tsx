@@ -1,3 +1,4 @@
+import { Modal } from './Modal';
 import React, { useMemo, useState } from 'react';
 import {
   AlertCircle,
@@ -169,8 +170,7 @@ export const ShareOpportunityModal: React.FC<Props> = ({ application, open, onCl
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-2xl overflow-hidden">
+    <Modal label="Share opportunity" onClose={onClose} className="m-auto bg-white rounded-2xl shadow-xl border border-slate-200 w-[calc(100%-2rem)] max-w-2xl overflow-hidden backdrop:bg-slate-950/50">
         <div className="p-5 border-b border-slate-200 flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -182,7 +182,7 @@ export const ShareOpportunityModal: React.FC<Props> = ({ application, open, onCl
             </p>
           </div>
 
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500">
+          <button type="button" aria-label="Close share dialog" onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500">
             <X size={18} />
           </button>
         </div>
@@ -270,8 +270,7 @@ export const ShareOpportunityModal: React.FC<Props> = ({ application, open, onCl
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </Modal>
   );
 };
 

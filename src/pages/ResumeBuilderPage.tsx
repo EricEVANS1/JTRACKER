@@ -1,3 +1,5 @@
+import { Modal } from '../components/Modal';
+import { useConfirmation } from '../hooks/useConfirmation';
 // src/pages/ResumeBuilderPage.tsx
 // Resume Builder — integrated into JTracker design system.
 // Matches AppLayout's bg-slate-50, sidebar nav, slate-900 accents.
@@ -1891,6 +1893,7 @@ export const ResumeBuilderPage: React.FC = () => {
       ? rawAnalysisId
       : undefined;
   const navigate = useNavigate();
+  const confirm = useConfirmation();
   const location = useLocation();
   // A tailored CV handed over by the Resume Builder Flow page through
   // navigation state (kept in memory, never in browser storage).
@@ -2250,10 +2253,16 @@ export const ResumeBuilderPage: React.FC = () => {
       if (url.origin !== window.location.origin) return;
       if (url.pathname === window.location.pathname && url.search === window.location.search) return;
 
-      if (!window.confirm(LEAVE_MESSAGE)) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
+      event.preventDefault();
+      event.stopPropagation();
+      void confirm({
+        title: 'Leave Resume Builder?',
+        description: LEAVE_MESSAGE,
+        action: 'Leave editor',
+        cancelLabel: 'Keep editing',
+      }).then((leave) => {
+        if (leave) navigate(url.pathname + url.search + url.hash);
+      });
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
@@ -2263,10 +2272,15 @@ export const ResumeBuilderPage: React.FC = () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('click', handleLinkClick, true);
     };
-  }, [isDirty]);
+  }, [confirm, isDirty, navigate]);
 
-  const leaveTo = (path: string) => {
-    if (isDirty && !window.confirm(LEAVE_MESSAGE)) return;
+  const leaveTo = async (path: string) => {
+    if (isDirty && !await confirm({
+      title: 'Leave Resume Builder?',
+      description: LEAVE_MESSAGE,
+      action: 'Leave editor',
+      cancelLabel: 'Keep editing',
+    })) return;
     navigate(path);
   };
 
@@ -3421,8 +3435,7 @@ const BulletImprovementReviewModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div className="w-full max-w-5xl max-h-[90vh] rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden flex flex-col">
+    <Modal label="Review JD Improvements" onClose={onClose} className="m-auto w-[calc(100%-2rem)] max-w-5xl max-h-[90vh] rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden backdrop:bg-slate-950/50"><div className="flex h-full max-h-[90vh] flex-col">
 
         {/* Header */}
         <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-100">
@@ -3589,8 +3602,7 @@ const BulletImprovementReviewModal: React.FC<{
           </div>
         </div>
 
-      </div>
-    </div>
+      </div></Modal>
   );
 };
 // ============================================================
@@ -3601,11 +3613,10 @@ const CustomSectionModal: React.FC<{ onClose: () => void; onAdd: (s: CustomSecti
   const [type, setType] = useState<CustomSectionType>('text');
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl">
+    <Modal label="Add Custom Section" onClose={onClose} className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl backdrop:bg-slate-950/50">
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <h2 className="text-lg font-semibold text-slate-900">Add Custom Section</h2>
-          <button type="button" onClick={onClose} className="p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"><X size={18} /></button>
+          <button type="button" onClick={onClose} aria-label="Close custom section dialog" className="p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"><X size={18} /></button>
         </div>
         <div className="p-5 space-y-4">
           <Field label="Section Name" value={title} onChange={setTitle} placeholder="e.g. Publications, Volunteer Work" />
@@ -3630,7 +3641,6 @@ const CustomSectionModal: React.FC<{ onClose: () => void; onAdd: (s: CustomSecti
             <Plus size={14} />Add Section
           </button>
         </div>
-      </div>
-    </div>
+      </Modal>
   );
 };
