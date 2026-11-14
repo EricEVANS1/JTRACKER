@@ -7,15 +7,15 @@ const cors = {
   'Content-Type': 'application/json',
 };
 const reply = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: cors });
-const normalized = (s: string) => s.toLowerCase().normalize('NFKC').replace(/[^\\p{L}\\p{N}]+/gu, ' ').trim().replace(/\\s+/g, ' ');
-const validDomain = (s: string) => /^(?:[a-z0-9-]+\\.)+[a-z]{2,}$/i.test(s) && s.length <= 253;
+const normalized = (s: string) => s.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s+/g, ' ');
+const validDomain = (s: string) => /^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(s) && s.length <= 253;
 const blocked = ['linkedin.com', 'indeed.com', 'greenhouse.io', 'lever.co', 'myworkdayjobs.com', 'workday.com', 'facebook.com', 'github.com'];
 const isBlocked = (d: string) => blocked.some((b) => d === b || d.endsWith('.' + b));
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
   if (request.method !== 'POST') return reply({ error: 'Method not allowed' }, 405);
-  const jwt = request.headers.get('authorization')?.replace(/^Bearer\\s+/i, '');
+  const jwt = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
   if (!jwt) return reply({ error: 'Authentication required' }, 401);
   const url = Deno.env.get('SUPABASE_URL');
   const anon = Deno.env.get('SUPABASE_ANON_KEY');
