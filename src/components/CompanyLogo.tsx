@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 import {
   companyLogoDomain,
+  companyLogoDomainFromJobLink,
   companyLogoSources,
   getResolvedLogo,
   MIN_LOGO_SIZE,
@@ -24,7 +25,7 @@ interface CompanyLogoProps {
 export const CompanyLogo: React.FC<CompanyLogoProps> = (props) => {
   // A direct employer job URL can identify the company when its website field
   // was not filled out. LinkedIn/Workday/etc. will be rejected by the parser.
-  const domain = companyLogoDomain(props.website) ?? companyLogoDomain(props.applicationLink);
+  const domain = companyLogoDomain(props.website) ?? companyLogoDomainFromJobLink(props.applicationLink);
   // A different company starts its lookup afresh.
   return <CompanyLogoImage key={domain ?? 'none'} {...props} domain={domain} />;
 };
