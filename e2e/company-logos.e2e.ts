@@ -110,7 +110,8 @@ test('an existing company website can be entered on the Companies page', async (
   const field = page.getByRole('textbox', { name: 'Company website for Umbrella' }).first();
   await field.fill('https://umbrella.test/about');
   await page.getByRole('button', { name: 'Save', exact: true }).first().click();
-  expect(supabase.writes('companies')).toEqual(expect.arrayContaining([
+  // The save is sent after the click returns; wait for it rather than checking at once.
+  await expect.poll(() => supabase.writes('companies')).toEqual(expect.arrayContaining([
     expect.objectContaining({ method: 'PATCH', body: { website: 'https://umbrella.test' } }),
   ]));
 });
