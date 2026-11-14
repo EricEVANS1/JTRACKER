@@ -54,7 +54,7 @@ export const companyLogoDomainFromJobLink = (link: string | null | undefined): s
   if (domain !== 'google.com') return domain;
   try {
     const url = new URL(link!);
-    return /^\\/(?:about\\/careers|careers|jobs)(?:\\/|$)/i.test(url.pathname) ? domain : null;
+    return /^\/(?:about\/careers|careers|jobs)(?:\/|$)/i.test(url.pathname) ? domain : null;
   } catch {
     return null;
   }
