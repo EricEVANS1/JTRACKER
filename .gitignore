@@ -9,3 +9,6 @@ playwright-report/
 
 # Build output (Vercel and CI build it from source)
 dist/
+
+# Supabase CLI local state (project ref, pooler address)
+supabase/.temp/

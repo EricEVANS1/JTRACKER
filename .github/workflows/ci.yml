@@ -47,7 +47,9 @@ jobs:
 
   e2e:
     name: Browser tests
-    runs-on: ubuntu-latest
+    # Playwright 1.56 can't install Chromium on ubuntu-latest (Ubuntu 26.04);
+    # move back to ubuntu-latest once a Playwright upgrade supports it.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
