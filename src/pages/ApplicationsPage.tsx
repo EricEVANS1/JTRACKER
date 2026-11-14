@@ -825,21 +825,41 @@ return newCompany.id;
 // The Edge Function uses a server-side secret and only returns unambiguous exact matches.
 const resolveCompanyWebsite = async (companyId: string, name: string) => {
   try {
+    // Pass the active user's access token explicitly. The Edge Function verifies
+    // it with auth.getUser(), even when gateway legacy JWT verification is off.
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session?.access_token) {
+      console.warn('[company-logo] No authenticated session for logo lookup');
+      return;
+    }
     const { data, error: lookupError } = await supabase.functions.invoke('resolve-company-logo', {
       body: { companyName: name },
+      headers: { Authorization: `Bearer ${session.access_token}` },
     });
-    if (lookupError || typeof data?.domain !== 'string') return;
+    if (lookupError) {
+      console.warn('[company-logo] Lookup request failed', lookupError.message);
+      return;
+    }
+    if (typeof data?.domain !== 'string') {
+      console.info('[company-logo] No matching domain', data?.reason ?? 'unknown');
+      return;
+    }
     const domain = companyLogoDomain(data.domain);
     if (!domain) return;
-    const { data: company } = await supabase.from('companies')
-      .select('website').eq('id', companyId).eq('user_id', user!.id).maybeSingle();
-    if (!company || company.website) return;
+    const { data: company, error: companyError } = await supabase.from('companies')
+      .select('website').eq('id', companyId).eq('user_id', session.user.id).maybeSingle();
+    if (companyError || !company || company.website) return;
     const { error: updateError } = await supabase.from('companies')
       .update({ website: `https://${domain}` })
-      .eq('id', companyId).eq('user_id', user!.id).is('website', null);
-    if (!updateError) await fetchApplications();
-  } catch {
-    // Logo enrichment is optional: never block recording an application.
+      .eq('id', companyId).eq('user_id', session.user.id).is('website', null);
+    if (updateError) {
+      console.warn('[company-logo] Could not save company domain', updateError.message);
+      return;
+    }
+    await fetchApplications();
+  } catch (error) {
+    // Enrichment is optional: application creation must always succeed.
+    console.warn('[company-logo] Unexpected lookup failure', error instanceof Error ? error.message : 'unknown');
   }
 };
 
