@@ -32,7 +32,7 @@ type ReachedStage,
 } from '../lib/applicationLifecycle';
 import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
 import { CompanyLogo } from '../components/CompanyLogo';
-import { companyLogoDomain } from '../lib/companyLogo';
+import { companyLogoDomainFromJobLink } from '../lib/companyLogo';
 import { offerStatusForDecision } from '../lib/offers';
 
 type ApplicationStatus =
@@ -784,7 +784,7 @@ if (!user || !companyName.trim()) return null;
 
 
 const cleanName = companyName.trim();
-const domain = companyLogoDomain(applicationLink);
+const domain = companyLogoDomainFromJobLink(applicationLink);
 const website = domain ? `https://${domain}` : null;
 
 const { data: existingCompany, error: findError } = await supabase
