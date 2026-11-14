@@ -1,3 +1,4 @@
+import { DeleteApplicationDialog } from '../components/DeleteApplicationDialog';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -246,6 +247,7 @@ const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
 
 const [error, setError] = useState('');
 const [message, setMessage] = useState('');
+const [applicationToDelete, setApplicationToDelete] = useState<Application | null>(null);
 const [search, setSearch] = useState('');
 const [searchParams] = useSearchParams();
 const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => getInitialStatusFilter(searchParams));
@@ -562,35 +564,22 @@ if (saved && user) {
 };
 
 const handleDeleteApplication = async (applicationId: string) => {
-if (!user) return;
+  if (!user) throw new Error('Please sign in again.');
 
+  setError('');
+  setMessage('');
 
-const application = applications.find((app) => app.id === applicationId);
+  const { error } = await supabase
+    .from('applications')
+    .delete()
+    .eq('id', applicationId)
+    .eq('user_id', user.id);
 
-const confirmed = window.confirm(
-  `Delete "${application?.role_title || 'this application'}"? This cannot be undone.`
-);
+  if (error) throw new Error(error.message);
 
-if (!confirmed) return;
-
-setError('');
-setMessage('');
-
-const { error } = await supabase
-  .from('applications')
-  .delete()
-  .eq('id', applicationId)
-  .eq('user_id', user.id);
-
-if (error) {
-  setError(error.message);
-  return;
-}
-
-setApplications((prev) => prev.filter((app) => app.id !== applicationId));
-setMessage('Application deleted successfully.');
-
-
+  setApplications((prev) => prev.filter((app) => app.id !== applicationId));
+  setMessage('Application deleted successfully.');
+  setApplicationToDelete(null);
 };
 
 const openShareModal = (
@@ -1207,7 +1196,7 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
           updating={statusUpdatingId === app.id}
           onStatusChange={handleStatusChange}
           onShare={openShareModal}
-          onDelete={handleDeleteApplication}
+          onDelete={() => setApplicationToDelete(app)}
           onMarkInterviewReached={handleMarkInterviewReached}
           onMarkAwaitingFinalResponse={handleMarkAwaitingFinalResponse}
           onMarkRejectedAfterInterview={handleMarkRejectedAfterInterview}
@@ -1215,6 +1204,15 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
         />
       ))}
     </div>
+  )}
+
+  {applicationToDelete && (
+    <DeleteApplicationDialog
+      role={applicationToDelete.role_title || 'This application'}
+      company={applicationToDelete.companies?.name}
+      onCancel={() => setApplicationToDelete(null)}
+      onDelete={() => handleDeleteApplication(applicationToDelete.id)}
+    />
   )}
 
   {shareModalOpen && selectedShareApp && (

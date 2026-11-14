@@ -1,3 +1,4 @@
+import { DeleteApplicationDialog } from '../components/DeleteApplicationDialog';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
@@ -126,7 +127,7 @@ export const ArchivedApplicationsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [deletingId, setDeletingId] = useState('');
+  const [applicationToDelete, setApplicationToDelete] = useState<ArchivedApplication | null>(null);
   const [restoringId, setRestoringId] = useState('');
 
   const [error, setError] = useState('');
@@ -279,13 +280,8 @@ export const ArchivedApplicationsPage: React.FC = () => {
   };
 
   const handleDeleteApplication = async (application: ArchivedApplication) => {
-    const confirmed = window.confirm(
-      `Permanently delete "${application.role_title}"? This cannot be undone.`
-    );
+    if (!user) throw new Error('Please sign in again.');
 
-    if (!confirmed || !user) return;
-
-    setDeletingId(application.id);
     setError('');
     setMessage('');
 
@@ -296,18 +292,14 @@ export const ArchivedApplicationsPage: React.FC = () => {
       .eq('user_id', user.id)
       .or('archived.eq.true,status.eq.archived');
 
-    if (error) {
-      setError(error.message);
-      setDeletingId('');
-      return;
-    }
+    if (error) throw new Error(error.message);
 
     setApplications((prev) =>
       prev.filter((item) => item.id !== application.id)
     );
 
     setMessage('Archived application permanently deleted.');
-    setDeletingId('');
+    setApplicationToDelete(null);
   };
 
   if (loading) {
@@ -316,6 +308,14 @@ export const ArchivedApplicationsPage: React.FC = () => {
 
   return (
     <div className="w-full max-w-full overflow-hidden">
+      {applicationToDelete && (
+        <DeleteApplicationDialog
+          role={applicationToDelete.role_title}
+          company={Array.isArray(applicationToDelete.companies) ? applicationToDelete.companies[0]?.name : applicationToDelete.companies?.name}
+          onCancel={() => setApplicationToDelete(null)}
+          onDelete={() => handleDeleteApplication(applicationToDelete)}
+        />
+      )}
       <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-6 mb-8">
         <div className="min-w-0">
           <div className="flex items-center gap-3 mb-2">
@@ -447,10 +447,9 @@ export const ArchivedApplicationsPage: React.FC = () => {
                     <td className="px-4 py-4">
                       <ApplicationActions
                         application={application}
-                        deleting={deletingId === application.id}
                         restoring={restoringId === application.id}
                         onRestore={handleRestoreApplication}
-                        onDelete={handleDeleteApplication}
+                        onDelete={setApplicationToDelete}
                       />
                     </td>
                   </tr>
@@ -517,10 +516,9 @@ export const ArchivedApplicationsPage: React.FC = () => {
                 <div className="mt-4">
                   <ApplicationActions
                     application={application}
-                    deleting={deletingId === application.id}
                     restoring={restoringId === application.id}
                     onRestore={handleRestoreApplication}
-                    onDelete={handleDeleteApplication}
+                    onDelete={setApplicationToDelete}
                   />
                 </div>
               </div>
@@ -534,13 +532,11 @@ export const ArchivedApplicationsPage: React.FC = () => {
 
 const ApplicationActions = ({
   application,
-  deleting,
   restoring,
   onRestore,
   onDelete,
 }: {
   application: ArchivedApplication;
-  deleting: boolean;
   restoring: boolean;
   onRestore: (application: ArchivedApplication) => void;
   onDelete: (application: ArchivedApplication) => void;
@@ -567,7 +563,7 @@ const ApplicationActions = ({
 
     <button
       onClick={() => onRestore(application)}
-      disabled={restoring || deleting}
+      disabled={restoring}
       className="inline-flex items-center justify-center gap-1 text-emerald-700 hover:text-emerald-900 text-sm disabled:opacity-50 w-full sm:w-auto"
     >
       <RotateCcw size={15} />
@@ -576,11 +572,11 @@ const ApplicationActions = ({
 
     <button
       onClick={() => onDelete(application)}
-      disabled={deleting || restoring}
+      disabled={restoring}
       className="inline-flex items-center justify-center gap-1 text-red-600 hover:text-red-800 text-sm disabled:opacity-50 w-full sm:w-auto"
     >
       <Trash2 size={15} />
-      {deleting ? 'Deleting...' : 'Delete'}
+      Delete
     </button>
   </div>
 );
