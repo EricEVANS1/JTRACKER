@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Clock3,
   Columns3,
+  Download,
   FileText,
   LayoutDashboard,
   Menu,
@@ -24,7 +25,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { OfferCelebration } from './OfferCelebration';
 import { supabase } from '../lib/supabase';
 
-export const AppLayout: React.FC = () => {
+export const AppLayout: React.FC<{ onInstall?: () => void }> = ({ onInstall }) => {
   const { user, signOut } = useAuth();
   const location = useLocation();
 
@@ -247,6 +248,17 @@ export const AppLayout: React.FC = () => {
         <p className="text-xs text-slate-500 truncate mb-3 break-all">
           {user?.email}
         </p>
+
+        {onInstall && (
+          <button
+            type="button"
+            onClick={onInstall}
+            className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+          >
+            <Download size={16} />
+            Install JTracker
+          </button>
+        )}
 
         <button
           onClick={signOut}
