@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { companyLogoDomain, companyLogoSources } from './companyLogo';
+import { companyLogoDomain, companyLogoDomainFromJobLink, companyLogoSources } from './companyLogo';
 
 describe('companyLogoDomain', () => {
   it("takes the company's own domain from its website", () => {
@@ -47,5 +47,19 @@ describe('companyLogoSources', () => {
       'https://acme.com/apple-touch-icon.png',
       'https://acme.com/favicon.ico',
     ]);
+  });
+});
+
+
+describe('Google company logo detection', () => {
+  it('accepts Google as an explicitly saved employer website', () => {
+    expect(companyLogoDomain('https://google.com/about/careers/applications/')).toBe('google.com');
+  });
+
+  it('does not mistake generic Google links for employer job links', () => {
+    expect(companyLogoDomainFromJobLink('https://www.google.com/search?q=software+engineer')).toBeNull();
+    expect(companyLogoDomainFromJobLink('https://google.com/url?q=https://example.com')).toBeNull();
+    expect(companyLogoDomainFromJobLink('https://www.google.com/about/careers/applications/')).toBe('google.com');
+    expect(companyLogoDomainFromJobLink('https://www.linkedin.com/jobs/view/123')).toBeNull();
   });
 });
