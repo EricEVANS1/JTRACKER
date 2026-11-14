@@ -6,7 +6,8 @@ describe('companyLogoDomain', () => {
   it("takes the company's own domain from its website", () => {
     expect(companyLogoDomain('https://www.acme.com/careers?ref=x')).toBe('acme.com');
     expect(companyLogoDomain('acme.co.uk')).toBe('acme.co.uk');
-    expect(companyLogoDomain('http://Jobs.Globex.PL/')).toBe('jobs.globex.pl');
+    expect(companyLogoDomain('http://Jobs.Globex.PL/')).toBe('globex.pl');
+    expect(companyLogoDomain('https://careers.acme.co.uk/jobs/123')).toBe('acme.co.uk');
     expect(companyLogoDomain('  https://www2.initech.com  ')).toBe('initech.com');
   });
 
@@ -33,7 +34,15 @@ describe('companyLogoDomain', () => {
 });
 
 describe('companyLogoSources', () => {
-  it("lists the site's own icons, best first", () => {
+  it('uses a configured Logo.dev publishable key and keeps website fallbacks', () => {
+    expect(companyLogoSources('acme.com', 'public token', 96)).toEqual([
+      'https://img.logo.dev/acme.com?token=public+token&size=96&fallback=404',
+      'https://acme.com/apple-touch-icon.png',
+      'https://acme.com/favicon.ico',
+    ]);
+  });
+
+  it('uses the site icons without a publishable key', () => {
     expect(companyLogoSources('acme.com')).toEqual([
       'https://acme.com/apple-touch-icon.png',
       'https://acme.com/favicon.ico',

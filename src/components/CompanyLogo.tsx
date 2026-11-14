@@ -10,6 +10,7 @@ import {
 
 interface CompanyLogoProps {
   website?: string | null;
+  applicationLink?: string | null;
   // Shown when there's no logo: the card's usual icon tile.
   fallback: React.ReactNode;
   // Tile size in pixels.
@@ -21,7 +22,9 @@ interface CompanyLogoProps {
 // straight away and stays if the website doesn't identify the company, or the
 // icon is missing, fails or is too small to look sharp.
 export const CompanyLogo: React.FC<CompanyLogoProps> = (props) => {
-  const domain = companyLogoDomain(props.website);
+  // A direct employer job URL can identify the company when its website field
+  // was not filled out. LinkedIn/Workday/etc. will be rejected by the parser.
+  const domain = companyLogoDomain(props.website) ?? companyLogoDomain(props.applicationLink);
   // A different company starts its lookup afresh.
   return <CompanyLogoImage key={domain ?? 'none'} {...props} domain={domain} />;
 };
@@ -33,7 +36,7 @@ const CompanyLogoImage: React.FC<CompanyLogoProps & { domain: string | null }> =
   className = '',
 }) => {
   const known = domain ? getResolvedLogo(domain) : null;
-  const sources = domain ? companyLogoSources(domain) : [];
+  const sources = domain ? companyLogoSources(domain, import.meta.env.VITE_LOGO_DEV_PUBLISHABLE_KEY, Math.max(size * 2, 64)) : [];
 
   // The source being tried, or the one that already worked on this page.
   const [attempt, setAttempt] = useState(() => (known ? Math.max(sources.indexOf(known), 0) : 0));

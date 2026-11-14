@@ -312,6 +312,14 @@ export const AppLayout: React.FC<{ onInstall?: () => void }> = ({ onInstall }) =
         <ErrorBoundary resetKey={location.pathname}>
           <Outlet />
         </ErrorBoundary>
+        {import.meta.env.VITE_LOGO_DEV_PUBLISHABLE_KEY && (
+          <footer className="mt-10 border-t border-slate-200 pt-4 text-right text-xs text-slate-500">
+            Logos provided by{' '}
+            <a className="underline hover:text-slate-700" href="https://www.logo.dev" target="_blank" rel="noopener noreferrer">
+              Logo.dev
+            </a>
+          </footer>
+        )}
       </main>
 
       <OfferCelebration />

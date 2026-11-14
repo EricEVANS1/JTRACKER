@@ -14,6 +14,8 @@ X,
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { CompanyLogo } from '../components/CompanyLogo';
+import { companyLogoDomain } from '../lib/companyLogo';
 
 interface CompanyJoin {
 id: string;
@@ -516,7 +518,7 @@ return ( <div className="w-full max-w-full overflow-hidden"> <div className="fle
                 <React.Fragment key={company.id}>
                   <tr className="border-b border-slate-100 hover:bg-slate-50/60 transition">
                     <td className="px-4 py-4">
-                      <CompanyTitle company={company} />
+                      <CompanyTitle company={company} onSaved={fetchApplications} />
                     </td>
 
                     <NumberCell value={company.applications} />
@@ -567,7 +569,7 @@ return ( <div className="w-full max-w-full overflow-hidden"> <div className="fle
             >
               <div className="p-4">
                 <div className="flex items-start justify-between gap-4">
-                  <CompanyTitle company={company} />
+                  <CompanyTitle company={company} onSaved={fetchApplications} />
 
                   <button
                     type="button"
@@ -606,14 +608,42 @@ return ( <div className="w-full max-w-full overflow-hidden"> <div className="fle
 );
 };
 
-const CompanyTitle = ({ company }: { company: CompanyStats }) => (
+const CompanyTitle = ({ company, onSaved }: { company: CompanyStats; onSaved: () => Promise<void> }) => {
+  const { user } = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [websiteDraft, setWebsiteDraft] = useState(company.website || '');
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState('');
 
-  <div className="flex items-start gap-3 min-w-0">
-    <div className="bg-slate-100 rounded-xl p-2.5 shrink-0">
-      <Building2 size={18} className="text-slate-600" />
-    </div>
+  const saveWebsite = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!user) return;
+    const domain = websiteDraft.trim() ? companyLogoDomain(websiteDraft) : null;
+    if (websiteDraft.trim() && !domain) {
+      setEditError('Use the employer’s own website, not a job board.');
+      return;
+    }
+    setSaving(true);
+    setEditError('');
+    const { error } = await supabase.from('companies')
+      .update({ website: domain ? `https://${domain}` : null })
+      .eq('user_id', user.id).eq('id', company.id);
+    if (error) {
+      setEditError(error.message);
+    } else {
+      setEditing(false);
+      await onSaved();
+    }
+    setSaving(false);
+  };
 
-<div className="min-w-0">
+  return <div className="flex items-start gap-3 min-w-0">
+    <CompanyLogo
+      website={company.website}
+      size={40}
+      fallback={<div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center"><Building2 size={18} className="text-slate-600" /></div>}
+    />
+<div className="min-w-0 flex-1">
   <h3 className="font-semibold text-slate-950 break-words">
     {company.name}
   </h3>
@@ -633,12 +663,36 @@ const CompanyTitle = ({ company }: { company: CompanyStats }) => (
         <ExternalLink size={12} />
       </a>
     )}
+    <button
+      type="button"
+      onClick={() => { setEditing(!editing); setWebsiteDraft(company.website || ''); setEditError(''); }}
+      className="text-indigo-600 underline hover:text-indigo-800"
+      aria-label={`Edit website for ${company.name}`}
+    >
+      {company.website ? 'Edit website' : 'Add website for logo'}
+    </button>
   </div>
+  {editing && (
+    <form onSubmit={saveWebsite} className="mt-2 flex flex-wrap items-center gap-2">
+      <input
+        aria-label={`Company website for ${company.name}`}
+        value={websiteDraft}
+        onChange={(event) => setWebsiteDraft(event.target.value)}
+        className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+        placeholder="company.com"
+        autoComplete="url"
+      />
+      <button type="submit" disabled={saving} className="rounded-lg bg-slate-900 px-2 py-1.5 text-xs text-white disabled:opacity-50">
+        {saving ? 'Saving…' : 'Save'}
+      </button>
+      {editError && <p role="alert" className="w-full text-xs text-red-600">{editError}</p>}
+    </form>
+  )}
 </div>
 
 
   </div>
-);
+};
 
 const ApplicationHistory = ({ company }: { company: CompanyStats }) => (
 

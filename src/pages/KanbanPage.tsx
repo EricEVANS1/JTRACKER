@@ -407,6 +407,7 @@ const DraggableApplicationCard: React.FC<DraggableApplicationCardProps> = ({
       <div className="flex items-start justify-between gap-3">
         <CompanyLogo
           website={application.companies?.website}
+          applicationLink={application.application_link}
           size={32}
           fallback={
             <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">

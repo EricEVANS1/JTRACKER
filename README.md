@@ -155,6 +155,32 @@ npm run test:e2e    # Playwright browser tests
 
 The browser tests run the real app against an in-memory mock of the Supabase API (`e2e/support/mockSupabase.ts`), so they need no Supabase project or keys. Install Chromium once with `npx playwright install chromium`. GitHub Actions runs all of these on every push to `main` and on pull requests.
 
+### Company logos (optional Logo.dev integration)
+
+The Applications, Kanban and Companies views display an employer's logo when its
+website domain is known. Add a **Logo.dev publishable key** to your local
+`.env.local` or your Vercel project's environment variables:
+
+```dotenv
+VITE_LOGO_DEV_PUBLISHABLE_KEY=your_publishable_key
+```
+
+Only the **publishable** key belongs in a `VITE_` variable. Never add a Logo.dev
+secret API key to frontend environment variables or commit it to GitHub.
+Without this optional key, JTracker uses employer-published icons instead.
+The app shows its usual fallback tile if no domain or valid logo is available.
+
+Company domains can be supplied in the **Company Website** field when adding an
+application or edited on the **Companies** page. Direct employer job URLs can
+also supply the domain automatically. LinkedIn and shared applicant-tracking
+domains are deliberately ignored to avoid displaying the wrong company's logo.
+
+JTracker requests `fallback=404` so Logo.dev's generated monogram does not
+replace JTracker's own fallback tile. When the publishable key is configured,
+the app displays the Logo.dev attribution link required for commercial use on
+the Community plan. Check the latest [Logo.dev terms](https://www.logo.dev/pricing)
+before changing plans or branding rules.
+
 ---
 
 # Database Highlights

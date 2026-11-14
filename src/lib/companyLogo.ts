@@ -1,10 +1,5 @@
-// Company logos for application cards, from the company's own website.
-//
-// JTracker has no logo service, so the only reliable identity is the website
-// saved on the company. A logo is looked up only when that website is the
-// company's own domain: job boards, applicant-tracking systems, social
-// networks and site builders host many companies, so their icon would be the
-// platform's, not the employer's. Anything else falls back to a neutral tile.
+// Company logos are resolved by the employer's own domain, never its ambiguous
+// company name. Shared job-board and ATS hosts must not be mistaken for employers.
 
 // Hosts shared by many companies (matched with their subdomains).
 const SHARED_HOSTS = [
@@ -44,12 +39,23 @@ export const companyLogoDomain = (website: string | null | undefined): string | 
   if (!/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(host) || host.endsWith('.local')) return null;
   if (isSharedHost(host)) return null;
 
-  return host;
+  // Careers subdomains usually belong to the employer's main site. Ask the
+  // provider for that brand rather than a potentially unrecognised subdomain.
+  const employerDomain = host.replace(/^(?:jobs|careers|apply|recruitment)\./, '');
+  return isSharedHost(employerDomain) ? null : employerDomain;
 };
 
-// Icons the site itself publishes, best first. The touch icon is usually
-// 180px; favicon.ico is the last resort.
-export const companyLogoSources = (domain: string) => [
+// Use Logo.dev when a browser-safe *publishable* key is configured. Asking for
+// fallback=404 avoids displaying Logo.dev's generated monogram instead of the
+// distinctive JTracker fallback tile. Without a key, still try the site's icons.
+export const companyLogoSources = (domain: string, publishableKey = '', size = 128) => [
+  ...(publishableKey.trim() ? [
+    `https://img.logo.dev/${domain}?${new URLSearchParams({
+      token: publishableKey.trim(),
+      size: String(size),
+      fallback: '404',
+    }).toString()}`,
+  ] : []),
   `https://${domain}/apple-touch-icon.png`,
   `https://${domain}/favicon.ico`,
 ];
