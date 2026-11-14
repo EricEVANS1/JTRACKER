@@ -32,7 +32,7 @@ type ReachedStage,
 } from '../lib/applicationLifecycle';
 import { celebrateOffer, isNewOffer } from '../lib/offerCelebration';
 import { CompanyLogo } from '../components/CompanyLogo';
-import { companyLogoDomainFromJobLink } from '../lib/companyLogo';
+import { companyLogoDomain, companyLogoDomainFromJobLink } from '../lib/companyLogo';
 import { offerStatusForDecision } from '../lib/offers';
 
 type ApplicationStatus =
@@ -821,6 +821,28 @@ return newCompany.id;
 
 };
 
+// Enrich a newly recorded company without making the Quick Add form wait.
+// The Edge Function uses a server-side secret and only returns unambiguous exact matches.
+const resolveCompanyWebsite = async (companyId: string, name: string) => {
+  try {
+    const { data, error: lookupError } = await supabase.functions.invoke('resolve-company-logo', {
+      body: { companyName: name },
+    });
+    if (lookupError || typeof data?.domain !== 'string') return;
+    const domain = companyLogoDomain(data.domain);
+    if (!domain) return;
+    const { data: company } = await supabase.from('companies')
+      .select('website').eq('id', companyId).eq('user_id', user!.id).maybeSingle();
+    if (!company || company.website) return;
+    const { error: updateError } = await supabase.from('companies')
+      .update({ website: `https://${domain}` })
+      .eq('id', companyId).eq('user_id', user!.id).is('website', null);
+    if (!updateError) await fetchApplications();
+  } catch {
+    // Logo enrichment is optional: never block recording an application.
+  }
+};
+
 const handleCreateApplication = async (e: React.FormEvent) => {
 e.preventDefault();
 
@@ -878,6 +900,10 @@ try {
     }
   }
 
+  // Resolve the company logo asynchronously if no trusted domain was supplied.
+  if (companyId && companyName.trim()) {
+    void resolveCompanyWebsite(companyId, companyName.trim());
+  }
   resetForm();
   setShowForm(false);
   await fetchApplications();
