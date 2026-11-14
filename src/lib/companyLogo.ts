@@ -13,7 +13,7 @@ const SHARED_HOSTS = [
   'successfactors.com', 'personio.de', 'personio.com', 'breezy.hr', 'jazzhr.com', 'pinpointhq.com',
   'erecruiter.pl', 'elevatus.io',
   // Social networks, search and site builders
-  'google.com', 'facebook.com', 'instagram.com', 'twitter.com', 'x.com', 'youtube.com', 'tiktok.com',
+  'facebook.com', 'instagram.com', 'twitter.com', 'x.com', 'youtube.com', 'tiktok.com',
   'github.com', 'gitlab.com', 'medium.com', 'notion.site', 'wixsite.com', 'squarespace.com', 'wordpress.com',
   'blogspot.com', 'sites.google.com', 'linktr.ee', 'goo.gl', 'bit.ly',
 ];
@@ -43,6 +43,21 @@ export const companyLogoDomain = (website: string | null | undefined): string | 
   // provider for that brand rather than a potentially unrecognised subdomain.
   const employerDomain = host.replace(/^(?:jobs|careers|apply|recruitment)\./, '');
   return isSharedHost(employerDomain) ? null : employerDomain;
+};
+
+// Only infer an employer from a job link when it is not a generic Google
+// search, redirect, or hosted document. An explicitly saved company website
+// may still legitimately be google.com.
+export const companyLogoDomainFromJobLink = (link: string | null | undefined): string | null => {
+  const domain = companyLogoDomain(link);
+  if (!domain) return null;
+  if (domain !== 'google.com') return domain;
+  try {
+    const url = new URL(link!);
+    return /^\\/(?:about\\/careers|careers|jobs)(?:\\/|$)/i.test(url.pathname) ? domain : null;
+  } catch {
+    return null;
+  }
 };
 
 // Use Logo.dev when a browser-safe *publishable* key is configured. Asking for
