@@ -1,3 +1,4 @@
+import { recordApplicationCreated } from '../lib/webAnalytics';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -860,6 +861,7 @@ try {
   }
 
   if (insertedApplication?.id) {
+    recordApplicationCreated();
     await supabase.from('application_events').insert({
       user_id: user.id,
       application_id: insertedApplication.id,

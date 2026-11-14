@@ -1,3 +1,4 @@
+import { AnalyticsConsent } from './components/AnalyticsConsent';
 import React from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
@@ -36,6 +37,7 @@ import { OfferDetailPage, OffersPage } from './pages/OffersPage';
 const App: React.FC = () => {
   return (
     <BrowserRouter>
+      <AnalyticsConsent />
       <AuthProvider>
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
