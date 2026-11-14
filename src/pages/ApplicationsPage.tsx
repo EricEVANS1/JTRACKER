@@ -1061,10 +1061,6 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
             placeholder="Paste job link"
           />
         </Field>
-      </div>
-
-
-
           <Field label="Location">
             <input
               value={location}
@@ -1123,6 +1119,7 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
               placeholder="Extra notes..."
             />
           </Field>
+        </div>
         </div>
       </details>
 
