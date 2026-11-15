@@ -7,3 +7,32 @@ body {
   font-family: Inter, sans-serif;
   background-color: #f8fafc;
 }
+
+/* JTracker dark theme: overrides legacy light-only utility classes across pages.
+   Scope to html.dark so public/auth pages remain unaffected until themed separately. */
+html.dark { color-scheme: dark; background: #0b1120; }
+html.dark body { background: #0b1120; color: #e2e8f0; }
+html.dark .bg-white, html.dark .bg-white\\/95 { background-color: #151e30 !important; }
+html.dark .bg-slate-50, html.dark .bg-gray-50 { background-color: #0b1120 !important; }
+html.dark .bg-slate-100, html.dark .bg-gray-100 { background-color: #202c40 !important; }
+html.dark .bg-slate-200, html.dark .bg-gray-200 { background-color: #334155 !important; }
+html.dark .border-slate-100, html.dark .border-slate-200, html.dark .border-slate-300,
+html.dark .border-gray-100, html.dark .border-gray-200, html.dark .border-gray-300 { border-color: #334155 !important; }
+html.dark .text-slate-900, html.dark .text-slate-800, html.dark .text-slate-700,
+html.dark .text-gray-900, html.dark .text-gray-800, html.dark .text-gray-700 { color: #e2e8f0 !important; }
+html.dark .text-slate-600, html.dark .text-slate-500, html.dark .text-gray-600,
+html.dark .text-gray-500 { color: #a7b5ca !important; }
+html.dark .text-slate-400, html.dark .text-gray-400 { color: #94a3b8 !important; }
+html.dark input:not([type='checkbox']):not([type='radio']), html.dark textarea, html.dark select {
+  background-color: #111b2d; color: #e2e8f0; border-color: #3b4b63;
+}
+html.dark input::placeholder, html.dark textarea::placeholder { color: #94a3b8; }
+html.dark input:focus-visible, html.dark textarea:focus-visible, html.dark select:focus-visible,
+html.dark button:focus-visible, html.dark a:focus-visible { outline-color: #60a5fa; }
+html.dark .hover\\:bg-slate-100:hover, html.dark .hover\\:bg-gray-100:hover { background-color: #2c3b52 !important; }
+html.dark .hover\\:bg-slate-50:hover, html.dark .hover\\:bg-gray-50:hover { background-color: #1d2b40 !important; }
+/* Keep high-contrast solid action buttons and selected navigation legible. */
+html.dark .bg-slate-900 { background-color: #334b70 !important; }
+html.dark .bg-slate-900.text-white, html.dark .bg-slate-900 .text-white { color: #fff !important; }
+html.dark .bg-white.text-slate-900 { color: #e2e8f0 !important; }
+html.dark .shadow-sm, html.dark .shadow-md, html.dark .shadow-lg { --tw-shadow-color: #02061766; }
