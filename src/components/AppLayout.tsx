@@ -12,6 +12,8 @@ import {
   FileText,
   LayoutDashboard,
   Menu,
+  Moon,
+  Sun,
   Search,
   Settings,
   Share2,
@@ -28,6 +30,20 @@ import { supabase } from '../lib/supabase';
 export const AppLayout: React.FC<{ onInstall?: () => void }> = ({ onInstall }) => {
   const { user, signOut } = useAuth();
   const location = useLocation();
+
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = window.localStorage.getItem('jtracker-theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+    } catch { /* Storage can be unavailable in private contexts. */ }
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.style.colorScheme = theme;
+    try { window.localStorage.setItem('jtracker-theme', theme); } catch { /* Optional persistence. */ }
+  }, [theme]);
 
   const [sharedCount, setSharedCount] = useState(0);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -245,6 +261,16 @@ export const AppLayout: React.FC<{ onInstall?: () => void }> = ({ onInstall }) =
       </nav>
 
       <div className="border-t border-slate-200 pt-4 mt-4">
+        <button
+          type="button"
+          onClick={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-pressed={theme === 'dark'}
+          className="mb-3 flex w-full items-center gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+        >
+          {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        </button>
         <p className="text-xs text-slate-500 truncate mb-3 break-all">
           {user?.email}
         </p>
