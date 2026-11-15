@@ -480,7 +480,7 @@ export const CVManagerPage: React.FC = () => {
 
   return (
     <div className="w-full max-w-full overflow-hidden space-y-8">
-      <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white p-6 sm:p-8 shadow-sm">
+      <section className="keep-dark rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white p-6 sm:p-8 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/10 px-3 py-1 text-xs text-indigo-100 mb-4">

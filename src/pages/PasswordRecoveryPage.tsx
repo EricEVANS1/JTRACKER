@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { supabase } from '../lib/supabase';
+import { JTrackerLogo } from '../components/icons/JTrackerIcons';
 
 const inputClass = 'mt-1 w-full rounded-xl border border-slate-300 px-4 py-3';
 
@@ -70,7 +71,10 @@ export function PasswordRecoveryPage({ mode }: { mode: 'request' | 'reset' }) {
   return (
     <main className="grid min-h-screen place-items-center bg-slate-50 p-5 text-slate-900">
       <section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <p className="mb-4 text-lg font-bold">JTracker</p>
+        <p className="mb-4 flex items-center gap-2 text-lg font-bold">
+          <JTrackerLogo size={28} />
+          JTracker
+        </p>
         <h1 className="mb-4 text-2xl font-bold">{requesting ? 'Reset your password' : 'Set a new password'}</h1>
         {error && <p role="alert" className="mb-4 text-sm text-red-700">{error}</p>}
         {message && <p role="status" className="mb-4 text-sm text-slate-700">{message}</p>}

@@ -1,29 +1,67 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import {
-  Archive,
-  BarChart3,
-  Briefcase,
-  Building2,
-  CalendarDays,
-  Clock3,
-  Columns3,
-  Download,
-  FileText,
-  LayoutDashboard,
-  Menu,
-  Search,
-  Settings,
-  Share2,
-  Trophy,
-  Users,
-  X,
-} from 'lucide-react';
+import { Download, Menu, X } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
 import { ErrorBoundary } from './ErrorBoundary';
 import { OfferCelebration } from './OfferCelebration';
 import { supabase } from '../lib/supabase';
+import { useTheme, type ThemePreference } from '../lib/theme';
+import {
+  AnalyticsIcon,
+  ApplicationsIcon,
+  ArchiveIcon,
+  BoardIcon,
+  CompaniesIcon,
+  CvTrackingIcon,
+  DashboardIcon,
+  FollowUpsIcon,
+  InterviewsIcon,
+  JTrackerLogo,
+  MoonIcon,
+  OffersIcon,
+  RecruitersIcon,
+  ResumeIcon,
+  SearchIcon,
+  SettingsIcon,
+  ShareIcon,
+  SunIcon,
+  SystemThemeIcon,
+  type JTrackerIcon,
+} from './icons/JTrackerIcons';
+
+const THEME_OPTIONS: { value: ThemePreference; label: string; icon: JTrackerIcon }[] = [
+  { value: 'light', label: 'Light', icon: SunIcon },
+  { value: 'dark', label: 'Dark', icon: MoonIcon },
+  { value: 'system', label: 'System', icon: SystemThemeIcon },
+];
+
+// Light / Dark / follow the system, kept on this device.
+const ThemeSwitch: React.FC = () => {
+  const { preference, setPreference } = useTheme();
+  return (
+    <div role="radiogroup" aria-label="Theme" className="mb-3 grid grid-cols-3 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-[#1E2740]">
+      {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
+        <button
+          key={value}
+          type="button"
+          role="radio"
+          aria-checked={preference === value}
+          onClick={() => setPreference(value)}
+          title={value === 'system' ? 'Match your device' : `${label} theme`}
+          className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
+            preference === value
+              ? 'bg-white text-slate-900 shadow-sm dark:bg-[#273357] dark:text-[#F9FAFF]'
+              : 'text-slate-600 hover:text-slate-900 dark:hover:text-[#F9FAFF]'
+          }`}
+        >
+          <Icon size={14} />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+};
 
 export const AppLayout: React.FC<{ onInstall?: () => void }> = ({ onInstall }) => {
   const { user, signOut } = useAuth();
@@ -72,92 +110,92 @@ export const AppLayout: React.FC<{ onInstall?: () => void }> = ({ onInstall }) =
       {
         label: 'Dashboard',
         path: '/dashboard',
-        icon: LayoutDashboard,
+        icon: DashboardIcon,
         enabled: true,
       },
       {
         label: 'Job Automation',
         path: '/job-automation',
-        icon: Search,
+        icon: SearchIcon,
         enabled: true,
       },
       {
         label: 'Applications',
         path: '/applications',
-        icon: Briefcase,
+        icon: ApplicationsIcon,
         enabled: true,
       },
       {
         label: 'Follow-Ups',
         path: '/follow-ups',
-        icon: Clock3,
+        icon: FollowUpsIcon,
         enabled: true,
       },
       {
         label: 'Interviews',
         path: '/interviews',
-        icon: CalendarDays,
+        icon: InterviewsIcon,
         enabled: true,
       },
       {
         label: 'Offers',
         path: '/offers',
-        icon: Trophy,
+        icon: OffersIcon,
         enabled: true,
       },
       {
         label: 'Archived',
         path: '/archived-applications',
-        icon: Archive,
+        icon: ArchiveIcon,
         enabled: true,
       },
       {
         label: 'Companies',
         path: '/companies',
-        icon: Building2,
+        icon: CompaniesIcon,
         enabled: true,
       },
       {
         label: 'Analytics',
         path: '/analytics',
-        icon: BarChart3,
+        icon: AnalyticsIcon,
         enabled: true,
       },
       {
         label: 'CV Manager',
         path: '/cv-manager',
-        icon: FileText,
+        icon: CvTrackingIcon,
         enabled: true,
       },
       {
         label: 'Resume Builder',
         path: '/resume-builder',
-        icon: FileText,
+        icon: ResumeIcon,
         enabled: true,
       },
       {
         label: 'Shared Opportunities',
         path: '/shared',
-        icon: Share2,
+        icon: ShareIcon,
         enabled: true,
         badge: sharedCount > 0 ? String(sharedCount) : undefined,
       },
       {
         label: 'Recruiters',
         path: '/recruiters',
-        icon: Users,
+        icon: RecruitersIcon,
         enabled: true,
       },
       {
         label: 'Kanban',
         path: '/kanban',
-        icon: Columns3,
+        icon: BoardIcon,
         enabled: true,
       },
       {
         label: 'Settings',
         path: '/settings',
-        icon: Settings,
+        icon: SettingsIcon,
         enabled: true,
       },
     ],
@@ -166,10 +204,13 @@ export const AppLayout: React.FC<{ onInstall?: () => void }> = ({ onInstall }) =
 
   const SidebarContent = () => (
     <>
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold truncate">JTracker</h1>
-          <p className="text-sm text-slate-500 truncate">Track every opportunity</p>
+      <div className="mb-8 flex items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <JTrackerLogo size={40} className="shrink-0" />
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-bold tracking-tight">JTracker</h1>
+            <p className="truncate text-xs text-slate-500">Track every opportunity</p>
+          </div>
         </div>
 
         <button
@@ -193,7 +234,7 @@ export const AppLayout: React.FC<{ onInstall?: () => void }> = ({ onInstall }) =
                 className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 cursor-not-allowed opacity-60 overflow-hidden"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <Icon size={18} className="shrink-0" />
+                  <Icon size={18} className="shrink-0" dot="quiet" />
                   <span className="truncate">{item.label}</span>
                 </div>
 
@@ -214,15 +255,16 @@ export const AppLayout: React.FC<{ onInstall?: () => void }> = ({ onInstall }) =
               className={({ isActive }) =>
                 `flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm font-medium transition overflow-hidden ${
                   isActive
-                    ? 'bg-slate-900 text-white'
-                    : 'text-slate-600 hover:bg-slate-100'
+                    ? 'bg-slate-900 text-white dark:bg-[#273357] dark:text-[#F9FAFF]'
+                    : 'text-slate-600 hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-[#1E2740] dark:hover:text-[#F9FAFF]'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
                   <div className="flex items-center gap-3 min-w-0">
-                    <Icon size={18} className="shrink-0" />
+                    {/* The dot stays quiet until its item is active. */}
+                    <Icon size={18} className="shrink-0" dot={isActive ? 'accent' : 'quiet'} />
                     <span className="truncate">{item.label}</span>
                   </div>
 
@@ -245,6 +287,8 @@ export const AppLayout: React.FC<{ onInstall?: () => void }> = ({ onInstall }) =
       </nav>
 
       <div className="border-t border-slate-200 pt-4 mt-4">
+        <ThemeSwitch />
+
         <p className="text-xs text-slate-500 truncate mb-3 break-all">
           {user?.email}
         </p>
@@ -281,15 +325,15 @@ export const AppLayout: React.FC<{ onInstall?: () => void }> = ({ onInstall }) =
           <Menu size={22} />
         </button>
 
-        <div className="text-center min-w-0 px-2">
-          <h1 className="text-base font-bold truncate">JTracker</h1>
-          <p className="text-xs text-slate-500 truncate">Track opportunities</p>
+        <div className="flex min-w-0 items-center gap-2 px-2">
+          <JTrackerLogo size={28} className="shrink-0" />
+          <h1 className="truncate text-base font-bold tracking-tight">JTracker</h1>
         </div>
 
         <div className="w-9 shrink-0" />
       </header>
 
-      <aside className="hidden lg:fixed lg:left-0 lg:top-0 lg:flex lg:h-screen lg:w-64 bg-white border-r border-slate-200 p-5 flex-col overflow-hidden">
+      <aside className="hidden lg:fixed lg:left-0 lg:top-0 lg:flex lg:h-screen lg:w-64 bg-white border-r border-slate-200 p-5 flex-col overflow-hidden dark:bg-[#141C31]">
         <SidebarContent />
       </aside>
 
@@ -301,7 +345,7 @@ export const AppLayout: React.FC<{ onInstall?: () => void }> = ({ onInstall }) =
             aria-label="Close menu overlay"
           />
 
-          <aside className="absolute left-0 top-0 h-full w-[85%] max-w-xs bg-white border-r border-slate-200 p-5 flex flex-col shadow-xl overflow-hidden">
+          <aside className="absolute left-0 top-0 h-full w-[85%] max-w-xs bg-white border-r border-slate-200 p-5 flex flex-col shadow-xl overflow-hidden dark:bg-[#141C31]">
             <SidebarContent />
           </aside>
         </div>

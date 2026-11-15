@@ -828,7 +828,7 @@ Match score </p>
     </div>
   </section>
 
-  <section className="rounded-2xl bg-slate-900 text-white p-5 overflow-hidden">
+  <section className="keep-dark rounded-2xl bg-slate-900 text-white p-5 overflow-hidden">
     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
       <div>
         <h4 className="font-semibold flex items-center gap-2">
@@ -866,7 +866,7 @@ const progress = (score / 100) * circumference;
 return ( <div className="relative w-[180px] h-[118px]"> <svg width="180" height="118" viewBox="0 0 180 118"> <path
        d="M 18 96 A 72 72 0 0 1 162 96"
        fill="none"
-       stroke="#e2e8f0"
+       className="stroke-slate-200"
        strokeWidth="13"
        strokeLinecap="round"
      />

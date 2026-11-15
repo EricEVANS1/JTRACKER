@@ -1,11 +1,35 @@
+// Colours come from CSS variables (src/theme/colors.css) so one set of class
+// names serves both themes: the variables switch when <html> has .dark.
+const PALETTES = ['slate', 'gray', 'zinc', 'red', 'orange', 'amber', 'yellow', 'green', 'emerald', 'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple', 'rose'];
+const SHADES = ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900', '950'];
+const themedColors = Object.fromEntries(
+  PALETTES.map((palette) => [
+    palette,
+    Object.fromEntries(SHADES.map((shade) => [shade, `rgb(var(--jt-${palette}-${shade}) / <alpha-value>)`])),
+  ]),
+);
+
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {
+      colors: {
+        ...themedColors,
+        white: 'rgb(var(--jt-white) / <alpha-value>)',
+        // Brand colours from the icon system; the same in both themes.
+        brand: {
+          ink: '#10172D',
+          navy: '#141C31',
+          tile: '#202D64',
+          violet: '#7768F6',
+          mint: '#6AF0C2',
+        },
+      },
       // Dashboard loading states, and the offer-received celebration
       // (src/components/OfferCelebration.tsx).
       keyframes: {

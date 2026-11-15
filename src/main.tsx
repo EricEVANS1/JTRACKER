@@ -5,9 +5,11 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { StartupError } from './components/StartupError';
 import { getMissingConfig } from './lib/config';
 import { clearLegacyResumeImport } from './lib/resumeDraft';
+import { startThemeSync } from './lib/theme';
 import './index.css';
 
 clearLegacyResumeImport();
+startThemeSync();
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '';

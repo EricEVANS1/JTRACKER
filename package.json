@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "typecheck:e2e": "tsc -p e2e"
+    "typecheck:e2e": "tsc -p e2e",
+    "theme:colors": "node scripts/generate-theme-colors.mjs"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.12.0",

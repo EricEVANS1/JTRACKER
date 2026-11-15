@@ -14,7 +14,7 @@ export const OnboardingHint: React.FC<OnboardingHintProps> = ({
   onAction,
 }) => {
   return (
-    <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 mb-6 overflow-hidden">
+    <div className="keep-dark bg-slate-900 text-white rounded-2xl p-4 sm:p-5 mb-6 overflow-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-widest text-slate-400 mb-1">

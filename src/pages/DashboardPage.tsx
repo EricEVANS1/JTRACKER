@@ -15,11 +15,23 @@ Target,
 Timer,
 TrendingUp,
 Trophy,
-UserRound,
 X,
 XCircle,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import {
+  AnalyticsIcon,
+  ApplicationsIcon,
+  CvTrackingIcon,
+  EmailIcon,
+  FollowUpsIcon,
+  InterviewsIcon,
+  NotificationsIcon,
+  OffersIcon,
+  PendingIcon,
+  RecruitersIcon,
+  SuccessIcon,
+} from '../components/icons/JTrackerIcons';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -751,25 +763,25 @@ const metricCards = [
 {
 label: 'Applications',
 value: stats.total,
-icon: Briefcase,
+icon: ApplicationsIcon,
 helper: `${stats.active} active · ${stats.archived} archived`,
 },
 {
 label: 'Response Rate',
 value: `${stats.responseRate}%`,
-icon: TrendingUp,
+icon: AnalyticsIcon,
 helper: `${stats.responses} of ${stats.submitted} submitted applications received a response`,
 },
 {
 label: 'Interviews',
 value: stats.interviews,
-icon: CalendarCheck,
+icon: InterviewsIcon,
 helper: `${stats.interviewRate}% interview conversion from responses`,
 },
 {
 label: 'Offers',
 value: stats.offers,
-icon: Trophy,
+icon: OffersIcon,
 helper: `${stats.offerRate}% offer conversion from interviews`,
 },
 ];
@@ -829,19 +841,19 @@ return ( <div className="w-full max-w-full overflow-hidden"> <div className="max
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
           <OnboardingStep
-            icon={Briefcase}
+            icon={ApplicationsIcon}
             title="Add applications"
             description="Save roles, companies, statuses, links, notes, salary ranges, and source information."
           />
 
           <OnboardingStep
-            icon={FileText}
+            icon={CvTrackingIcon}
             title="Upload CV versions"
             description="Track which CV version you used so you can learn what works best."
           />
 
           <OnboardingStep
-            icon={CalendarCheck}
+            icon={FollowUpsIcon}
             title="Manage follow-ups"
             description="Set follow-up dates and keep opportunities from going cold."
           />
@@ -955,7 +967,7 @@ return (
       unreadNotifications={todayStats.unreadNotifications}
     />
 
-    <div className="bg-slate-900 text-white rounded-2xl px-4 py-4 sm:px-5 shadow-sm mb-5 overflow-hidden">
+    <div className="keep-dark bg-slate-900 text-white rounded-2xl px-4 py-4 sm:px-5 shadow-sm mb-5 overflow-hidden">
       <div className="flex items-start gap-3">
         <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
           <Target size={18} />
@@ -1032,21 +1044,21 @@ return (
       <MiniCard
         label="CV Versions"
         value={cvVersions.length}
-        icon={FileText}
+        icon={CvTrackingIcon}
         helper="Stored CVs for tracking"
         href="/cv-manager"
       />
       <MiniCard
         label="Recruiters"
         value={recruiters.length}
-        icon={UserRound}
+        icon={RecruitersIcon}
         helper="Saved recruiter contacts"
         href="/recruiters"
       />
       <MiniCard
         label="Recruiter Interactions"
         value={recruiterInteractions.length}
-        icon={CheckCircle2}
+        icon={SuccessIcon}
         helper="Logged communication history"
         href="/recruiters"
       />
@@ -1094,34 +1106,34 @@ unreadNotifications: number;
       <TodayPill
         label="Overdue follow-ups"
         value={overdueFollowUps}
-        icon={Clock}
+        icon={FollowUpsIcon}
         href="/follow-ups?filter=overdue"
         tone="danger"
       />
       <TodayPill
         label="Due today"
         value={dueTodayFollowUps}
-        icon={CalendarCheck}
+        icon={InterviewsIcon}
         href="/follow-ups?filter=today"
         tone="warning"
       />
       <TodayPill
         label="Upcoming follow-ups"
         value={upcomingFollowUps}
-        icon={Timer}
+        icon={PendingIcon}
         href="/follow-ups?filter=upcoming"
       />
       <TodayPill
         label="Awaiting final response"
         value={awaitingFinalResponse}
-        icon={MailCheck}
+        icon={EmailIcon}
         href="/applications?view=awaiting_final_response"
         tone="warning"
       />
       <TodayPill
         label="Unread notifications"
         value={unreadNotifications}
-        icon={Bell}
+        icon={NotificationsIcon}
         href="/notifications?filter=unread"
         tone="info"
       />
@@ -1336,7 +1348,7 @@ const body = (
       <p className={`text-sm font-medium break-words ${isEmpty ? 'text-slate-400' : 'text-slate-700'}`}>
         {label}
       </p>
-      <p className={`text-lg font-semibold leading-none tabular-nums ${isEmpty ? 'text-slate-300' : 'text-slate-900'}`}>
+      <p className={`text-lg font-semibold leading-none tabular-nums ${isEmpty ? 'text-slate-300 dark:text-slate-400' : 'text-slate-900'}`}>
         {count}
       </p>
     </div>

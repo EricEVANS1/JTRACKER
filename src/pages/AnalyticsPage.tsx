@@ -26,6 +26,7 @@ YAxis,
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../lib/theme';
 import {
 getAppliedDate,
 getDaysBetween,
@@ -103,15 +104,34 @@ if (Array.isArray(value)) return value[0] ?? null;
 return value ?? null;
 };
 
-const chartColors = [
-'#0f172a',
-'#334155',
-'#64748b',
-'#94a3b8',
-'#cbd5e1',
-'#475569',
-'#1e293b',
-];
+// Chart colours per theme: slate shades on light, the navy scale's light
+// shades on dark, so series stay distinct and readable in both.
+const CHART_THEMES = {
+  light: {
+    series: ['#0f172a', '#334155', '#64748b', '#94a3b8', '#cbd5e1', '#475569', '#1e293b'],
+    ink: '#0f172a',
+    mid: '#334155',
+    muted: '#64748b',
+    soft: '#94a3b8',
+    faint: '#cbd5e1',
+    axis: '#64748b',
+    tooltip: undefined as React.CSSProperties | undefined,
+    cursor: '#f1f5f9',
+  },
+  dark: {
+    series: ['#F9FAFF', '#C3CBDD', '#8F9AB8', '#6C7795', '#44507A', '#A8B2CA', '#D8DEEB'],
+    ink: '#F9FAFF',
+    mid: '#C3CBDD',
+    muted: '#8F9AB8',
+    soft: '#6C7795',
+    faint: '#44507A',
+    axis: '#A8B2CA',
+    tooltip: { backgroundColor: '#1E2740', border: '1px solid #313D63', borderRadius: 8, color: '#F9FAFF' } as React.CSSProperties,
+    cursor: '#273357',
+  },
+};
+
+const useChartTheme = () => CHART_THEMES[useTheme().resolved];
 
 const formatLabel = (value: string) =>
 value.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
@@ -233,6 +253,7 @@ description:
 
 export const AnalyticsPage: React.FC = () => {
 const { user } = useAuth();
+const chart = useChartTheme();
 
 const [applications, setApplications] = useState<ApplicationRecord[]>([]);
 const [loading, setLoading] = useState(true);
@@ -774,7 +795,7 @@ Analytics </h2>
       </div>
     </div>
 
-    <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-6 shadow-sm overflow-hidden">
+    <div className="keep-dark bg-slate-900 text-white rounded-2xl p-4 sm:p-6 shadow-sm overflow-hidden">
       <p className="text-xs uppercase tracking-widest text-slate-400 mb-3">
         Recommended next actions
       </p>
@@ -803,10 +824,10 @@ Analytics </h2>
       <div className="h-[280px] sm:h-72 w-full overflow-hidden">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={analytics.funnelData}>
-            <XAxis dataKey="stage" />
-            <YAxis allowDecimals={false} />
-            <Tooltip />
-            <Bar dataKey="count" fill="#0f172a" radius={[8, 8, 0, 0]} />
+            <XAxis dataKey="stage" tick={{ fill: chart.axis, fontSize: 12 }} stroke={chart.faint} />
+            <YAxis allowDecimals={false} tick={{ fill: chart.axis, fontSize: 12 }} stroke={chart.faint} />
+            <Tooltip contentStyle={chart.tooltip} itemStyle={chart.tooltip ? { color: chart.tooltip.color } : undefined} labelStyle={chart.tooltip ? { color: chart.tooltip.color } : undefined} cursor={{ fill: chart.cursor }} />
+            <Bar dataKey="count" fill={chart.ink} radius={[8, 8, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -838,13 +859,13 @@ Analytics </h2>
     >
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={analytics.weeklyTrendData}>
-          <XAxis dataKey="week" />
-          <YAxis allowDecimals={false} />
-          <Tooltip />
-          <Line type="monotone" dataKey="applications" stroke="#0f172a" strokeWidth={2} />
-          <Line type="monotone" dataKey="responses" stroke="#64748b" strokeWidth={2} />
-          <Line type="monotone" dataKey="interviews" stroke="#334155" strokeWidth={2} />
-          <Line type="monotone" dataKey="offers" stroke="#94a3b8" strokeWidth={2} />
+          <XAxis dataKey="week" tick={{ fill: chart.axis, fontSize: 12 }} stroke={chart.faint} />
+          <YAxis allowDecimals={false} tick={{ fill: chart.axis, fontSize: 12 }} stroke={chart.faint} />
+          <Tooltip contentStyle={chart.tooltip} itemStyle={chart.tooltip ? { color: chart.tooltip.color } : undefined} labelStyle={chart.tooltip ? { color: chart.tooltip.color } : undefined} cursor={{ fill: chart.cursor }} />
+          <Line type="monotone" dataKey="applications" stroke={chart.ink} strokeWidth={2} />
+          <Line type="monotone" dataKey="responses" stroke={chart.muted} strokeWidth={2} />
+          <Line type="monotone" dataKey="interviews" stroke={chart.mid} strokeWidth={2} />
+          <Line type="monotone" dataKey="offers" stroke={chart.soft} strokeWidth={2} />
         </LineChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -865,10 +886,10 @@ Analytics </h2>
             paddingAngle={3}
           >
             {analytics.statusChartData.map((_, index) => (
-              <Cell key={`cell-${index}`} fill={chartColors[index % chartColors.length]} />
+              <Cell key={`cell-${index}`} fill={chart.series[index % chart.series.length]} />
             ))}
           </Pie>
-          <Tooltip />
+          <Tooltip contentStyle={chart.tooltip} itemStyle={chart.tooltip ? { color: chart.tooltip.color } : undefined} labelStyle={chart.tooltip ? { color: chart.tooltip.color } : undefined} cursor={{ fill: chart.cursor }} />
         </PieChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -939,7 +960,7 @@ footer: string;
 icon: React.ElementType;
 }) => (
 
-  <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-6 shadow-sm mb-6 overflow-hidden">
+  <div className="keep-dark bg-slate-900 text-white rounded-2xl p-4 sm:p-6 shadow-sm mb-6 overflow-hidden">
     <div className="flex flex-col sm:flex-row sm:items-start gap-4">
       <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
         <Icon size={22} />
@@ -1040,7 +1061,9 @@ description: string;
 rows: PerformanceRow[];
 emptyTitle: string;
 emptyDescription: string;
-}) => (
+}) => {
+const chart = useChartTheme();
+return (
 
   <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm overflow-hidden">
     <h3 className="text-lg font-semibold mb-2 break-words">{title}</h3>
@@ -1057,13 +1080,13 @@ emptyDescription: string;
     <div className="h-[260px] sm:h-72 w-full overflow-hidden mb-5">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows.slice(0, 8)}>
-          <XAxis dataKey="name" />
-          <YAxis allowDecimals={false} />
-          <Tooltip />
-          <Bar dataKey="applications" fill="#cbd5e1" radius={[8, 8, 0, 0]} />
-          <Bar dataKey="responses" fill="#64748b" radius={[8, 8, 0, 0]} />
-          <Bar dataKey="interviews" fill="#0f172a" radius={[8, 8, 0, 0]} />
-          <Bar dataKey="offers" fill="#94a3b8" radius={[8, 8, 0, 0]} />
+          <XAxis dataKey="name" tick={{ fill: chart.axis, fontSize: 12 }} stroke={chart.faint} />
+          <YAxis allowDecimals={false} tick={{ fill: chart.axis, fontSize: 12 }} stroke={chart.faint} />
+          <Tooltip contentStyle={chart.tooltip} itemStyle={chart.tooltip ? { color: chart.tooltip.color } : undefined} labelStyle={chart.tooltip ? { color: chart.tooltip.color } : undefined} cursor={{ fill: chart.cursor }} />
+          <Bar dataKey="applications" fill={chart.faint} radius={[8, 8, 0, 0]} />
+          <Bar dataKey="responses" fill={chart.muted} radius={[8, 8, 0, 0]} />
+          <Bar dataKey="interviews" fill={chart.ink} radius={[8, 8, 0, 0]} />
+          <Bar dataKey="offers" fill={chart.soft} radius={[8, 8, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -1099,6 +1122,7 @@ emptyDescription: string;
 
   </div>
 );
+};
 
 const ChartCard = ({
 title,

@@ -325,7 +325,7 @@ return ( <div className="min-h-screen bg-slate-50 px-4 py-8 sm:py-12"> <div clas
         </div>
       </div>
 
-      <div className="bg-slate-900 text-white p-5 sm:p-6">
+      <div className="keep-dark bg-slate-900 text-white p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-start gap-4">
           <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
             <Lock size={19} />

@@ -3363,7 +3363,8 @@ const ResumePreview: React.FC<{
   </>;
 
   return (
-    <div style={{
+    // A document: stays white with dark text in the dark theme too.
+    <div className="theme-light" style={{
       background: 'white',
       padding: `${formatting.margins.top * 3}px ${formatting.margins.right * 3}px ${formatting.margins.bottom * 3}px ${formatting.margins.left * 3}px`,
       width: formatting.pageSize === 'a4' ? 420 : 440,

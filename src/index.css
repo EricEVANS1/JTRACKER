@@ -1,9 +1,44 @@
+@import './theme/colors.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: light;
+  /* The icon system's accent dot: violet on light, mint on dark. */
+  --jt-icon-dot: #7768f6;
+}
+
+:root.dark {
+  color-scheme: dark;
+  --jt-icon-dot: #6af0c2;
+}
+
+/* Documents (CV and résumé previews) stay light in the dark theme. */
+.theme-light {
+  color-scheme: light;
+  --jt-icon-dot: #7768f6;
+}
+
 body {
   margin: 0;
   font-family: Inter, sans-serif;
-  background-color: #f8fafc;
+  background-color: rgb(var(--jt-slate-50));
+  color: rgb(var(--jt-slate-900));
+}
+
+/* Dialog backdrops dim the page in both themes (the slate scale lightens in dark). */
+:root.dark dialog::backdrop {
+  background-color: rgb(3 7 18 / 0.65);
+}
+
+@layer base {
+  /* Form fields default to the surface colour instead of the browser's own
+     field colour (grey in dark mode). Classes on a field still win. */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea {
+    background-color: rgb(var(--jt-white));
+  }
 }

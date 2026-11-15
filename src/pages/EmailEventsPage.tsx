@@ -299,7 +299,7 @@ export const EmailEventsPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-6 mb-8 text-white">
+      <div className="keep-dark bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-6 mb-8 text-white">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4">
           <div className="flex items-center gap-3">
             <div className="bg-white/10 rounded-xl p-2.5">

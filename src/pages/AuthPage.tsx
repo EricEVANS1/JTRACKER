@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import {
   AlertCircle,
-  Briefcase,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -12,6 +11,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
+import { JTrackerLogo } from '../components/icons/JTrackerIcons';
 
 export const AuthPage: React.FC = () => {
   const { signIn, signUp, session, loading: sessionLoading } = useAuth();
@@ -88,12 +88,10 @@ export const AuthPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 grid lg:grid-cols-[1.1fr_0.9fr] overflow-x-hidden">
-      <section className="hidden lg:flex flex-col justify-between p-10 bg-slate-950 text-white overflow-hidden">
+      <section className="keep-dark hidden lg:flex flex-col justify-between p-10 bg-slate-950 text-white overflow-hidden">
         <div>
           <div className="inline-flex items-center gap-3 min-w-0">
-            <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
-              <Briefcase size={22} />
-            </div>
+            <JTrackerLogo size={44} tile="violet" className="shrink-0" />
 
             <div className="min-w-0">
               <h1 className="text-2xl font-bold break-words">JTracker</h1>
@@ -133,9 +131,7 @@ export const AuthPage: React.FC = () => {
       <section className="flex items-center justify-center p-4 sm:p-6 overflow-hidden">
         <div className="w-full max-w-md min-w-0">
           <div className="lg:hidden mb-8 text-center overflow-hidden">
-            <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center mx-auto mb-3">
-              <Briefcase size={22} />
-            </div>
+            <JTrackerLogo size={48} className="mx-auto mb-3" />
 
             <h1 className="text-2xl font-bold break-words">JTracker</h1>
             <p className="text-sm text-slate-500 break-words">

@@ -155,7 +155,7 @@ CV Intelligence workflow </p>
         </div>
       </div>
 
-      <div className="bg-slate-900 text-white rounded-3xl p-5 sm:p-8 shadow-sm overflow-hidden">
+      <div className="keep-dark bg-slate-900 text-white rounded-3xl p-5 sm:p-8 shadow-sm overflow-hidden">
         <h2 className="text-xl font-semibold">
           Coming next
         </h2>

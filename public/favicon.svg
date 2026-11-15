@@ -1,7 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <rect width="64" height="64" rx="14" fill="#0f172a"/>
-  <g stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="15" y="24" width="34" height="25" rx="4"/>
-    <path d="M25 49V21a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v28"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- JTracker logo, "The Tick": a j that is also a check mark; the dot is the offer.
+       Navy tile on light, violet tile when the browser is in dark mode. -->
+  <style>
+    .tile { fill: #202D64; }
+    @media (prefers-color-scheme: dark) { .tile { fill: #7768F6; } }
+  </style>
+  <rect class="tile" width="64" height="64" rx="18"/>
+  <path d="M17 32v5c0 6 4 10 10 10c5 0 8-3 10-8l6.5-16" fill="none" stroke="#F9FAFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="47.6" cy="13.2" r="4.6" fill="#6AF0C2"/>
 </svg>
