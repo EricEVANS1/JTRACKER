@@ -1013,9 +1013,9 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
     >
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
         <div>
-          <h3 className="text-lg font-semibold mb-1">Quick Add Application</h3>
+          <h3 className="text-lg font-semibold mb-1">Add Application</h3>
           <p className="text-sm text-slate-500">
-            Add the role fast. Attach the CV now so analytics stay accurate.
+            Start with the role title. Other details are optional and can be added later.
           </p>
         </div>
 
@@ -1257,9 +1257,9 @@ Track active applications, CV versions, lifecycle dates, interview outcomes, and
   {filteredApplications.length === 0 ? (
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-10 text-center">
       <Briefcase size={32} className="mx-auto text-slate-300 mb-3" />
-      <h3 className="text-lg font-semibold mb-1">No active applications found</h3>
+      <h3 className="text-lg font-semibold mb-1">No matching applications</h3>
       <p className="text-slate-500 text-sm">
-        Add an application or check the archive for rejected and closed records.
+        Try clearing your search or filters, or add a new application. Rejected and closed records may be in the archive.
       </p>
 
       <div className="mt-5">
