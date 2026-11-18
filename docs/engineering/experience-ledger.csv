@@ -1,0 +1,5 @@
+record_id,category,evidence_url,verification_status,points_awarded,notes
+JTR-ENG-0001,refactoring,https://github.com/EricEVANS1/JTRACKER/pull/3,code-change-verified,0,Individual contribution and tests pending review
+JTR-DBG-0001,debugging,https://github.com/EricEVANS1/JTRACKER/commit/07ba3fc539d37dfc4f488077ab01977b7233071e,fix-outcome-unverified,0,No XP until evidence and contribution review
+JTR-DBG-0002,testing,https://github.com/EricEVANS1/JTRACKER/commit/910f959a8a20ad81e96f7f0f1723f24b1124fb1a,ci-unverified,0,Reported flaky test correction
+JTR-DBG-0003,devops,https://github.com/EricEVANS1/JTRACKER/commit/2b21c1c991c524dc3f61369f21dd10353a50e367,ci-unverified,0,Reported verification not independently checked
