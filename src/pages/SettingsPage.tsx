@@ -364,9 +364,9 @@ if (!user) return;
 
 
 const confirmed = await confirm({
-      title: 'Dismiss all ignored emails?',
-      description: 'This removes all ignored emails from the recovery list.',
-      action: 'Dismiss all',
+      title: 'Delete all saved email events?',
+      description: 'This permanently removes your saved email events from JTracker. Ignored emails will stay in the recovery list.',
+      action: 'Delete all',
       destructive: true,
     });
 
